@@ -9,6 +9,19 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 FAKE_CLAUDE = ROOT / "tests" / "fake" / "claude"
 
 
+def sandbox_env(home, fakebin):
+    """The environment every sandboxed child gets; reads os.environ at call time."""
+    env = {"HOME": str(home), "PATH": "%s:/usr/bin:/bin" % fakebin}
+    if os.name == "nt":
+        # Windows: the sandbox PATH is fakebin plus the host PATH (bash needs
+        # its own directories), so isolation is weaker there, by necessity.
+        env["PATH"] = "%s;%s" % (fakebin, os.environ["PATH"])
+        for k in ("SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "TEMP", "TMP"):
+            if k in os.environ:
+                env[k] = os.environ[k]
+    return env
+
+
 class Sandbox(unittest.TestCase):
     """Fresh HOME (with a space in its name) and a fakebin dir in front of PATH."""
 
@@ -21,15 +34,7 @@ class Sandbox(unittest.TestCase):
         self.fakebin.mkdir()
         shutil.copy(str(FAKE_CLAUDE), str(self.fakebin / "claude"))
         (self.fakebin / "claude").chmod(0o755)
-        path = "%s:/usr/bin:/bin" % self.fakebin
-        self.env = {"HOME": str(self.home), "PATH": path}
-        if os.name == "nt":
-            # Windows: the sandbox PATH is fakebin plus the host PATH (bash needs
-            # its own directories), so isolation is weaker there, by necessity.
-            self.env["PATH"] = "%s;%s" % (self.fakebin, os.environ["PATH"])
-            for k in ("SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "TEMP", "TMP"):
-                if k in os.environ:
-                    self.env[k] = os.environ[k]
+        self.env = sandbox_env(self.home, self.fakebin)
 
     def run_cmd(self, *argv, env=None, input=None):
         full = dict(self.env)
@@ -56,10 +61,15 @@ class Sandbox(unittest.TestCase):
             return [bash] + argv[1:]
         for d in path.split(os.pathsep):
             hit = pathlib.Path(d) / argv[0]
-            if d and hit.is_file():
+            if not d:
+                continue
+            if hit.is_file():
+                if hit.suffix.lower() in (".exe", ".com"):
+                    return [str(hit)] + argv[1:]
                 return [bash, str(hit)] + argv[1:]
-            if d and hit.with_suffix(".exe").is_file():
-                return [str(hit.with_suffix(".exe"))] + argv[1:]
+            exe = pathlib.Path(d) / (argv[0] + ".exe")
+            if exe.is_file():
+                return [str(exe)] + argv[1:]
         return argv
 
     def fake(self, name, script):

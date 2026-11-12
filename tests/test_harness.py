@@ -3,7 +3,7 @@ import os
 import unittest
 from unittest import mock
 
-from helpers import ROOT, Sandbox
+from helpers import ROOT, Sandbox, sandbox_env
 
 
 class HarnessTest(Sandbox):
@@ -17,11 +17,15 @@ class HarnessTest(Sandbox):
             self.assertEqual(r.stdout, str(self.home))
 
     def test_outer_environment_does_not_leak(self):
-        outer = {"XDG_CONFIG_HOME": "/outer/xdg", "ACK_DATA_DIR": "/outer/data"}
+        outer = {"XDG_CONFIG_HOME": "/outer/xdg", "ACK_DATA_DIR": "/outer/data",
+                 "ANTHROPIC_MODEL": "outer-model"}
         with mock.patch.dict(os.environ, outer):
+            env = sandbox_env(self.home, self.fakebin)
+            self.env = env  # the child gets the dict built while os.environ was patched
             r = self.run_cmd("bash", "-c", "env")
-        self.assertNotIn("XDG_CONFIG_HOME", r.stdout)
-        self.assertNotIn("ACK_DATA_DIR", r.stdout)
+        for name in outer:
+            self.assertNotIn(name, env)
+            self.assertNotIn(name + "=", r.stdout)
 
     def test_fakebin_is_outside_home(self):
         self.assertNotIn(self.home, self.fakebin.parents)
