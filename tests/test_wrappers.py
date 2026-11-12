@@ -556,7 +556,9 @@ class WrappersTest(Sandbox):
         path = str(self.bindir) + os.pathsep + self.env["PATH"]
         r = self.run_cmd("cmd", "/c", "claude_with_minimax.cmd", "-p", "two words",
                          env={"PATH": path, "MINIMAX_API_KEY": "k"})
-        self.assertIn("ARGV:\n--dangerously-skip-permissions\n-p\ntwo words\n", r.stdout, r.stderr)
+        args = r.stdout.split("ARGV:\n")[1].splitlines()
+        self.assertEqual(args[:2], ["--dangerously-skip-permissions", "--mcp-config"], r.stderr)
+        self.assertEqual(args[3:5], ["-p", "two words"], r.stderr)
 
     @unittest.skipUnless(NT, "Windows only")
     def test_cmd_shim_names_an_absolute_bash(self):
