@@ -143,6 +143,33 @@ class ProviderTest(Sandbox):
         self.assertEqual(out["ANTHROPIC_BASE_URL"], "http://127.0.0.1:18765")
         self.assertEqual(out["ANTHROPIC_MODEL"], "gpt-5.6-sol")
 
+    def assert_ambient_names_are_ignored(self, name, old, keyvar):
+        # OLLAMA_BASE_URL and its like belong to other tools; the key would go there
+        plain = self.exports(name, {keyvar: "k"})
+        env = {keyvar: "k", old + "_BASE_URL": "http://localhost:11434",
+               old + "_MODEL": "llama3", old + "_OPUS_MODEL": "llama3"}
+        self.assertEqual(self.exports(name, env), plain)
+        moved = self.exports(name, {keyvar: "k", "ACK_" + old + "_MODEL": "mine"})
+        self.assertEqual(moved["ANTHROPIC_MODEL"], "mine")
+
+    def test_ambient_ollama_variables_do_not_reroute_ollama(self):
+        self.assert_ambient_names_are_ignored("ollama", "OLLAMA", "OLLAMA_CLOUD_API_KEY")
+
+    def test_ambient_moonshot_variables_do_not_reroute_kimi(self):
+        self.assert_ambient_names_are_ignored("kimi", "MOONSHOT", "MOONSHOT_API_KEY")
+
+    def test_ambient_fireworks_variables_do_not_reroute_fireworks(self):
+        self.assert_ambient_names_are_ignored("fireworks", "FIREWORKS", "FIREWORKS_API_KEY")
+
+    def test_ambient_minimax_variables_do_not_reroute_minimax(self):
+        self.assert_ambient_names_are_ignored("minimax", "MINIMAX", "MINIMAX_API_KEY")
+
+    def test_every_shipped_prefix_starts_with_ack(self):
+        for p in PROVIDER_DIR.glob("*.conf"):
+            keys = dict(l.split("=", 1) for l in p.read_text().splitlines() if l and not l.startswith("#"))
+            self.assertTrue(keys["PREFIX"].startswith("ACK_"), p.name)
+            self.assertIn("or via %s_<KEY>." % keys["PREFIX"], p.read_text().splitlines()[1], p.name)
+
     def test_a_starter_inside_another_starter_gets_only_its_own_settings(self):
         self.fake("claude", NESTED)
         nested = self.run_cmd("bash", CW, "--provider", "kimi", "outer", env=OUTER)

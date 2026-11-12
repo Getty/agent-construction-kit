@@ -110,7 +110,7 @@ class McpTest(Sandbox):
     def test_mcp_config_with_a_path_is_exit_2(self):
         for bad in ("../x.json", "sub/x.json", "..", "a/../b"):
             r = self.cw("--provider", "minimax", "--", "x",
-                        env={"MINIMAX_API_KEY": "k", "MINIMAX_MCP_CONFIG": bad})
+                        env={"MINIMAX_API_KEY": "k", "ACK_MINIMAX_MCP_CONFIG": bad})
             self.assertEqual(r.returncode, 2, bad)
             self.assertNotIn("ARGV:", r.stdout)
 
@@ -302,7 +302,9 @@ class LocalTest(Sandbox):
         self.assertFalse((self.providers / "foo_bar.conf").exists())
         # a shipped PREFIX (openai uses ACK_OPENAI)
         self.assertEqual(self.new("ack-openai").returncode, 2)
-        self.assertEqual(self.new("moonshot").returncode, 2)  # kimi uses MOONSHOT
+        r = self.new("ack-moonshot")  # kimi uses ACK_MOONSHOT
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("which provider 'kimi' already uses", r.stderr)
 
     def test_new_local_prefix_clash_checks_user_overlay_prefixes(self):
         self.write(CONF + "providers/custom.conf", "PREFIX=ZED\nDESCRIPTION=c\n")

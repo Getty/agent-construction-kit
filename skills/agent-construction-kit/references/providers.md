@@ -153,15 +153,16 @@ Layers, the later one wins:
 2. `$ACK_CONFIG_DIR/providers/<name>.conf` (default
    `~/.config/agent-construction-kit/providers/`), with only the keys that differ;
    `ack-wrappers set` writes here, and to drop an override you delete its line;
-3. the environment variable `<PREFIX>_<KEY>`, e.g. `MINIMAX_MODEL` or
-   `ACK_OPENAI_PROXY_PORT`.
+3. the environment variable `<PREFIX>_<KEY>`, e.g. `ACK_MINIMAX_MODEL` or
+   `ACK_OPENAI_PROXY_PORT`. The shipped prefixes start with `ACK_`, so variables of
+   other tools (`OLLAMA_BASE_URL`, `OPENAI_MODEL`) never reroute a starter.
 
 | Provider | PREFIX | KEY_VAR |
 |---|---|---|
-| `fireworks` | `FIREWORKS` | `FIREWORKS_API_KEY` |
-| `kimi` | `MOONSHOT` | `MOONSHOT_API_KEY` |
-| `minimax` | `MINIMAX` | `MINIMAX_API_KEY` |
-| `ollama` | `OLLAMA` | `OLLAMA_CLOUD_API_KEY` |
+| `fireworks` | `ACK_FIREWORKS` | `FIREWORKS_API_KEY` |
+| `kimi` | `ACK_MOONSHOT` | `MOONSHOT_API_KEY` |
+| `minimax` | `ACK_MINIMAX` | `MINIMAX_API_KEY` |
+| `ollama` | `ACK_OLLAMA` | `OLLAMA_CLOUD_API_KEY` |
 | `openai` | `ACK_OPENAI` | none (`KEY_REQUIRED=0`, ChatGPT sign-in through the proxy) |
 
 Control keys: `DESCRIPTION`, `PREFIX`, `KEY_VAR`, `KEY_FILE` (default
