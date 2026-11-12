@@ -192,11 +192,11 @@ class LocalTest(Sandbox):
         return self.home / ".config" / "agent-construction-kit" / "providers"
 
     def new(self, name="gemma", *extra):
-        args = ["new-local", name, "--url", "http://127.0.0.1:11434", "--model", "gemma4:26b"]
+        args = ["new-provider", name, "--url", "http://127.0.0.1:11434", "--model", "gemma4:26b"]
         return self.aw(*(args + list(extra)))
 
-    def test_new_local_then_install_and_run(self):
-        r = self.aw("new-local", "gemma", "--url", "http://127.0.0.1:11434",
+    def test_new_provider_then_install_and_run(self):
+        r = self.aw("new-provider", "gemma", "--url", "http://127.0.0.1:11434",
                     "--model", "gemma4:26b", "--context", "131072")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.aw("install", "gemma").returncode, 0)
@@ -214,7 +214,7 @@ class LocalTest(Sandbox):
         self.assertIn("ENABLE_TOOL_SEARCH=false", r.stdout)
         self.assertIn("CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1", r.stdout)
 
-    def test_new_local_writes_exactly_this_definition(self):
+    def test_new_provider_writes_exactly_this_definition(self):
         self.assertEqual(self.new("my-gemma", "--context", "4096", "--thinking", "512").returncode, 0)
         lines = (self.providers / "my-gemma.conf").read_text().splitlines()
         self.assertTrue(lines[0].startswith("# ") and lines[1].startswith("# "))
@@ -233,7 +233,52 @@ class LocalTest(Sandbox):
             "KEY_REQUIRED=0", "AUTH_TOKEN=local",
         ])
 
-    def test_new_local_changes_nothing_else(self):
+    def test_new_provider_for_a_hosted_service(self):
+        r = self.aw("new-provider", "acme", "--url", "https://api.acme.example/anthropic",
+                    "--model", "acme-large", "--small-model", "acme-small",
+                    "--key-var", "ACME_API_KEY", "--context", "200000",
+                    "--max-output", "32000", "--description", "Acme AI")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = (self.providers / "acme.conf").read_text().splitlines()
+        self.assertEqual(lines[0], "# Acme AI, served at https://api.acme.example/anthropic.")
+        keys = [l for l in lines if l and not l.startswith("#")]
+        self.assertEqual(keys, [
+            "DESCRIPTION=Acme AI",
+            "PREFIX=ACME",
+            "BASE_URL=https://api.acme.example/anthropic",
+            "MODEL=acme-large",
+            "OPUS_MODEL=${MODEL}", "SONNET_MODEL=${MODEL}", "HAIKU_MODEL=acme-small",
+            "SMALL_MODEL=${HAIKU_MODEL}", "CO_AUTHORED_BY=${MODEL}",
+            "UNKNOWN_MODEL_WINDOW=1", "DISABLE_NONESSENTIAL_TRAFFIC=1",
+            "DISABLE_EXPERIMENTAL_BETAS=1", "TOOL_SEARCH=false",
+            "MAX_THINKING_TOKENS=0",
+            "CONTEXT_WINDOW=200000", "MAX_CONTEXT_TOKENS=200000", "AUTOCOMPACT_PCT=70",
+            "MAX_OUTPUT_TOKENS=32000",
+            "KEY_VAR=ACME_API_KEY",
+        ])
+        r = self.cw("--provider", "acme", "--print-env", env={"ACME_API_KEY": "k-12345678"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("ANTHROPIC_DEFAULT_HAIKU_MODEL=acme-small", r.stdout)
+        self.assertIn("ANTHROPIC_SMALL_FAST_MODEL=acme-small", r.stdout)
+        self.assertIn("CLAUDE_CODE_MAX_OUTPUT_TOKENS=32000", r.stdout)
+        self.assertNotIn("k-12345678", r.stdout)
+
+    def test_new_provider_with_a_key_is_not_called_local(self):
+        self.assertEqual(self.new("kv", "--key-var", "MY_KEY").returncode, 0)
+        text = (self.providers / "kv.conf").read_text()
+        self.assertIn("DESCRIPTION=gemma4:26b at http://127.0.0.1:11434\n", text)
+        self.assertNotIn("Local model", text)
+
+    def test_new_provider_validates_the_new_options(self):
+        for extra in (["--max-output", "08"], ["--max-output", "x"],
+                      ["--small-model", "a #b"], ["--small-model", "${MODEL}"],
+                      ["--description", "#x"], ["--description", "a\nb"],
+                      ["--small-model", "  "]):
+            r = self.new("bad", *extra)
+            self.assertEqual(r.returncode, 2, extra)
+            self.assertFalse((self.providers / "bad.conf").exists(), extra)
+
+    def test_new_provider_changes_nothing_else(self):
         self.assertEqual(self.new().returncode, 0)
         found = sorted(str(p.relative_to(self.home)).replace("\\", "/")
                        for p in self.home.rglob("*"))
@@ -241,20 +286,20 @@ class LocalTest(Sandbox):
                                  ".config/agent-construction-kit/providers",
                                  ".config/agent-construction-kit/providers/gemma.conf"])
 
-    def test_new_local_output_names_the_file(self):
+    def test_new_provider_output_names_the_file(self):
         r = self.new()
         fields = r.stdout.strip().split("\t")
         self.assertEqual(fields[:3], ["conf", "created", "gemma"])
         self.assertTrue(fields[3].endswith("providers/gemma.conf"), fields)
 
-    def test_new_local_with_key_var(self):
+    def test_new_provider_with_key_var(self):
         self.assertEqual(self.new("kv", "--key-var", "MY_LOCAL_KEY").returncode, 0)
         text = (self.providers / "kv.conf").read_text()
         self.assertIn("KEY_VAR=MY_LOCAL_KEY\n", text)
         self.assertNotIn("KEY_REQUIRED", text)
         self.assertNotIn("AUTH_TOKEN", text)
 
-    def test_new_local_with_key_var_requires_key(self):
+    def test_new_provider_with_key_var_requires_key(self):
         self.new("kv", "--key-var", "MY_LOCAL_KEY")
         r = self.cw("--provider", "kv", "--", "x")
         self.assertEqual(r.returncode, 3)
@@ -262,7 +307,7 @@ class LocalTest(Sandbox):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("ANTHROPIC_AUTH_TOKEN=sekrit", r.stdout)
 
-    def test_new_local_thinking_zero_and_value(self):
+    def test_new_provider_thinking_zero_and_value(self):
         self.new("a")
         self.new("b", "--thinking", "0")
         self.new("c", "--thinking", "2048")
@@ -270,13 +315,13 @@ class LocalTest(Sandbox):
             r = self.cw("--provider", name, "--", "x")
             self.assertIn("MAX_THINKING_TOKENS=%s\n" % want, r.stdout, name)
 
-    def test_new_local_without_context_writes_no_context_keys(self):
+    def test_new_provider_without_context_writes_no_context_keys(self):
         self.new()
         text = (self.providers / "gemma.conf").read_text()
         for key in ("CONTEXT_WINDOW", "MAX_CONTEXT_TOKENS", "AUTOCOMPACT_PCT"):
             self.assertNotIn(key, text)
 
-    def test_new_local_appears_in_list(self):
+    def test_new_provider_appears_in_list(self):
         self.new()
         r = self.aw("list")
         rows = [l.split("\t") for l in r.stdout.splitlines()]
@@ -284,18 +329,18 @@ class LocalTest(Sandbox):
         self.assertEqual(row[1], "absent")
         self.assertIn("Local model gemma4:26b at http://127.0.0.1:11434", row[4])
 
-    def test_new_local_rejects_shipped_name(self):
+    def test_new_provider_rejects_shipped_name(self):
         r = self.new("minimax")
         self.assertEqual(r.returncode, 2)
         self.assertFalse((self.providers / "minimax.conf").exists())
 
-    def test_new_local_rejects_bad_name(self):
+    def test_new_provider_rejects_bad_name(self):
         for bad in ("Bad Name", "1x", "_x", "-x", "x.y", "danger", "UP"):
             r = self.new(bad)
             self.assertEqual(r.returncode, 2, bad)
         self.assertFalse(self.providers.exists())
 
-    def test_new_local_rejects_a_prefix_clash(self):
+    def test_new_provider_rejects_a_prefix_clash(self):
         self.assertEqual(self.new("foo-bar").returncode, 0)
         r = self.new("foo_bar")
         self.assertEqual(r.returncode, 2)
@@ -306,11 +351,11 @@ class LocalTest(Sandbox):
         self.assertEqual(r.returncode, 2)
         self.assertIn("which provider 'kimi' already uses", r.stderr)
 
-    def test_new_local_prefix_clash_checks_user_overlay_prefixes(self):
+    def test_new_provider_prefix_clash_checks_user_overlay_prefixes(self):
         self.write(CONF + "providers/custom.conf", "PREFIX=ZED\nDESCRIPTION=c\n")
         self.assertEqual(self.new("zed").returncode, 2)
 
-    def test_new_local_refuses_to_overwrite_without_replace(self):
+    def test_new_provider_refuses_to_overwrite_without_replace(self):
         self.assertEqual(self.new().returncode, 0)
         (self.providers / "gemma.conf").write_text("PREFIX=GEMMA\nMODEL=mine\n")
         r = self.new()
@@ -318,21 +363,21 @@ class LocalTest(Sandbox):
         self.assertEqual((self.providers / "gemma.conf").read_text(), "PREFIX=GEMMA\nMODEL=mine\n")
         self.assertEqual(list(self.providers.glob("*.bak-*")), [])
 
-    def test_new_local_own_definition_says_to_pass_replace(self):
+    def test_new_provider_own_definition_says_to_pass_replace(self):
         self.assertEqual(self.new().returncode, 0)
         r = self.new()
         self.assertEqual(r.returncode, 3)
         self.assertIn("a definition named gemma exists already; pass --replace to overwrite it", r.stderr)
         self.assertNotIn("was not created by agent-construction-kit", r.stderr)
 
-    def test_new_local_foreign_definition_keeps_the_foreign_wording(self):
+    def test_new_provider_foreign_definition_keeps_the_foreign_wording(self):
         self.write(CONF + "providers/gemma.conf", "PREFIX=GEMMA\nMODEL=mine\n")
         r = self.new()
         self.assertEqual(r.returncode, 3)
         self.assertIn("was not created by agent-construction-kit, so it was left alone.", r.stderr)
         self.assertNotIn("exists already", r.stderr)
 
-    def test_new_local_replace_backs_up(self):
+    def test_new_provider_replace_backs_up(self):
         self.write(CONF + "providers/gemma.conf", "PREFIX=GEMMA\nMODEL=mine\n")
         r = self.new("gemma", "--replace")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -342,12 +387,12 @@ class LocalTest(Sandbox):
         self.assertIn("MODEL=gemma4:26b\n", (self.providers / "gemma.conf").read_text())
         self.assertIn("backup\t", r.stdout)
 
-    def test_new_local_replace_of_itself_is_no_prefix_clash(self):
+    def test_new_provider_replace_of_itself_is_no_prefix_clash(self):
         self.assertEqual(self.new().returncode, 0)
         self.assertEqual(self.new("gemma", "--replace").returncode, 0)
 
-    def test_new_local_validates_the_values(self):
-        base = ["new-local", "v"]
+    def test_new_provider_validates_the_values(self):
+        base = ["new-provider", "v"]
         good = ["--url", "http://h:1", "--model", "m"]
         bads = [
             ["--url", "ftp://h", "--model", "m"],
@@ -370,20 +415,20 @@ class LocalTest(Sandbox):
             self.assertEqual(r.returncode, 2, args)
             self.assertFalse((self.providers / "v.conf").exists(), args)
 
-    def test_new_local_accepts_zero_and_hash_without_space(self):
-        r = self.aw("new-local", "v", "--url", "https://h.example:8443/x", "--model", "m#1",
+    def test_new_provider_accepts_zero_and_hash_without_space(self):
+        r = self.aw("new-provider", "v", "--url", "https://h.example:8443/x", "--model", "m#1",
                     "--context", "0", "--thinking", "0", "--key-var", "A1_B")
         self.assertEqual(r.returncode, 0, r.stderr)
 
-    def test_new_local_needs_url_and_model(self):
-        self.assertEqual(self.aw("new-local", "v", "--model", "m").returncode, 2)
-        self.assertEqual(self.aw("new-local", "v", "--url", "http://h").returncode, 2)
-        self.assertEqual(self.aw("new-local").returncode, 2)
-        self.assertEqual(self.aw("new-local", "v", "--url", "http://h", "--model", "m",
+    def test_new_provider_needs_url_and_model(self):
+        self.assertEqual(self.aw("new-provider", "v", "--model", "m").returncode, 2)
+        self.assertEqual(self.aw("new-provider", "v", "--url", "http://h").returncode, 2)
+        self.assertEqual(self.aw("new-provider").returncode, 2)
+        self.assertEqual(self.aw("new-provider", "v", "--url", "http://h", "--model", "m",
                                  "--nonsense", "1").returncode, 2)
 
-    def test_new_local_model_with_slash_and_colon_round_trips(self):
-        self.assertEqual(self.aw("new-local", "q", "--url", "http://127.0.0.1:8000",
+    def test_new_provider_model_with_slash_and_colon_round_trips(self):
+        self.assertEqual(self.aw("new-provider", "q", "--url", "http://127.0.0.1:8000",
                                  "--model", "org/qwen3.6:7b").returncode, 0)
         r = self.cw("--provider", "q", "--", "x")
         self.assertIn("ANTHROPIC_MODEL=org/qwen3.6:7b\n", r.stdout)
@@ -432,10 +477,10 @@ class LocalTest(Sandbox):
         self.fake("curl", "#!/usr/bin/env bash\nexit 7\n")
         self.assertEqual(self.aw("probe-local", "extra").returncode, 2)
 
-    def test_probe_output_feeds_new_local(self):
+    def test_probe_output_feeds_new_provider(self):
         self.fake("curl", FAKE_CURL)
         line = self.aw("probe-local").stdout.splitlines()[0].split("\t")
-        r = self.aw("new-local", "found", "--url", line[1], "--model", line[2])
+        r = self.aw("new-provider", "found", "--url", line[1], "--model", line[2])
         self.assertEqual(r.returncode, 0, r.stderr)
 
     # ---- probe-local: only real model ids ------------------------------
@@ -475,20 +520,20 @@ class LocalTest(Sandbox):
         r = self.aw("probe-local")
         self.assertEqual(len(r.stdout.splitlines()), 4)
 
-    # ---- new-local: reserved names ------------------------------------
+    # ---- new-provider: reserved names ------------------------------------
 
-    def test_new_local_refuses_reserved_prefixes(self):
+    def test_new_provider_refuses_reserved_prefixes(self):
         for bad in ("anthropic", "claude", "ack", "claude-x", "ack-foo", "anthropic_y"):
             self.assertEqual(self.new(bad).returncode, 2, bad)
         self.assertFalse(self.providers.exists())
         self.assertEqual(self.new("acknowledge").returncode, 0)
 
-    def test_new_local_refuses_a_model_starting_with_hash(self):
-        r = self.aw("new-local", "h", "--url", "http://h", "--model", "#x")
+    def test_new_provider_refuses_a_model_starting_with_hash(self):
+        r = self.aw("new-provider", "h", "--url", "http://h", "--model", "#x")
         self.assertEqual(r.returncode, 2)
         self.assertFalse((self.providers / "h.conf").exists())
 
-    def test_new_local_refuses_system_key_vars(self):
+    def test_new_provider_refuses_system_key_vars(self):
         for bad in ("PATH", "HOME", "SHELL", "USER", "ANTHROPIC_API_KEY", "CLAUDE_X", "ACK_Y"):
             r = self.new("kv", "--key-var", bad)
             self.assertEqual(r.returncode, 2, bad)

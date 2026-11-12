@@ -72,7 +72,9 @@ run an old copy): `install` one starter a `wrapper:` line shows, with its permis
 
 `ack-wrappers list` shows each provider and whether its starter exists (`danger`: below;
 `openai`: Step 3). Name them in plain words and ask which ones the user has an account
-with; if none, recommend skipping, since their normal `claude` keeps working. For each one:
+with, and whether they use another model service: the list is only what ships, and any
+service gets a starter by [references/other-services.md](references/other-services.md).
+If none, recommend skipping, since their normal `claude` keeps working. For each one:
 
 1. Ask how much it may do unasked. `ask`: asks before it changes files or runs commands
    (recommend this). `allow`: asks, but the user can switch the questions off during a
@@ -111,10 +113,8 @@ model a server on this machine offers (a local Ollama too; provider `ollama` is 
 - Per model: ask whether they want a starter, suggesting a short name (lower case, first
   a letter, not a name `list` shows), and for its context window unless the model's
   description gives it (no number: leave `--context` out, never guess). Permissions as
-  in Step 2. Run `ack-wrappers new-local <name> --url <url> --model <model> --context <N>`,
+  in Step 2. Run `ack-wrappers new-provider <name> --url <url> --model <model> --context <N>`,
   `ack-wrappers install <name> --permissions <mode>` and `ack-wrappers test <name>`.
-- Nothing found: ask whether a model server runs on another machine, then for its address
-  (like `http://192.168.1.20:11434`), the model name, and whether it needs a key (then
-  add `--key-var <NAME>_API_KEY` and use `key-edit`); go on the same way. Say the server
-  must speak the Anthropic Messages API; a failing test usually means it does not.
+- Nothing found: ask for a model server on another machine (address, model name) and go on
+  the same way; a key or a failing test: [references/other-services.md](references/other-services.md).
 - Say: local models are meant for work in the finished team, not for setting up.

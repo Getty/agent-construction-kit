@@ -62,8 +62,10 @@ needs a ChatGPT Plus or Pro subscription instead.
 Your keys stay in your environment or in a private key file that you fill in yourself,
 in your own editor. The kit never writes a key and never shows one.
 
-Any other service with an Anthropic-compatible API can be added as a provider of your
-own.
+These five are examples of one pattern, not the limit. Any service or model server
+with an Anthropic-compatible API gets a starter the same way: tell the agent which one
+you use (DeepSeek, Z.ai, Qwen, a gateway, LM Studio, llama.cpp, ...), and it reads that
+service's documentation and creates `claude_with_<name>` for it.
 
 ## The commands
 

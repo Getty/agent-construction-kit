@@ -150,7 +150,7 @@ class SkillTest(Sandbox):
             m = re.match(r"\s*ack-wrappers ([a-z][a-z-]*)(.*)", seg)
             if m:
                 lines[m.group(1)] = m.group(2)
-        self.assertIn("new-local", lines)
+        self.assertIn("new-provider", lines)
         for doc in docs():
             for span in code_spans(read(doc)):
                 for sub, rest in re.findall(r"\back-wrappers\s+([a-z][a-z-]*)([^`]*)", span):

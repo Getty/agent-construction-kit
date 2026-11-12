@@ -185,7 +185,7 @@ class WrappersTest(Sandbox):
         r = self.aw("install", "kimi", env=env)
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn("config directory", r.stderr)
-        r = self.aw("new-local", "mybox", "--url", "http://127.0.0.1:11434", "--model", "qwen", env=env)
+        r = self.aw("new-provider", "mybox", "--url", "http://127.0.0.1:11434", "--model", "qwen", env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.aw("set", "minimax", "MODEL=MyChoice", env=env).returncode, 0)
         conf = self.home / ".xdg" / "agent-construction-kit"
@@ -734,8 +734,8 @@ class WrappersTest(Sandbox):
         self.assertIn("export ANTHROPIC_BASE_URL=https://host.example/v1\n", r.stdout)
         self.assertNotIn("SECRET", r.stdout + r.stderr)
 
-    def test_new_local_keeps_url_credentials_out_of_the_description(self):
-        r = self.aw("new-local", "mybox", "--url", "http://me:SECRET@127.0.0.1:11434", "--model", "qwen")
+    def test_new_provider_keeps_url_credentials_out_of_the_description(self):
+        r = self.aw("new-provider", "mybox", "--url", "http://me:SECRET@127.0.0.1:11434", "--model", "qwen")
         self.assertEqual(r.returncode, 0, r.stderr)
         r = self.aw("list")
         self.assertIn("Local model qwen at http://127.0.0.1:11434", r.stdout)
@@ -747,7 +747,7 @@ class WrappersTest(Sandbox):
         self.write(CONF + "providers/openai.conf", "OPUS_MODEL=a\n", mode=0o664)
         self.assertEqual(self.aw("set", "openai", "OPUS_MODEL=b").returncode, 0)
         self.assertEqual(self.aw("set", "minimax", "MODEL=m").returncode, 0)
-        self.assertEqual(self.aw("new-local", "mybox", "--url", "http://127.0.0.1:1", "--model", "q").returncode, 0)
+        self.assertEqual(self.aw("new-provider", "mybox", "--url", "http://127.0.0.1:1", "--model", "q").returncode, 0)
         for n in ("openai", "minimax", "mybox"):
             p = self.home / CONF / ("providers/%s.conf" % n)
             self.assertEqual(stat.S_IMODE(p.stat().st_mode), 0o600, n)

@@ -9,7 +9,8 @@
 #   ack-wrappers set <provider> KEY=VALUE...
 #   ack-wrappers test <provider|danger> [--dir DIR]
 #   ack-wrappers probe-local
-#   ack-wrappers new-local <name> --url URL --model MODEL [--context N] [--key-var VAR] [--thinking N] [--replace]
+#   ack-wrappers new-provider <name> --url URL --model MODEL [--key-var VAR] [--context N] [--small-model MODEL] [--max-output N] [--thinking N] [--description TEXT] [--replace]
+#     a definition for any service or server with an Anthropic-compatible API; without --key-var it needs no key
 # Exit codes: 0 ok, 1 test found a problem or a file could not be written,
 # 2 usage error or unknown provider, 3 a foreign file sits at the target (nothing changed).
 # install prints a final "path" line when the target directory is not on PATH:
@@ -65,7 +66,7 @@ _help() {
 
 usage_err() {
   echo "ack-wrappers: $1" >&2
-  echo "ack-wrappers: usage: ack-wrappers list|install|uninstall|path-fix|dir|key-template|key-edit|set|test|probe-local|new-local (see the header of $0)." >&2
+  echo "ack-wrappers: usage: ack-wrappers list|install|uninstall|path-fix|dir|key-template|key-edit|set|test|probe-local|new-provider (see the header of $0)." >&2
   exit 2
 }
 _is_windows() { case "$OSTYPE" in msys*|cygwin*) return 0 ;; esac; return 1; }
@@ -116,7 +117,7 @@ _check_hash() {
 
 ALLOWED=""
 _parse() {
-  OPT_PERM="" OPT_DIR="" OPT_REPLACE=0 OPT_URL="" OPT_MODEL="" OPT_CONTEXT="" OPT_THINKING="" OPT_KEYVAR="" ARGS=()
+  OPT_PERM="" OPT_DIR="" OPT_REPLACE=0 OPT_URL="" OPT_MODEL="" OPT_CONTEXT="" OPT_THINKING="" OPT_KEYVAR="" OPT_SMALL="" OPT_MAXOUT="" OPT_DESC="" ARGS=()
   local opt val
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -137,6 +138,9 @@ _parse() {
           --context) OPT_CONTEXT="$val" ;;
           --thinking) OPT_THINKING="$val" ;;
           --key-var) OPT_KEYVAR="$val" ;;
+          --small-model) OPT_SMALL="$val" ;;
+          --max-output) OPT_MAXOUT="$val" ;;
+          --description) OPT_DESC="$val" ;;
           *) OPT_PERM="$val" ;;
         esac ;;
       *) ARGS+=("$1"); shift ;;
@@ -647,7 +651,7 @@ cmd_set() {
     esac
     if [ "$k" = AUTH_TOKEN ] && [ -n "$v" ] && ! ack_is_word "$v"; then
       echo "ack-wrappers: AUTH_TOKEN takes only a short word such as local or proxy (small letters only, at most 16), and keys never go into a definition." >&2
-      echo "ack-wrappers: put a key into the key file with 'ack-wrappers key-edit $name'; for a local model without one, run new-local again with --key-var and --replace." >&2
+      echo "ack-wrappers: put a key into the key file with 'ack-wrappers key-edit $name'; for a local model without one, run new-provider again with --key-var and --replace." >&2
       exit 2
     fi
     # a typo would be stored and silently ignored; a key the definition brings
@@ -871,19 +875,19 @@ EOT
   return 0
 }
 
-cmd_new_local() {
-  local name pfx f n other bak shown
-  ALLOWED="--url --model --context --thinking --key-var --replace"; _parse "$@"
+cmd_new_provider() {
+  local name pfx f n other bak shown desc
+  ALLOWED="--url --model --context --thinking --key-var --small-model --max-output --description --replace"; _parse "$@"
   _need_names 1; name="${ARGS[0]}"
-  [ "${#ARGS[@]}" = 1 ] || usage_err "new-local takes exactly one name."
+  [ "${#ARGS[@]}" = 1 ] || usage_err "new-provider takes exactly one name."
   case "$name" in
     [a-z]*) case "$name" in *[!a-z0-9_-]*) name="" ;; esac ;;
     *) name="" ;;
   esac
   [ -n "$name" ] || usage_err "'${ARGS[0]}' is not a valid provider name (start with a-z, then a-z, 0-9, - and _)."
   [ "$name" != danger ] || usage_err "'danger' is a reserved name; pick another."
-  [ -n "$OPT_URL" ] || usage_err "new-local needs --url (try 'ack-wrappers probe-local' to find one)."
-  [ -n "$OPT_MODEL" ] || usage_err "new-local needs --model (try 'ack-wrappers probe-local' to find one)."
+  [ -n "$OPT_URL" ] || usage_err "new-provider needs --url (try 'ack-wrappers probe-local' to find one)."
+  [ -n "$OPT_MODEL" ] || usage_err "new-provider needs --model (try 'ack-wrappers probe-local' to find one)."
   case "$OPT_URL" in http://*|https://*) ;; *) usage_err "--url must start with http:// or https://." ;; esac
   case "$OPT_URL" in *[[:space:]]*) usage_err "--url must not contain whitespace." ;; esac
   case "$OPT_MODEL" in *$'\n'*|*$'\r'*) usage_err "--model must be a single line." ;; esac
@@ -893,8 +897,19 @@ cmd_new_local() {
   _check_hash DESCRIPTION "Local model $OPT_MODEL at $OPT_URL"
   case "$OPT_MODEL" in '#'*) usage_err "--model must not start with '#', where the loader cuts the line." ;; esac
   case "$OPT_URL$OPT_MODEL" in *'${'*) usage_err "--url and --model must not contain a \${...} reference." ;; esac
-  for n in context thinking; do
-    case "$n" in context) other="$OPT_CONTEXT" ;; *) other="$OPT_THINKING" ;; esac
+  for n in small-model description; do
+    case "$n" in small-model) other="$OPT_SMALL" ;; *) other="$OPT_DESC" ;; esac
+    [ -n "$other" ] || continue
+    case "$other" in *$'\n'*|*$'\r'*) usage_err "--$n must be a single line." ;; esac
+    _ack_trim "$other"; other="$REPLY"
+    [ -n "$other" ] || usage_err "--$n must not be empty."
+    _check_hash "--$n" "$other"
+    case "$other" in '#'*) usage_err "--$n must not start with '#', where the loader cuts the line." ;; esac
+    case "$other" in *'${'*) usage_err "--$n must not contain a \${...} reference." ;; esac
+    case "$n" in small-model) OPT_SMALL="$other" ;; *) OPT_DESC="$other" ;; esac
+  done
+  for n in context thinking max-output; do
+    case "$n" in context) other="$OPT_CONTEXT" ;; thinking) other="$OPT_THINKING" ;; *) other="$OPT_MAXOUT" ;; esac
     case "$other" in
       '') ;;
       0) ;;
@@ -936,7 +951,7 @@ cmd_new_local() {
   if [ -e "$f" ] || [ -L "$f" ]; then
     if [ "$OPT_REPLACE" = 0 ]; then
       printf 'foreign%s%s\n' "$TAB" "$f"
-      if grep -Fq -- '# Written by "ack-wrappers new-local"' "$f" 2>/dev/null; then
+      if grep -Fq -- '# Written by "ack-wrappers new-provider"' "$f" 2>/dev/null; then
         echo "ack-wrappers: a definition named $name exists already; pass --replace to overwrite it" >&2
         exit 3
       fi
@@ -949,13 +964,18 @@ cmd_new_local() {
   TMP="$(mktemp -d)"
   ack_strip_url "$OPT_URL"; shown="$REPLY"   # list prints DESCRIPTION: no credentials there
   {
-    printf '# Local model served at %s.\n' "$shown"
-    printf '# Written by "ack-wrappers new-local"; edit freely, or change single values with "ack-wrappers set %s KEY=VALUE".\n' "$name"
-    printf 'DESCRIPTION=Local model %s at %s\n' "$OPT_MODEL" "$shown"
+    if [ -n "$OPT_DESC" ]; then desc="$OPT_DESC"
+    elif [ -n "$OPT_KEYVAR" ]; then desc="$OPT_MODEL at $shown"
+    else desc="Local model $OPT_MODEL at $shown"; fi
+    printf '# %s, served at %s.\n' "$desc" "$shown"
+    printf '# Written by "ack-wrappers new-provider"; edit freely, or change single values with "ack-wrappers set %s KEY=VALUE".\n' "$name"
+    printf 'DESCRIPTION=%s\n' "$desc"
     printf 'PREFIX=%s\n' "$pfx"
     printf 'BASE_URL=%s\n' "$OPT_URL"
     printf 'MODEL=%s\n' "$OPT_MODEL"
-    for n in OPUS SONNET HAIKU SMALL; do printf '%s_MODEL=${MODEL}\n' "$n"; done
+    printf 'OPUS_MODEL=${MODEL}\nSONNET_MODEL=${MODEL}\n'
+    if [ -n "$OPT_SMALL" ]; then printf 'HAIKU_MODEL=%s\nSMALL_MODEL=${HAIKU_MODEL}\n' "$OPT_SMALL"
+    else printf 'HAIKU_MODEL=${MODEL}\nSMALL_MODEL=${MODEL}\n'; fi
     printf 'CO_AUTHORED_BY=${MODEL}\n'
     printf 'UNKNOWN_MODEL_WINDOW=1\nDISABLE_NONESSENTIAL_TRAFFIC=1\nDISABLE_EXPERIMENTAL_BETAS=1\nTOOL_SEARCH=false\n'
     # 0 matters: without it claude expects a thinking block in every answer
@@ -963,6 +983,7 @@ cmd_new_local() {
     if [ -n "$OPT_CONTEXT" ]; then
       printf 'CONTEXT_WINDOW=%s\nMAX_CONTEXT_TOKENS=%s\nAUTOCOMPACT_PCT=70\n' "$OPT_CONTEXT" "$OPT_CONTEXT"
     fi
+    [ -z "$OPT_MAXOUT" ] || printf 'MAX_OUTPUT_TOKENS=%s\n' "$OPT_MAXOUT"
     if [ -n "$OPT_KEYVAR" ]; then printf 'KEY_VAR=%s\n' "$OPT_KEYVAR"
     else printf 'KEY_REQUIRED=0\nAUTH_TOKEN=local\n'; fi
   } > "$TMP/new"
@@ -991,7 +1012,7 @@ main() {
     set) cmd_set "$@" ;;
     test) cmd_test "$@" ;;
     probe-local) cmd_probe_local "$@" ;;
-    new-local) cmd_new_local "$@" ;;
+    new-provider) cmd_new_provider "$@" ;;
     -h|--help|help) _help; exit 0 ;;
     *) usage_err "unknown subcommand '$sub'." ;;
   esac

@@ -121,15 +121,18 @@ short word of small letters (like `local`), a key no definition knows (a typo), 
 broken `${KEY}` reference, an `MCP_CONFIG` file that does not exist). The file it writes is readable only by the user; a symlinked one is
 written through.
 
-`new-local` prints `conf<TAB>created<TAB><name><TAB><file>`. Exit 2: the name cannot be
+`new-provider` prints `conf<TAB>created<TAB><name><TAB><file>`. Exit 2: the name cannot be
 used (the message says why, e.g. it is a shipped provider's name); suggest another.
 Exit 3 with `foreign<TAB><file>`: a definition of that name exists already, from an
-earlier `new-local` ("exists already") or written by hand ("was not created by
+earlier `new-provider` ("exists already") or written by hand ("was not created by
 agent-construction-kit"); ask whether to replace it (`--replace`, the old one is kept as
 `.bak`) or to pick another name. Options:
-`--context N` sets the context window, `--thinking N` the thinking budget (default 0:
-without it Claude Code expects a thinking block in every answer), `--key-var VAR` makes
-the server need a key under that variable (then `key-edit` as usual).
+`--context N` sets the context window, `--max-output N` the longest answer,
+`--thinking N` the thinking budget (default 0: without it Claude Code expects a thinking
+block in every answer), `--small-model MODEL` a cheaper model for the Haiku and
+small-model slots, `--description TEXT` the text `list` shows, `--key-var VAR` makes the
+service need a key under that variable (then `key-edit` as usual; without it the
+definition is a local model that needs none).
 
 `probe-local` asks ports 11434, 1234, 8000 and 8080 on this machine and prints
 `local<TAB><url><TAB><model>` per model. No line: no server found. "curl is not
@@ -216,11 +219,9 @@ Keys that become environment variables (an unset key exports nothing):
 
 ## A provider of your own
 
-Any service with an Anthropic-compatible API works. The quick way:
-
-```bash
-ack-wrappers new-local acme --url https://api.acme.example/anthropic --model acme-large --key-var ACME_API_KEY --context 200000
-```
+Any service or server with an Anthropic-compatible API works, through
+`ack-wrappers new-provider`: what to find out about the service, known services and
+what to change when it misbehaves are in [other-services.md](other-services.md).
 
 For full control, write `$ACK_CONFIG_DIR/providers/acme.conf` yourself (a definition
 holds no key, so you may write it); a user file may stand alone:
