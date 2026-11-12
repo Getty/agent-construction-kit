@@ -67,7 +67,9 @@ error or unknown provider; 3 a foreign file is in the way, nothing changed.
   home directory, at or around the kit's config or state directory, or at a folder with
   other files. Nothing was written; relay the message, it names what to change.
 
-`path-fix` prints one line per shell startup file:
+`path-fix` adds the folder to the startup file of the login shell: `.zshrc` for zsh,
+`.bashrc` for bash (on macOS the first of `.bash_profile`, `.bash_login` and `.profile`
+that exists, else a new `.bash_profile`). It prints one line:
 
 - `path<TAB>ok<TAB><dir>`: already on PATH; nothing to do.
 - `path<TAB>fixed<TAB><file>`: a line was added there; a new terminal window finds the
@@ -77,6 +79,10 @@ error or unknown provider; 3 a foreign file is in the way, nothing changed.
 - `path<TAB>exists<TAB><file><TAB><line>`: that file has a kit line for another folder
   and was left alone. Show the user the line and ask whether you may change the folder
   in it to the new one; then edit only that line.
+- `path<TAB>manual<TAB><line>` for another login shell (stderr names it): nothing was
+  changed. Ask, then put that line into the shell's startup file; sh and ksh take it as
+  it is, others in their own syntax (fish: run `fish_add_path <dir>` instead). Later
+  installs still print `path<TAB>missing`; once it is done, treat that as `pending`.
 - `path<TAB>manual<TAB><dir>` (Windows), followed by the line
   `ack-wrappers: in PowerShell run: <command> -- then open a new terminal.` Ask, then run
   only the text between `run: ` and ` -- ` yourself, as

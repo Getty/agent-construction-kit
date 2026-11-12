@@ -79,7 +79,7 @@ with; if none, recommend skipping, since their normal `claude` keeps working. Fo
    session. `skip`: never asks; every action runs at once.
 2. `ack-wrappers install <provider> --permissions <mode>`. On `path<TAB>missing` (a new
    terminal would not find the starter): ask, then run `ack-wrappers path-fix`. On
-   `path<TAB>pending`, or on Windows `missing` once you ran path-fix's line: done, do not
+   `path<TAB>pending`, or `missing` once you did path-fix's `manual` step: done, do not
    ask again. On exit 3 (`foreign`): a file of that name exists that this kit did not
    create. Say so; never open or paste it (it may hold a key). Ask whether to replace it
    (a backup is kept as `.bak-<date>`); add `--replace` only after a clear yes.

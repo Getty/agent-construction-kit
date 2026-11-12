@@ -489,57 +489,67 @@ cmd_dir() {
   if _dir_on_path "$TARGET"; then printf 'dir\tok\t%s\n' "$TARGET"
   else printf 'dir\tmissing\t%s\n' "$TARGET"; fi
 }
-# _path_profile DIR -> PROFILE_FILES (newline separated) and PROFILE_LINE: the
-# shell profiles path-fix writes to and the marked line it puts there for DIR.
+# _path_profile DIR -> PROFILE_FILES, PROFILE_LINE and PROFILE_SHELL: the startup
+# file path-fix writes to (empty for a login shell other than bash or zsh), the
+# marked line it puts there for DIR, and the shell's name. A macOS terminal opens
+# a login shell, which reads only the first of .bash_profile, .bash_login and
+# .profile, so bash there gets the first that exists (.bash_profile when none).
 _path_profile() {
-  local dir="$1"
-  case "${SHELL##*/}" in zsh) PROFILE_FILES="$HOME/.zshrc" ;; *) PROFILE_FILES="$HOME/.bashrc" ;; esac
-  case "$OSTYPE" in darwin*) [ -f "$HOME/.bash_profile" ] && PROFILE_FILES="$PROFILE_FILES"$'\n'"$HOME/.bash_profile" ;; esac
+  local dir="$1" f
+  PROFILE_SHELL="${SHELL##*/}"; PROFILE_FILES=""
+  case "$PROFILE_SHELL" in
+    zsh) PROFILE_FILES="$HOME/.zshrc" ;;
+    bash|"")
+      PROFILE_SHELL=bash; PROFILE_FILES="$HOME/.bashrc"
+      case "$OSTYPE" in darwin*)
+        PROFILE_FILES="$HOME/.bash_profile"
+        for f in .bash_profile .bash_login .profile; do
+          [ -f "$HOME/$f" ] && { PROFILE_FILES="$HOME/$f"; break; }
+        done ;;
+      esac ;;
+  esac
   case "$dir" in "${HOME%/}"/*) _dq "${dir#"${HOME%/}"/}"; PROFILE_LINE="export PATH=\"\$HOME/$REPLY:\$PATH\" # agent-construction-kit" ;;
     *) _dq "$dir"; PROFILE_LINE="export PATH=\"$REPLY:\$PATH\" # agent-construction-kit" ;; esac
 }
-# _path_pending DIR: 0 when a profile already carries the marked line for DIR
-# (path-fix ran; new terminals have the directory on PATH). Never on Windows.
+# _path_pending DIR: 0 when the startup file already carries the marked line for
+# DIR (path-fix ran; new terminals have the directory on PATH). Never on Windows.
 _path_pending() {
-  local f
   _is_windows && return 1
   case "$HOME" in /*) ;; *) return 1 ;; esac
   _path_profile "$1"
-  while IFS= read -r f; do
-    [ -f "$f" ] && grep -Fxq -- "$PROFILE_LINE" "$f" && return 0
-  done <<EOT
-$PROFILE_FILES
-EOT
-  return 1
+  [ -n "$PROFILE_FILES" ] && [ -f "$PROFILE_FILES" ] && grep -Fxq -- "$PROFILE_LINE" "$PROFILE_FILES"
 }
 cmd_path_fix() {
-  local dir files f line shown have
+  local dir f line shown q="'" have
   ALLOWED="--dir"; _parse "$@"
   _target_dir; dir="$TARGET"
   if _dir_on_path "$dir"; then printf 'path\tok\t%s\n' "$dir"; return 0; fi
   if _is_windows; then
     shown="$(cygpath -w "$dir")"
     printf 'path\tmanual\t%s\n' "$shown"
+    shown="${shown//$q/$q$q}"
     echo "ack-wrappers: Windows keeps PATH in the user environment, which this script does not change."
     echo "ack-wrappers: in PowerShell run: [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path','User') + ';$shown', 'User') -- then open a new terminal."
     return 0
   fi
   case "$HOME" in /*) ;; *) usage_err "HOME is not set to an absolute path." ;; esac
-  _path_profile "$dir"; files="$PROFILE_FILES"; line="$PROFILE_LINE"
-  while IFS= read -r f; do
-    if [ -f "$f" ] && have="$(grep -F -- '# agent-construction-kit' "$f")" && [ -n "$have" ]; then
-      have="${have%%$'\n'*}"
-      if [ "$have" = "$line" ]; then printf 'path\tunchanged\t%s\n' "$f"
-      else printf 'path\texists\t%s\t%s\n' "$f" "$have"; fi
-      continue
-    fi
-    if [ -f "$f" ] && [ -n "$(tail -c1 "$f")" ]; then printf '\n' >> "$f"; fi
-    printf '%s\n' "$line" >> "$f" || { echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: add the line yourself: $line" >&2; exit 1; }
-    printf 'path\tfixed\t%s\n' "$f"
-  done <<EOT
-$files
-EOT
-  return 0
+  _path_profile "$dir"; f="$PROFILE_FILES"; line="$PROFILE_LINE"
+  if [ -z "$f" ]; then
+    printf 'path\tmanual\t%s\n' "$line"
+    echo "ack-wrappers: path-fix writes the startup files of bash and zsh only, and the login shell here is $PROFILE_SHELL." >&2
+    echo "ack-wrappers: add the line above to the startup file of $PROFILE_SHELL (in its own syntax if it has another), then open a new terminal." >&2
+    return 0
+  fi
+  if [ -f "$f" ] && have="$(grep -F -- '# agent-construction-kit' "$f")" && [ -n "$have" ]; then
+    have="${have%%$'\n'*}"
+    if [ "$have" = "$line" ]; then printf 'path\tunchanged\t%s\n' "$f"
+    else printf 'path\texists\t%s\t%s\n' "$f" "$have"; fi
+    return 0
+  fi
+  # one redirection for both writes, so a read-only file fails before any change
+  { [ -z "$(tail -c1 "$f")" ] || printf '\n'; printf '%s\n' "$line"; } 2>/dev/null >>"$f" \
+    || { echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: add the line yourself: $line" >&2; exit 1; }
+  printf 'path\tfixed\t%s\n' "$f"
 }
 
 # _key_template NAME -> KEYFILE (creates the file with mode 600 if missing)

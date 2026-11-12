@@ -1,4 +1,5 @@
 import os
+import shutil
 import stat
 import unittest
 
@@ -8,6 +9,7 @@ AW = str(ROOT / "bin" / "ack-wrappers")
 CW = str(ROOT / "share" / "claude-with")
 CONF = ".config/agent-construction-kit/"
 NT = os.name == "nt"
+LINUX = {"OSTYPE": "linux-gnu", "SHELL": "/bin/bash"}   # path-fix picks the file by both
 
 
 class WrappersTest(Sandbox):
@@ -409,20 +411,20 @@ class WrappersTest(Sandbox):
     @unittest.skipIf(NT, "Windows keeps PATH in the user environment")
     def test_path_fix_appends_once(self):
         for _ in range(2):
-            r = self.aw("path-fix")
+            r = self.aw("path-fix", env=LINUX)
             self.assertEqual(r.returncode, 0, r.stderr)
         rc = (self.home / ".bashrc").read_text()
         self.assertEqual(rc.count("# agent-construction-kit"), 1)
         self.assertIn('export PATH="$HOME/.local/bin:$PATH"', rc)
-        self.aw("path-fix", env={"SHELL": "/bin/zsh"})
+        self.aw("path-fix", env=dict(LINUX, SHELL="/bin/zsh"))
         self.assertEqual((self.home / ".zshrc").read_text().count("# agent-construction-kit"), 1)
 
     @unittest.skipIf(NT, "Windows keeps PATH in the user environment")
     def test_path_fix_with_another_dir_adds_no_second_line(self):
-        self.aw("path-fix")
+        self.aw("path-fix", env=LINUX)
         other = self.root / "other bin"
         other.mkdir()
-        r = self.aw("path-fix", "--dir", str(other))
+        r = self.aw("path-fix", "--dir", str(other), env=LINUX)
         self.assertEqual(r.returncode, 0, r.stderr)
         rc = (self.home / ".bashrc").read_text()
         self.assertEqual(rc.count("# agent-construction-kit"), 1)
@@ -444,20 +446,72 @@ class WrappersTest(Sandbox):
 
     @unittest.skipIf(NT, "Windows keeps PATH in the user environment")
     def test_install_after_path_fix_says_pending(self):
-        first = self.aw("install", "minimax").stdout.rstrip("\n").splitlines()[-1]
+        first = self.aw("install", "minimax", env=LINUX).stdout.rstrip("\n").splitlines()[-1]
         self.assertTrue(first.startswith("path\tmissing\t"), first)
-        self.assertIn("path\tfixed\t", self.aw("path-fix").stdout)
-        again = self.aw("install", "minimax").stdout.rstrip("\n").splitlines()[-1]
+        self.assertIn("path\tfixed\t", self.aw("path-fix", env=LINUX).stdout)
+        again = self.aw("install", "minimax", env=LINUX).stdout.rstrip("\n").splitlines()[-1]
         self.assertTrue(again.startswith("path\tpending\t"), again)
         self.assertIn(".local", again)
 
     @unittest.skipIf(NT, "Windows keeps PATH in the user environment")
     def test_pending_needs_the_line_for_exactly_that_directory(self):
-        self.aw("path-fix")
+        self.aw("path-fix", env=LINUX)
         other = self.root / "other bin"
         r = self.aw("install", "minimax", "--dir", str(other))
         last = r.stdout.rstrip("\n").splitlines()[-1]
         self.assertTrue(last.startswith("path\tmissing\t"), last)
+
+    @unittest.skipIf(NT, "Windows keeps PATH in the user environment")
+    def test_path_fix_on_macos_bash_writes_the_login_profile(self):
+        mac = {"OSTYPE": "darwin23", "SHELL": "/bin/bash"}
+        r = self.aw("path-fix", env=mac)
+        self.assertEqual(r.stdout, "path\tfixed\t%s\n" % (self.home / ".bash_profile"))
+        self.assertIn('export PATH="$HOME/.local/bin:$PATH"', (self.home / ".bash_profile").read_text())
+        self.assertFalse((self.home / ".bashrc").exists())
+        last = self.aw("install", "kimi", env=mac).stdout.rstrip("\n").splitlines()[-1]
+        self.assertTrue(last.startswith("path\tpending\t"), last)
+        # a login shell reads the first of these that exists; no new one hides .profile
+        (self.home / ".bash_profile").unlink()
+        self.write(".profile", "# mine\n")
+        r = self.aw("path-fix", env=dict(mac, SHELL=""))
+        self.assertEqual(r.stdout, "path\tfixed\t%s\n" % (self.home / ".profile"))
+        self.assertFalse((self.home / ".bash_profile").exists())
+
+    @unittest.skipIf(NT, "Windows keeps PATH in the user environment")
+    def test_path_fix_for_another_shell_only_shows_the_line(self):
+        for shell in ("/usr/bin/fish", "/bin/tcsh", "/bin/sh"):
+            r = self.aw("path-fix", env=dict(LINUX, SHELL=shell))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout, 'path\tmanual\texport PATH="$HOME/.local/bin:$PATH" # agent-construction-kit\n')
+            self.assertEqual(len(r.stderr.splitlines()), 2, r.stderr)
+            self.assertIn(shell.rsplit("/", 1)[1], r.stderr)
+            self.assertEqual(list(self.home.iterdir()), [], shell)
+            last = self.aw("install", "kimi", env=dict(LINUX, SHELL=shell)).stdout.rstrip("\n").splitlines()[-1]
+            self.assertTrue(last.startswith("path\tmissing\t"), last)
+            shutil.rmtree(str(self.home / ".local"))
+            shutil.rmtree(str(self.home / ".config"), True)
+
+    @unittest.skipIf(NT, "Windows keeps PATH in the user environment")
+    def test_path_fix_writes_through_a_symlinked_profile_and_ends_a_last_line(self):
+        real = self.root / "dots" / "bashrc"
+        real.parent.mkdir()
+        real.write_text("alias ll='ls -l'")          # no newline at the end
+        os.symlink(str(real), str(self.home / ".bashrc"))
+        r = self.aw("path-fix", env=LINUX)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.home / ".bashrc").is_symlink())
+        self.assertEqual(real.read_text(), "alias ll='ls -l'\n"
+                         'export PATH="$HOME/.local/bin:$PATH" # agent-construction-kit\n')
+
+    @unittest.skipIf(NT or os.geteuid() == 0, "needs POSIX permissions and a non-root user")
+    def test_path_fix_on_a_read_only_profile_says_what_to_add(self):
+        rc = self.write(".bashrc", "# mine\n", mode=0o444)
+        r = self.aw("path-fix", env=LINUX)
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(rc.read_text(), "# mine\n")
+        self.assertEqual(r.stderr.splitlines(), [
+            "ack-wrappers: cannot write %s." % rc,
+            'ack-wrappers: add the line yourself: export PATH="$HOME/.local/bin:$PATH" # agent-construction-kit'])
 
     def test_help_prints_the_whole_header(self):
         r = self.aw("--help")
