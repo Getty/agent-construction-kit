@@ -632,6 +632,15 @@ cmd_test() {
   while IFS= read -r l || [ -n "$l" ]; do
     _ack_trim "$l"; [ -n "$REPLY" ] && { line="$REPLY"; break; }
   done < "$out"
+  # A successful run shows the answer, not a notice Claude Code printed before it.
+  if [ "$rc" = 0 ]; then
+    while IFS= read -r l || [ -n "$l" ]; do
+      case "$l" in *[Oo][Kk]*) ;; *) continue ;; esac
+      if printf '%s\n' "$l" | grep -Eiq '(^|[^A-Za-z])ok([^A-Za-z]|$)'; then
+        _ack_trim "$l"; line="$REPLY"; break
+      fi
+    done < "$out"
+  fi
   # never echo a key, even if a server error quotes one back
   if [ "$name" != danger ]; then
     kv="$ACK_C_KEY_VAR"; s=""

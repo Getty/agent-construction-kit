@@ -66,7 +66,7 @@ class ProviderTest(Sandbox):
             "CLAUDE_CODE_SUBAGENT_MODEL": m,
             "CO_AUTHORED_BY": m,
             "API_TIMEOUT_MS": "3000000",
-            "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1048576",
+            "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000",
             "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70",
             "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "131072",
             "CLAUDE_CODE_EFFORT_LEVEL": "max",

@@ -546,6 +546,12 @@ class WrappersTest(Sandbox):
         self.assertEqual(r.returncode, 1)
         self.assertIn("test\tmissing\tthe proxy did not start", r.stdout)
 
+    def test_test_ok_shows_the_answer_not_a_notice_before_it(self):
+        self.fake_claude("echo 'NOTICE: a setting is too large'; echo 'OK from the model'")
+        self.aw("install", "kimi")
+        r = self.aw("test", "kimi", env={"MOONSHOT_API_KEY": "k"})
+        self.assertEqual(r.stdout, "test\tok\tOK from the model\n", r.stderr)
+
     def test_test_wants_ok_in_the_answer(self):
         self.fake_claude("echo 'Hello there'")
         self.aw("install", "minimax")
