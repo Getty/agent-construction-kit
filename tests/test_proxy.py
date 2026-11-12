@@ -401,8 +401,15 @@ class ProxyTest(Sandbox):
             self.assertEqual(r.returncode, 5, cmd)
             self.assertIn("claude-code-proxy is not installed", r.stderr)
         r = self.ap("status", env={"ACK_PROXY_BIN": "/nonexistent/claude-code-proxy"})
-        self.assertIn("binary\tmissing\t", r.stdout)
+        self.assertIn("binary\tmissing\tACK_PROXY_BIN is /nonexistent/claude-code-proxy,"
+                      " which is not an executable file\n", r.stdout)
         self.assertFalse(self.started())
+
+    def test_status_without_any_binary_says_where_it_looked(self):
+        (self.fakebin / "claude-code-proxy").unlink()
+        r = self.ap("status")
+        self.assertIn("binary\tmissing\tnot on PATH, in ~/.local/bin or in ~/bin\n", r.stdout)
+        self.assertIn("auth\tmissing\tneeds claude-code-proxy\n", r.stdout)
 
     def test_service_install_uses_the_binary_found_off_path(self):
         b = self.hide_on_path()

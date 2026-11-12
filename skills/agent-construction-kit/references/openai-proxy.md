@@ -62,6 +62,7 @@ shows on another device and tell you when it is done.
 | Line | Meaning |
 |---|---|
 | `binary<TAB>ok` / `missing` | claude-code-proxy is installed (its path, maybe "(not on PATH)", which is fine) / not found: step 2 |
+| `binary<TAB>missing<TAB>ACK_PROXY_BIN is ...` | that variable of the user's environment names no program, and the kit then looks nowhere else; ask the user to correct or remove it |
 | `auth<TAB>ok` / `missing` | signed in / not signed in: step 3 |
 | `service<TAB>ok` / `missing` | background service set up / not set up: step 6 |
 | `service<TAB>info` | "no user service manager here": fine, nothing to do. "port ..., but the provider uses ...": the service runs on an old port; run `ack-proxy service install` again |

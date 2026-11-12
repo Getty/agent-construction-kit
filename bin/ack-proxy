@@ -100,8 +100,11 @@ cmd_status() {
       ack_proxy_name "$bin"
       printf 'auth%smissing%srun: %s codex auth login\n' "$TAB" "$TAB" "$REPLY"
     fi
+  elif [ -n "${ACK_PROXY_BIN:-}" ]; then
+    printf 'binary%smissing%sACK_PROXY_BIN is %s, which is not an executable file\n' "$TAB" "$TAB" "$ACK_PROXY_BIN"
+    printf 'auth%smissing%sneeds claude-code-proxy\n' "$TAB" "$TAB"
   else
-    printf 'binary%smissing%snot on PATH\n' "$TAB" "$TAB"
+    printf 'binary%smissing%snot on PATH, in ~/.local/bin or in ~/bin\n' "$TAB" "$TAB"
     printf 'auth%smissing%sneeds claude-code-proxy\n' "$TAB" "$TAB"
   fi
   unit="$(ack_proxy_unit_file)"
