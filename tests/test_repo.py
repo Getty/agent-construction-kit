@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import unittest
 
@@ -242,6 +243,8 @@ class RepoTest(Sandbox):
         self.assertEqual(acc, [])
 
     def test_account_hosts_file_without_the_tool_is_ignored(self):
+        if shutil.which("gh", path=self.env["PATH"]):
+            self.skipTest("a real gh is on the sandbox PATH")
         self.write(".config/gh/hosts.yml", "github.com:\n    user: octo\n")
         r, acc = self.accounts()
         self.assertEqual(acc, [])
