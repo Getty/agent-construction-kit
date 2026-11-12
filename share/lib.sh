@@ -264,6 +264,7 @@ ack_has_user_service() {
 ack_proxy_unit_file() { printf '%s' "$HOME/.config/systemd/user/$ACK_PROXY_UNIT"; }
 
 # ack_proxy_reachable PORT: 0 when 127.0.0.1:PORT answers with any HTTP status.
+# --noproxy: a gateway's own 502 must not count as an answer.
 ack_proxy_reachable() {
   if [ -z "$(type -P curl 2>/dev/null)" ]; then
     if [ -z "${ACK_CURL_WARNED:-}" ]; then
@@ -273,14 +274,48 @@ ack_proxy_reachable() {
     fi
     return 1
   fi
-  curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/"
+  curl -s -o /dev/null --max-time 2 --noproxy '*' "http://127.0.0.1:$1/"
 }
 
-# _ack_proxy_wait PORT: up to 10 rounds of 0.5 s until the proxy answers.
+# ack_run_bounded SECS CMD [ARGS...]: run CMD for at most SECS seconds (no timeout
+# binary needed). Sets ACK_BOUNDED_OUT (stdout), ACK_BOUNDED_ERR (first stderr line);
+# returns the exit status, 124 on timeout.
+ack_run_bounded() {
+  local secs="$1" d pid i=0 max rc
+  shift
+  ACK_BOUNDED_OUT="" ACK_BOUNDED_ERR=""
+  d="$(mktemp -d)" || return 1
+  "$@" >"$d/out" 2>"$d/err" </dev/null &
+  pid=$!
+  max=$((secs * 10))
+  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$max" ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    rc=124
+  else
+    wait "$pid"; rc=$?
+  fi
+  ACK_BOUNDED_OUT="$(cat "$d/out" 2>/dev/null)"
+  IFS= read -r ACK_BOUNDED_ERR < "$d/err" 2>/dev/null
+  ACK_BOUNDED_ERR="${ACK_BOUNDED_ERR//$'\r'/}"
+  rm -rf "$d"
+  return "$rc"
+}
+
+# _ack_proxy_wait PORT [PID]: up to 10 rounds of 0.5 s until the proxy answers;
+# stops at once when PID (the process just started) is gone.
 _ack_proxy_wait() {
   local i=0
   while [ "$i" -lt 10 ]; do
     ack_proxy_reachable "$1" && return 0
+    if [ -n "$2" ] && ! kill -0 "$2" 2>/dev/null; then
+      ack_proxy_reachable "$1"
+      return
+    fi
     sleep 0.5
     i=$((i + 1))
   done
@@ -289,7 +324,7 @@ _ack_proxy_wait() {
 
 # ack_proxy_ensure PORT: make the proxy answer on PORT; 5 when that fails.
 ack_proxy_ensure() {
-  local port="$1" bin log
+  local port="$1" bin log sz pid
   if [ -z "$port" ]; then
     echo "ack: the provider has no PROXY_PORT, so the proxy cannot be started." >&2
     echo "ack: set PROXY_PORT=... in its definition." >&2
@@ -298,11 +333,13 @@ ack_proxy_ensure() {
   ack_proxy_reachable "$port" && return 0
   ack_paths
   if ack_has_user_service && [ -f "$(ack_proxy_unit_file)" ]; then
-    systemctl --user start "$ACK_PROXY_UNIT" >/dev/null 2>&1
-    if _ack_proxy_wait "$port"; then return 0; fi
-    echo "ack: the proxy service was started but nothing answers on port $port." >&2
-    echo "ack: check it with: systemctl --user status $ACK_PROXY_UNIT" >&2
-    return 5
+    if systemctl --user start "$ACK_PROXY_UNIT" >/dev/null 2>&1; then
+      if _ack_proxy_wait "$port"; then return 0; fi
+      echo "ack: the proxy service was started but nothing answers on port $port." >&2
+      echo "ack: check it with: systemctl --user status $ACK_PROXY_UNIT" >&2
+      return 5
+    fi
+    echo "ack: systemctl --user could not start $ACK_PROXY_UNIT (no user service manager session?); starting the proxy directly." >&2
   fi
   bin="$(type -P claude-code-proxy 2>/dev/null)"
   if [ -z "$bin" ]; then
@@ -312,12 +349,17 @@ ack_proxy_ensure() {
   fi
   mkdir -p "$ACK_STATE_DIR" || return 5
   log="$ACK_STATE_DIR/proxy.log"
-  if [ -n "$(type -P setsid 2>/dev/null)" ]; then
-    setsid "$bin" serve --no-monitor --port "$port" >>"$log" 2>&1 </dev/null &
-  else
-    nohup "$bin" serve --no-monitor --port "$port" >>"$log" 2>&1 </dev/null &
+  if [ -f "$log" ]; then
+    sz="$(wc -c < "$log")"; sz="${sz//[[:space:]]/}"
+    if [ "${sz:-0}" -gt 1048576 ]; then : > "$log"; fi
   fi
-  if _ack_proxy_wait "$port"; then return 0; fi
+  nohup "$bin" serve --no-monitor --port "$port" >>"$log" 2>&1 </dev/null &
+  pid=$!
+  if _ack_proxy_wait "$port" "$pid"; then return 0; fi
+  if ! ack_run_bounded 20 "$bin" codex auth status; then
+    echo "ack: The proxy is not signed in. Run: claude-code-proxy codex auth login" >&2
+    return 5
+  fi
   echo "ack: the proxy was started but nothing answers on port $port." >&2
   echo "ack: read the log at $log." >&2
   return 5
