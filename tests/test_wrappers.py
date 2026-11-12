@@ -76,6 +76,45 @@ class WrappersTest(Sandbox):
         self.assertEqual(r.returncode, 2)
         self.assertFalse((self.root / "claude-with").exists())
 
+    def assert_home_untouched(self):
+        for name in (".ack-data", "claude-with", "lib.sh", "providers", "nx"):
+            self.assertFalse((self.home / name).exists(), name)
+
+    def test_data_dir_with_dotdot_cannot_reach_home(self):
+        for value in (str(self.home) + "/nx/..", str(self.home) + "/nx/../"):
+            r = self.aw("install", "minimax", env={"ACK_DATA_DIR": value})
+            self.assertEqual(r.returncode, 2, value)
+            self.assertIn("..", r.stderr)
+            self.assert_home_untouched()
+
+    def test_relative_data_dir_with_dotdot_is_refused(self):
+        r = self.run_cmd("bash", "-c", 'cd "$HOME" && exec bash "$0" install minimax', AW,
+                         env={"ACK_DATA_DIR": "nx/.."})
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assert_home_untouched()
+
+    def test_data_dir_through_a_symlink_to_home_is_refused(self):
+        if NT:
+            self.skipTest("symlinks need privileges on Windows")
+        link = self.root / "homelink"
+        os.symlink(str(self.home), str(link))
+        r = self.aw("install", "minimax", env={"ACK_DATA_DIR": str(link)})
+        self.assertEqual(r.returncode, 2)
+        self.assert_home_untouched()
+
+    def test_unreadable_data_dir_is_refused(self):
+        if NT or os.geteuid() == 0:
+            self.skipTest("needs POSIX permissions and a non-root user")
+        d = self.root / "locked"
+        d.mkdir()
+        d.chmod(0)
+        try:
+            r = self.aw("install", "minimax", env={"ACK_DATA_DIR": str(d)})
+        finally:
+            d.chmod(0o755)
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(list(d.iterdir()), [])
+
     def test_foreign_nonempty_data_dir_is_refused_and_untouched(self):
         d = self.root / "elsewhere"
         d.mkdir()
@@ -340,6 +379,26 @@ class WrappersTest(Sandbox):
         self.assertEqual(r.stdout.splitlines(), ["set\tOPUS_MODEL\tb", "set\tSONNET_MODEL\ts"])
         self.assertEqual([x.name for x in p.parent.iterdir()], ["openai.conf"])
 
+    def test_set_value_with_space_hash_is_refused_but_leading_hash_is_fine(self):
+        conf = self.home / CONF / "providers/openai.conf"
+        for v in ("a #b", "a\t#b"):
+            r = self.aw("set", "openai", "OPUS_MODEL=" + v)
+            self.assertEqual(r.returncode, 2, v)
+            self.assertFalse(conf.exists())
+        r = self.aw("set", "openai", "OPUS_MODEL=#x", "SONNET_MODEL=a#b")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(conf.read_text(), "OPUS_MODEL=#x\nSONNET_MODEL=a#b\n")
+
+    def test_set_leaves_no_file_when_a_later_key_or_the_reload_fails(self):
+        conf = self.home / CONF / "providers/openai.conf"
+        r = self.aw("set", "openai", "OPUS_MODEL=ok", "bad key=1")
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse(conf.exists())
+        r = self.aw("set", "openai", "OPUS_MODEL=ok", "SONNET_MODEL=${NOPE}")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(r.stdout, "")
+        self.assertEqual(list(conf.parent.iterdir()) if conf.parent.exists() else [], [])
+
     def test_set_rejects_multiline_values(self):
         r = self.aw("set", "openai", "OPUS_MODEL=a\nb")
         self.assertEqual(r.returncode, 2)
@@ -401,9 +460,20 @@ class WrappersTest(Sandbox):
 
     def test_test_rejects_a_bad_timeout(self):
         self.aw("install", "minimax")
-        for bad in ("abc", "0", "-3", "1.5"):
+        for bad in ("abc", "0", "-3", "1.5", "08", "09", "010"):
             r = self.aw("test", "minimax", env={"MINIMAX_API_KEY": "k", "ACK_TEST_TIMEOUT": bad})
             self.assertEqual(r.returncode, 2, bad)
+
+    def test_test_says_the_proxy_did_not_start(self):
+        self.write(CONF + "providers/px.conf",
+                   "PREFIX=PX\nDESCRIPTION=px\nKEY_REQUIRED=0\nAUTH_TOKEN=proxy\nPREFLIGHT=proxy\n"
+                   "PROXY_PORT=18999\nBASE_URL=http://127.0.0.1:${PROXY_PORT}\n")
+        self.fake("curl", "#!/usr/bin/env bash\nexit 7\n")
+        self.fake("claude-code-proxy", "#!/usr/bin/env bash\nexit 0\n")
+        self.assertEqual(self.aw("install", "px").returncode, 0)
+        r = self.aw("test", "px", env={"ACK_UNAME": "Darwin"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("test\tmissing\tthe proxy did not start", r.stdout)
 
     def test_test_wants_ok_in_the_answer(self):
         self.fake_claude("echo 'Hello there'")

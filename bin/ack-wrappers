@@ -170,8 +170,15 @@ _find_wrapper_dir() {
   if [ -z "$OPT_DIR" ] && _scan_path_for "claude_with_$1"; then TARGET="$REPLY"; return 0; fi
   _target_dir
 }
-_data_abs() { # -> DATA (absolute, bash form)
-  _posix "$ACK_DATA_DIR"; _abspath "$REPLY"; DATA="$REPLY"
+_data_abs() { # -> DATA (absolute, bash form); refuses ".." components
+  _posix "$ACK_DATA_DIR"
+  case "/$REPLY/" in
+    */../*)
+      echo "ack-wrappers: ACK_DATA_DIR ($ACK_DATA_DIR) contains a '..' component." >&2
+      echo "ack-wrappers: give an absolute path without '..', or unset ACK_DATA_DIR." >&2
+      exit 2 ;;
+  esac
+  _abspath "$REPLY"; DATA="$REPLY"
 }
 
 # _state FILE -> STATE absent|installed|foreign, STATE_PERM
@@ -240,18 +247,30 @@ _backup() { # PATH -> moves it to PATH.bak-YYYY-MM-DD[-N]
 
 # _check_data: the data dir must be ours (marker), new or empty; never /, $HOME or above it
 _check_data() {
-  local d h
-  d="$(cd "$DATA" 2>/dev/null && pwd -P)" || d="$DATA"
-  h="$(cd "$HOME" 2>/dev/null && pwd -P)" || h="$HOME"
-  if [ "$d" = / ] || [ "$d" = "$h" ] || [ "$DATA" = "${HOME%/}" ] || case "$h/" in "${d%/}/"*) true ;; *) false ;; esac; then
+  local p a r h
+  # resolve the deepest existing ancestor, then append what does not exist yet
+  p="${DATA%/}"; [ -n "$p" ] || p=/
+  while [ ! -d "$p" ] && [ "$p" != / ]; do p="${p%/*}"; [ -n "$p" ] || p=/; done
+  a="$(cd "$p" 2>/dev/null && pwd -P)" || a="$p"
+  if [ "$p" = "${DATA%/}" ] || [ "$DATA" = / ]; then r="$a"
+  else r="${a%/}/${DATA#"${p%/}"/}"; fi
+  h="$(cd "$HOME" 2>/dev/null && pwd -P)" || h="${HOME%/}"
+  if [ "$r" = / ] || [ "$r" = "$h" ] || case "$h/" in "${r%/}/"*) true ;; *) false ;; esac; then
     echo "ack-wrappers: $DATA is your home directory or contains it, so it cannot be the data directory." >&2
     echo "ack-wrappers: unset ACK_DATA_DIR or point it at an empty folder of its own." >&2
     exit 2
   fi
-  if [ -e "$DATA" ] && [ ! -f "$DATA/.ack-data" ] && [ -n "$(ls -A "$DATA" 2>/dev/null)" ]; then
-    echo "ack-wrappers: $DATA exists, is not empty and was not made by agent-construction-kit." >&2
-    echo "ack-wrappers: point ACK_DATA_DIR at an empty or new folder, or empty this one." >&2
-    exit 2
+  if [ -e "$DATA" ]; then
+    if [ ! -d "$DATA" ] || [ ! -r "$DATA" ] || [ ! -x "$DATA" ]; then
+      echo "ack-wrappers: $DATA is not a readable directory, so it cannot be the data directory." >&2
+      echo "ack-wrappers: point ACK_DATA_DIR at an empty or new folder, or fix its permissions." >&2
+      exit 2
+    fi
+    if [ ! -f "$DATA/.ack-data" ] && [ -n "$(ls -A "$DATA" 2>/dev/null)" ]; then
+      echo "ack-wrappers: $DATA exists, is not empty and was not made by agent-construction-kit." >&2
+      echo "ack-wrappers: point ACK_DATA_DIR at an empty or new folder, or empty this one." >&2
+      exit 2
+    fi
   fi
 }
 # copy share/ to the data dir; drop providers/*.conf that no longer ship
@@ -428,6 +447,10 @@ cmd_key_template() {
 }
 _open_editor() { # FILE -> 0 when an editor ran
   local f="$1"
+  # a terminal editor needs the real terminal
+  if [ -n "${EDITOR:-}" ] && [ -t 0 ]; then
+    ( set -f; set -- $EDITOR; type -P "$1" >/dev/null 2>&1 && "$@" "$f" ) && return 0
+  fi
   if _is_windows; then
     type -P notepad >/dev/null 2>&1 && notepad "$(cygpath -w "$f")" >/dev/null 2>&1 </dev/null
     return
@@ -435,10 +458,6 @@ _open_editor() { # FILE -> 0 when an editor ran
   case "$OSTYPE" in
     darwin*) type -P open >/dev/null 2>&1 && open -t "$f" >/dev/null 2>&1 </dev/null; return ;;
   esac
-  # a terminal editor needs the real terminal
-  if [ -n "${EDITOR:-}" ] && [ -t 0 ]; then
-    ( set -f; set -- $EDITOR; type -P "$1" >/dev/null 2>&1 && "$@" "$f" ) && return 0
-  fi
   type -P xdg-open >/dev/null 2>&1 && xdg-open "$f" >/dev/null 2>&1 </dev/null
 }
 cmd_key_edit() {
@@ -468,7 +487,7 @@ _conf_put() {
   mv "$tmp" "$f" || { rm -f "$tmp"; return 1; }
 }
 cmd_set() {
-  local name f prev kv k v keyvar i ks=() vs=()
+  local name f prev work kv k v keyvar i ks=() vs=()
   ALLOWED=""; _parse "$@"; _need_names 2; name="${ARGS[0]}"; _valid_name "$name"
   ack_provider_load "$name" "$SHARE" || exit 2
   keyvar="$ACK_C_KEY_VAR"
@@ -483,26 +502,31 @@ cmd_set() {
         echo "ack-wrappers: run 'ack-wrappers key-edit $name' and put the key into the key file." >&2
         exit 2 ;;
     esac
-    case "$v" in '#'*) usage_err "the value of $k starts with '#', which reads like a comment." ;; esac
+    case "$v" in *[[:space:]]'#'*) usage_err "the value of $k contains whitespace followed by '#', where the loader cuts the line." ;; esac
     ks+=("$k"); vs+=("$v")
   done
-  f="$ACK_CONFIG_DIR/providers/$name.conf"; prev="$f.prev.$$"
+  f="$ACK_CONFIG_DIR/providers/$name.conf"; work="$f.new.$$"; prev="$f.prev.$$"
   mkdir -p "${f%/*}" || { echo "ack-wrappers: cannot create ${f%/*}." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
-  if [ -f "$f" ]; then cp "$f" "$prev"; else prev=""; fi
+  if [ -f "$f" ]; then cp "$f" "$work" && cp "$f" "$prev" || { rm -f "$work" "$prev"; exit 1; }; else prev=""; fi
   i=0
   while [ "$i" -lt "${#ks[@]}" ]; do
-    _conf_put "$f" "${ks[$i]}" "${vs[$i]}" || {
-      [ -n "$prev" ] && mv "$prev" "$f"
+    _conf_put "$work" "${ks[$i]}" "${vs[$i]}" || {
+      rm -f "$work" "$prev"
       echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
-    printf 'set%s%s%s%s\n' "$TAB" "${ks[$i]}" "$TAB" "${vs[$i]}"
     i=$((i + 1))
   done
+  mv "$work" "$f" || { rm -f "$work" "$prev"; echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
   if ! ack_provider_load "$name" "$SHARE"; then
     if [ -n "$prev" ]; then mv "$prev" "$f"; else rm -f "$f"; fi
     echo "ack-wrappers: those values break the definition of '$name', so nothing was changed." >&2
     echo "ack-wrappers: check the \${KEY} references in the values." >&2
     exit 2
   fi
+  i=0
+  while [ "$i" -lt "${#ks[@]}" ]; do
+    printf 'set%s%s%s%s\n' "$TAB" "${ks[$i]}" "$TAB" "${vs[$i]}"
+    i=$((i + 1))
+  done
   [ -n "$prev" ] && rm -f "$prev"
   return 0
 }
@@ -517,7 +541,7 @@ cmd_test() {
   local wst name file out rc=0 t=0 limit pid line s kv reason="" ans
   ALLOWED="--dir"; _parse "$@"
   _need_names 1; name="${ARGS[0]}"; _valid_name "$name"
-  case "${ACK_TEST_TIMEOUT:-120}" in ''|0|*[!0-9]*) usage_err "ACK_TEST_TIMEOUT must be a positive whole number of seconds." ;; esac
+  case "${ACK_TEST_TIMEOUT:-120}" in ''|0*|*[!0-9]*) usage_err "ACK_TEST_TIMEOUT must be a positive whole number of seconds." ;; esac
   OPT_PERM=""; _select "$name"
   _find_wrapper_dir "$name"; file="$TARGET/claude_with_$name"
   _state "$file"
