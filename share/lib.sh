@@ -20,6 +20,29 @@ _ack_trim() {
 }
 ack_trim() { _ack_trim "$1"; printf '%s' "$REPLY"; }
 
+# ack_is_word VALUE: one short word of letters and -, like "local" or "proxy" (an
+# AUTH_TOKEN that is no secret); anything else may be a key and is never shown
+ack_is_word() {
+  case "$1" in [A-Za-z]*) ;; *) return 1 ;; esac
+  case "$1" in *[!A-Za-z-]*) return 1 ;; esac
+  [ "${#1}" -le 16 ]
+}
+
+# ack_strip_url URL -> REPLY: no credentials, no ?query, no #fragment. Everything
+# between :// and the LAST @ goes (a path with an @ is rarer than a secret, so
+# over-stripping is the safe side). scp-style git@host:path stays as it is.
+ack_strip_url() {
+  local u="$1" scheme rest
+  case "$u" in
+    *://*)
+      scheme="${u%%://*}"; rest="${u#*://}"
+      rest="${rest##*@}"
+      rest="${rest%%[?#]*}"
+      REPLY="$scheme://$rest" ;;
+    *) REPLY="${u%%[?#]*}" ;;
+  esac
+}
+
 # ack_conf KEY -> resolved value of the loaded provider, empty if unset
 ack_conf() {
   local n="ACK_C_$1"
@@ -208,6 +231,7 @@ ack_provider_load() {
   # defaults
   [ -n "$ACK_C_KEY_FILE_VAR" ] || ACK_C_KEY_FILE_VAR="$ACK_C_KEY_VAR"
   [ -n "$ACK_C_KEY_FILE" ] || ACK_C_KEY_FILE="$ACK_CONFIG_DIR/$name.env"
+  case "$ACK_C_KEY_FILE" in '~/'*) ACK_C_KEY_FILE="$HOME/${ACK_C_KEY_FILE#'~/'}" ;; esac
   [ -n "$ACK_C_KEY_REQUIRED" ] || ACK_C_KEY_REQUIRED=1
   for k in KEY_FILE_VAR KEY_FILE KEY_REQUIRED; do
     case " $ACK_KEYS " in *" $k "*) ;; *) ACK_KEYS="$ACK_KEYS $k" ;; esac

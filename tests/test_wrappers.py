@@ -555,6 +555,101 @@ class WrappersTest(Sandbox):
         self.assertEqual(r.returncode, 2, diag)
         self.assertFalse(conf.exists(), diag)
 
+    def test_set_refuses_an_auth_token_that_is_not_a_short_word(self):
+        conf = self.home / CONF / "providers/fireworks.conf"
+        for v in ("sk-REALKEY-9BBB", "abc123", "x" * 17, "-dash", "a b"):
+            r = self.aw("set", "fireworks", "AUTH_TOKEN=" + v, "KEY_REQUIRED=0")
+            self.assertEqual(r.returncode, 2, v)
+            self.assertEqual(r.stdout, "", v)
+            self.assertNotIn(v, r.stderr)
+            self.assertIn("key-edit fireworks", r.stderr)
+            self.assertIn("--key-var", r.stderr)
+            self.assertFalse(conf.exists(), v)
+        for v in ("local", "Proxy", "my-token", "x" * 16):
+            r = self.aw("set", "fireworks", "AUTH_TOKEN=" + v)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout, "set\tAUTH_TOKEN\t%s\n" % v)
+
+    def test_set_echoes_a_base_url_without_its_credentials(self):
+        url = "https://me:pw-SECRET-1@host.example/v1?token=SECRET-2#SECRET-3"
+        r = self.aw("set", "minimax", "BASE_URL=" + url)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "set\tBASE_URL\thttps://host.example/v1\n")
+        self.assertNotIn("SECRET", r.stderr)
+        self.assertIn("BASE_URL=" + url, (self.home / CONF / "providers/minimax.conf").read_text())
+        r = self.run_cmd("bash", CW, "--provider", "minimax", "--print-env")
+        self.assertIn("export ANTHROPIC_BASE_URL=https://host.example/v1\n", r.stdout)
+        self.assertNotIn("SECRET", r.stdout + r.stderr)
+
+    def test_new_local_keeps_url_credentials_out_of_the_description(self):
+        r = self.aw("new-local", "mybox", "--url", "http://me:SECRET@127.0.0.1:11434", "--model", "qwen")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.aw("list")
+        self.assertIn("Local model qwen at http://127.0.0.1:11434", r.stdout)
+        self.assertNotIn("SECRET", r.stdout)
+
+    def test_definition_and_override_files_are_private(self):
+        if NT:
+            self.skipTest("POSIX file modes")
+        self.write(CONF + "providers/openai.conf", "OPUS_MODEL=a\n", mode=0o664)
+        self.assertEqual(self.aw("set", "openai", "OPUS_MODEL=b").returncode, 0)
+        self.assertEqual(self.aw("set", "minimax", "MODEL=m").returncode, 0)
+        self.assertEqual(self.aw("new-local", "mybox", "--url", "http://127.0.0.1:1", "--model", "q").returncode, 0)
+        for n in ("openai", "minimax", "mybox"):
+            p = self.home / CONF / ("providers/%s.conf" % n)
+            self.assertEqual(stat.S_IMODE(p.stat().st_mode), 0o600, n)
+
+    def test_set_writes_through_a_symlinked_definition(self):
+        if NT:
+            self.skipTest("symlinks need privileges on Windows")
+        real = self.root / "dots" / "openai.conf"
+        real.parent.mkdir()
+        real.write_text("# mine\nOPUS_MODEL=a\n")
+        link = self.home / CONF / "providers/openai.conf"
+        link.parent.mkdir(parents=True)
+        os.symlink(str(real), str(link))
+        r = self.aw("set", "openai", "OPUS_MODEL=b")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(real.read_text(), "# mine\nOPUS_MODEL=b\n")
+        r = self.aw("set", "openai", "SONNET_MODEL=${NOPE}")
+        self.assertEqual(r.returncode, 2)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(real.read_text(), "# mine\nOPUS_MODEL=b\n")
+        self.assertEqual(sorted(p.name for p in link.parent.iterdir()), ["openai.conf"])
+        os.unlink(str(link))
+        os.symlink(str(self.root / "nowhere.conf"), str(link))
+        r = self.aw("set", "openai", "OPUS_MODEL=c")
+        self.assertEqual(r.returncode, 2)
+        self.assertTrue(link.is_symlink())
+        self.assertFalse((self.root / "nowhere.conf").exists())
+
+    def test_a_key_file_starting_with_tilde_is_under_home(self):
+        self.write(CONF + "providers/minimax.conf", "KEY_FILE=~/keys/mm.env\n")
+        r = self.run_cmd("bash", AW, "key-template", "minimax", cwd=str(self.root))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), self.shown(self.home / "keys" / "mm.env"))
+        self.assertTrue((self.home / "keys" / "mm.env").is_file())
+        self.assertFalse((self.root / "~").exists())
+        (self.home / "keys" / "mm.env").write_text("MINIMAX_API_KEY=sk-from-tilde\n")
+        r = self.run_cmd("bash", CW, "--provider", "minimax", "-p", "x", cwd=str(self.root))
+        self.assertIn("ANTHROPIC_AUTH_TOKEN=sk-from-tilde", r.stdout)
+
+    def test_test_masks_an_auth_token_that_is_not_a_word(self):
+        self.write(CONF + "providers/fireworks.conf", "KEY_REQUIRED=0\nAUTH_TOKEN=sk-HANDWRITTEN-77\n")
+        self.fake_claude('echo "strange failure for $ANTHROPIC_AUTH_TOKEN"', 1)
+        self.aw("install", "fireworks")
+        r = self.aw("test", "fireworks")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("strange failure for ***", r.stdout)
+        self.assertNotIn("HANDWRITTEN", r.stdout + r.stderr)
+        r = self.run_cmd("bash", CW, "--provider", "fireworks", "--print-env")
+        self.assertIn("export ANTHROPIC_AUTH_TOKEN=***\n", r.stdout)
+        self.assertNotIn("HANDWRITTEN", r.stdout + r.stderr)
+        r = self.run_cmd("bash", CW, "--provider", "fireworks", "--print-env",
+                         env={"ACK_FIREWORKS_AUTH_TOKEN": "local"})
+        self.assertIn("export ANTHROPIC_AUTH_TOKEN=local\n", r.stdout)
+
     # ---- test subcommand ---------------------------------------------------
 
     def test_test_reports_missing_key_in_plain_words(self):

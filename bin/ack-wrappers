@@ -587,6 +587,12 @@ _conf_put() {
   [ "$done" = 1 ] || printf '%s=%s\n' "$k" "$v" >> "$tmp"
   mv "$tmp" "$f" || { rm -f "$tmp"; return 1; }
 }
+# _conf_write SRC DEST: DEST gets SRC's content and SRC goes; a symlinked DEST is
+# written through, so the link keeps pointing at the user's file
+_conf_write() {
+  if [ -L "$2" ]; then cat "$1" > "$2" && rm -f "$1"
+  else mv "$1" "$2"; fi
+}
 cmd_set() {
   local name f prev work kv k v keyvar i ks=() vs=()
   ALLOWED=""; _parse "$@"; _need_names 2; name="${ARGS[0]}"; _valid_name "$name"
@@ -603,10 +609,22 @@ cmd_set() {
         echo "ack-wrappers: run 'ack-wrappers key-edit $name' and put the key into the key file." >&2
         exit 2 ;;
     esac
+    if [ "$k" = AUTH_TOKEN ] && [ -n "$v" ] && ! ack_is_word "$v"; then
+      echo "ack-wrappers: AUTH_TOKEN takes only a short word such as local or proxy (letters and -, at most 16), and keys never go into a definition." >&2
+      echo "ack-wrappers: put a key into the key file with 'ack-wrappers key-edit $name'; for a local model without one, run new-local again with --key-var and --replace." >&2
+      exit 2
+    fi
     _check_hash "$k" "$v"
     ks+=("$k"); vs+=("$v")
   done
+  # the file is the user's own: only they read it, and a symlink keeps pointing where it did
+  umask 077
   f="$ACK_CONFIG_DIR/providers/$name.conf"; work="$f.new.$$"; prev="$f.prev.$$"
+  if [ -L "$f" ] && [ ! -e "$f" ]; then
+    echo "ack-wrappers: $f is a symlink to nothing." >&2
+    echo "ack-wrappers: remove the link or create what it points to." >&2
+    exit 2
+  fi
   mkdir -p "${f%/*}" || { echo "ack-wrappers: cannot create ${f%/*}." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
   if [ -f "$f" ]; then cp "$f" "$work" && cp "$f" "$prev" || { rm -f "$work" "$prev"; exit 1; }; else prev=""; fi
   i=0
@@ -616,16 +634,19 @@ cmd_set() {
       echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
     i=$((i + 1))
   done
-  mv "$work" "$f" || { rm -f "$work" "$prev"; echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
+  _conf_write "$work" "$f" || { rm -f "$work" "$prev"; echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
+  chmod 600 "$f" 2>/dev/null
   if ! ack_provider_load "$name" "$SHARE"; then
-    if [ -n "$prev" ]; then mv "$prev" "$f"; else rm -f "$f"; fi
+    if [ -n "$prev" ]; then _conf_write "$prev" "$f"; else rm -f "$f"; fi
     echo "ack-wrappers: those values break the definition of '$name', so nothing was changed." >&2
     echo "ack-wrappers: check the \${KEY} references in the values." >&2
     exit 2
   fi
   i=0
   while [ "$i" -lt "${#ks[@]}" ]; do
-    printf 'set%s%s%s%s\n' "$TAB" "${ks[$i]}" "$TAB" "${vs[$i]}"
+    v="${vs[$i]}"
+    [ "${ks[$i]}" = BASE_URL ] && { ack_strip_url "$v"; v="$REPLY"; }
+    printf 'set%s%s%s%s\n' "$TAB" "${ks[$i]}" "$TAB" "$v"
     i=$((i + 1))
   done
   [ -n "$prev" ] && rm -f "$prev"
@@ -681,6 +702,11 @@ cmd_test() {
     [ -n "$s" ] && line="${line//"$s"/***}"
     s="$(ack_key_read "$ACK_C_KEY_FILE" "$ACK_C_KEY_FILE_VAR" 2>/dev/null)"
     [ -n "$s" ] && line="${line//"$s"/***}"
+    s="$ACK_C_AUTH_TOKEN"
+    [ -n "$s" ] && ! ack_is_word "$s" && line="${line//"$s"/***}"
+    # credentials in BASE_URL (scheme://user:password@host)
+    s="${ACK_C_BASE_URL#*://}"; s="${s%%/*}"
+    case "$s" in *@*) s="${s%@*}"; line="${line//"$s"/***}" ;; esac
   fi
   line="${line//$TAB/ }"
   [ "${#line}" -gt 80 ] && line="${line:0:77}..."
@@ -761,7 +787,7 @@ EOT
 }
 
 cmd_new_local() {
-  local name pfx f n other bak
+  local name pfx f n other bak shown
   ALLOWED="--url --model --context --thinking --key-var --replace"; _parse "$@"
   _need_names 1; name="${ARGS[0]}"
   [ "${#ARGS[@]}" = 1 ] || usage_err "new-local takes exactly one name."
@@ -833,12 +859,14 @@ cmd_new_local() {
       exit 3
     fi
   fi
+  umask 077
   mkdir -p "${f%/*}" || { echo "ack-wrappers: cannot create ${f%/*}." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
   TMP="$(mktemp -d)"
+  ack_strip_url "$OPT_URL"; shown="$REPLY"   # list prints DESCRIPTION: no credentials there
   {
-    printf '# Local model served at %s.\n' "$OPT_URL"
+    printf '# Local model served at %s.\n' "$shown"
     printf '# Written by "ack-wrappers new-local"; edit freely, or change single values with "ack-wrappers set %s KEY=VALUE".\n' "$name"
-    printf 'DESCRIPTION=Local model %s at %s\n' "$OPT_MODEL" "$OPT_URL"
+    printf 'DESCRIPTION=Local model %s at %s\n' "$OPT_MODEL" "$shown"
     printf 'PREFIX=%s\n' "$pfx"
     printf 'BASE_URL=%s\n' "$OPT_URL"
     printf 'MODEL=%s\n' "$OPT_MODEL"

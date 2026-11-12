@@ -39,21 +39,6 @@ emit() {
   return 0
 }
 
-# strip_url_creds URL -> REPLY: no credentials, no ?query, no #fragment. Everything
-# between :// and the LAST @ goes (a path with an @ is rarer than a secret, so
-# over-stripping is the safe side). scp-style git@host:path stays as it is.
-strip_url_creds() {
-  local u="$1" scheme rest
-  case "$u" in
-    *://*)
-      scheme="${u%%://*}"; rest="${u#*://}"
-      rest="${rest##*@}"
-      rest="${rest%%[?#]*}"
-      REPLY="$scheme://$rest" ;;
-    *) REPLY="${u%%[?#]*}" ;;
-  esac
-}
-
 # url_host URL -> REPLY: host without scheme, credentials, port, path
 url_host() {
   local h="$1"
@@ -201,7 +186,7 @@ elif [ "$("$gitbin" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
     line="${line%" (fetch)"}"
     rn="${line%%[[:space:]]*}"
     ru="${line#"$rn"}"; _ack_trim "$ru"; ru="$REPLY"
-    strip_url_creds "$ru"
+    ack_strip_url "$ru"
     remotes="${remotes:+$remotes, }$rn $REPLY"
   done <<EOT
 $("$gitbin" remote -v 2>/dev/null)

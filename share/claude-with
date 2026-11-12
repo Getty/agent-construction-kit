@@ -146,9 +146,13 @@ fi
 
 if [ "$print_env" = 1 ]; then
   {
-    [ -n "$exports" ] && printf '%s' "$exports" | while IFS= read -r l; do printf 'export %s\n' "$l"; done
+    # what may carry a secret is masked: URL credentials, a token that is not a plain word
+    [ -n "$exports" ] && printf '%s' "$exports" | while IFS= read -r l; do
+      case "$l" in ANTHROPIC_BASE_URL=*) ack_strip_url "${l#*=}"; l="ANTHROPIC_BASE_URL=$REPLY" ;; esac
+      printf 'export %s\n' "$l"
+    done
     if [ -n "$provider" ] && [ -n "$token" ]; then
-      if [ "$token_from_auth" = 1 ]; then printf 'export ANTHROPIC_AUTH_TOKEN=%s\n' "$token"
+      if [ "$token_from_auth" = 1 ] && ack_is_word "$token"; then printf 'export ANTHROPIC_AUTH_TOKEN=%s\n' "$token"
       else printf 'export ANTHROPIC_AUTH_TOKEN=***\n'; fi
       [ "$mcp_key" = 1 ] && printf 'export %s=***\n' "$keyvar"
     fi

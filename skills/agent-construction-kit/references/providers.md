@@ -104,10 +104,13 @@ is not a terminal here, so `$EDITOR` is skipped). On stderr, "no editor could be
 started" means: give the user that path to open in any text editor. Exit 2 with "needs
 no key file" means the provider needs no key; run `test`.
 
-`set <provider> KEY=VALUE...` prints `set<TAB><KEY><TAB><VALUE>` per value. With exit 2
-and nothing changed it refuses names that look like a secret (`*API_KEY*`, `*SECRET*`,
-the provider's `KEY_VAR`: keys go into the key file) and values that would break the
-definition.
+`set <provider> KEY=VALUE...` prints `set<TAB><KEY><TAB><VALUE>` per value (a
+`BASE_URL` without user, password, `?query` and `#fragment`). With exit 2 and nothing
+changed it refuses names that look like a secret (`*API_KEY*`, `*SECRET*`, the
+provider's `KEY_VAR`: keys go into the key file), an `AUTH_TOKEN` that is more than one
+short word of letters and `-` (like `local`), and values that would break the
+definition. The file it writes is readable only by the user; a symlinked one is
+written through.
 
 `new-local` prints `conf<TAB>created<TAB><name><TAB><file>`. Exit 2: the name cannot be
 used (the message says why, e.g. it is a shipped provider's name); suggest another.
@@ -169,9 +172,14 @@ Layers, the later one wins:
 | `openai` | `ACK_OPENAI` | none (`KEY_REQUIRED=0`, ChatGPT sign-in through the proxy) |
 
 Control keys: `DESCRIPTION`, `PREFIX`, `KEY_VAR`, `KEY_FILE` (default
-`$ACK_CONFIG_DIR/<name>.env`), `KEY_FILE_VAR` (default `KEY_VAR`), `KEY_REQUIRED`
-(default `1`), `AUTH_TOKEN` (fixed token when no key is needed), `PREFLIGHT` (`proxy` or
-empty), `PROXY_PORT`, `BARE`, `MCP_CONFIG` (an MCP file name next to the definition).
+`$ACK_CONFIG_DIR/<name>.env`; a leading `~/` is the home directory), `KEY_FILE_VAR`
+(default `KEY_VAR`), `KEY_REQUIRED` (default `1`), `AUTH_TOKEN` (fixed word sent when no
+key is needed, like `local`; never a key), `PREFLIGHT` (`proxy` or empty),
+`PROXY_PORT`, `BARE`, `MCP_CONFIG` (an MCP file name next to the definition).
+
+`claude-with --provider <name> --print-env` prints what a starter would export and run,
+without starting it: the key as `***`, an `AUTH_TOKEN` that is not such a word as
+`***`, and `ANTHROPIC_BASE_URL` without credentials, query or fragment.
 
 Keys that become environment variables (an unset key exports nothing):
 
