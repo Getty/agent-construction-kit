@@ -40,8 +40,7 @@ itself is not found (Windows without Git for Windows), say exactly that, offer t
 Run `ack-doctor` (it only reads). Line `session-model`: with `via <host>` another
 provider runs this session, without `via` Anthropic; your system prompt names the model.
 
-- Anthropic's Opus or Fable tier, or another provider's largest model: go on. Unsure
-  which model runs: ask the user.
+- Anthropic's Opus or Fable tier, or another provider's largest model: go on; if unsure, ask.
 - Anything else, local models included: stop. Say why in two sentences: setting up makes
   decisions every later session works with, and a smaller model gets more of them wrong
   unnoticed. Name the way out (`/model` to switch to Opus or Fable, or a restart with the
@@ -94,10 +93,11 @@ ones the user has an account with; if none, recommend skipping, since their norm
      [references/providers.md](references/providers.md); do not debug the provider.
    - `ok`: it works; in a new terminal window the user types the starter's name.
 
-`claude_with_danger` is Claude Code as usual with every permission question skipped. Offer
-it once, saying exactly that; recommend it only for a machine used for nothing but agents.
-If wanted: `ack-wrappers install danger`, then `ack-wrappers test danger`. MiniMax with
-`tool:uvx` not `ok`: see "MiniMax and uvx" in the providers reference.
+`claude_with_danger` is Claude Code as usual with every permission question skipped
+(started inside a starter's session, it keeps that provider). Offer it once, saying
+exactly that; recommend it only for a machine used for nothing but agents. If wanted:
+`ack-wrappers install danger`, then `ack-wrappers test danger`. MiniMax with `tool:uvx`
+not `ok`: see "MiniMax and uvx" in the providers reference.
 
 ## Step 3: OpenAI with a ChatGPT subscription
 

@@ -163,7 +163,8 @@ if [ -n "$provider" ]; then
   if [ "$ACK_C_PREFLIGHT" = proxy ]; then
     ack_proxy_ensure "$ACK_C_PROXY_PORT" || exit 5
   fi
-  unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
+  # nothing of an outer starter's session (models, window, effort, backend) carries over
+  ack_clear_env
   if [ -n "$exports" ]; then
     while IFS= read -r l; do if [ -n "$l" ]; then export "$l"; fi; done <<EOT
 $exports

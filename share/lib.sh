@@ -54,6 +54,18 @@ _ack_export_name() {
 
 ack_export_name() { _ack_export_name "$1" && printf '%s\n' "$REPLY"; }
 
+# Besides every exportable name: the keys and the switches to another backend,
+# which an outer session (another starter, a Bedrock setup) may carry.
+ACK_CLEAR_VARS="ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY"
+
+# ack_clear_env: unset everything a provider's session must not inherit (no fork)
+ack_clear_env() {
+  local k
+  for k in $ACK_KNOWN_KEYS; do _ack_export_name "$k" && unset "$REPLY"; done
+  unset $ACK_CLEAR_VARS
+  return 0
+}
+
 # _ack_build_exports -> ACK_EXPORTS: NAME=VALUE lines for every set exportable key (no fork)
 _ack_build_exports() {
   local k v

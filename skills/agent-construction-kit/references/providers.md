@@ -231,8 +231,12 @@ First match wins:
 3. neither: the starter stops with exit 3. With `KEY_REQUIRED=0` no key is needed and
    `AUTH_TOKEN` is sent instead (openai, local models without `--key-var`).
 
-The starter always unsets `ANTHROPIC_API_KEY` and sends the key as
-`ANTHROPIC_AUTH_TOKEN`.
+Before it sets the provider's values, the starter unsets every variable of the table
+above, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_CUSTOM_HEADERS` and
+`CLAUDE_CODE_USE_BEDROCK`, `_VERTEX`, `_FOUNDRY`: nothing of the session it is started
+from (another starter, a Bedrock setup) carries over. It sends the key as
+`ANTHROPIC_AUTH_TOKEN`. `danger` has no provider and changes none of these: started from
+a starter's session, it runs on that starter's provider.
 
 ## Exit codes of claude-with
 

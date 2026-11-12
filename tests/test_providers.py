@@ -5,6 +5,20 @@ from helpers import ROOT, Sandbox
 CW = str(ROOT / "share" / "claude-with")
 PROVIDER_DIR = ROOT / "share" / "providers"
 
+# A claude that, called as `claude outer`, starts the minimax starter from its own
+# session, as a user does who opens one starter inside another.
+NESTED = """#!/usr/bin/env bash
+[ "$1" = outer ] && exec bash "%s" --provider minimax inner
+echo "ARGV:"
+for a in "$@"; do printf '%%s\\n' "$a"; done
+env | grep -E '^(ANTHROPIC_|CLAUDE_|API_TIMEOUT|MAX_THINKING|SLASH_|ENABLE_TOOL|CO_AUTHORED)|_API_KEY=' | LC_ALL=C sort
+""" % CW.replace("\\", "/")
+# What a user's shell may carry besides the keys: other backends and headers.
+OUTER = {"MOONSHOT_API_KEY": "k-moon", "MINIMAX_API_KEY": "k-mini",
+         "ANTHROPIC_API_KEY": "k-ant", "ANTHROPIC_CUSTOM_HEADERS": "X-Org: a",
+         "CLAUDE_CODE_USE_BEDROCK": "1", "CLAUDE_CODE_USE_VERTEX": "1",
+         "CLAUDE_CODE_USE_FOUNDRY": "1", "CLAUDE_CODE_EFFORT_LEVEL": "low"}
+
 TRAFFIC = {
     "API_TIMEOUT_MS": "3000000",
     "SLASH_COMMAND_TOOL_CHAR_BUDGET": "48000",
@@ -128,6 +142,25 @@ class ProviderTest(Sandbox):
                                       "OPENAI_MODEL": "gpt-other"})
         self.assertEqual(out["ANTHROPIC_BASE_URL"], "http://127.0.0.1:18765")
         self.assertEqual(out["ANTHROPIC_MODEL"], "gpt-5.6-sol")
+
+    def test_a_starter_inside_another_starter_gets_only_its_own_settings(self):
+        self.fake("claude", NESTED)
+        nested = self.run_cmd("bash", CW, "--provider", "kimi", "outer", env=OUTER)
+        direct = self.run_cmd("bash", CW, "--provider", "minimax", "inner", env=OUTER)
+        self.assertEqual(nested.returncode, 0, nested.stderr)
+        self.assertEqual(nested.stdout, direct.stdout)
+        names = set(l.split("=", 1)[0] for l in nested.stdout.split("\ninner\n")[1].splitlines())
+        want = set(self.exports("minimax", {"MINIMAX_API_KEY": "k"}))
+        self.assertEqual(names, want | {"MOONSHOT_API_KEY"})   # the user's own variable stays
+        self.assertIn("ANTHROPIC_AUTH_TOKEN=k-mini\n", nested.stdout)
+
+    def test_no_provider_keeps_the_outer_environment(self):
+        # danger is "your Claude Code as usual": a Bedrock or Vertex setup stays
+        r = self.run_cmd("bash", CW, "x", env=dict(OUTER, ANTHROPIC_MODEL="m"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for line in ("ANTHROPIC_API_KEY=k-ant", "CLAUDE_CODE_USE_BEDROCK=1",
+                     "ANTHROPIC_CUSTOM_HEADERS=X-Org: a", "ANTHROPIC_MODEL=m"):
+            self.assertIn(line + "\n", r.stdout)
 
     def test_every_shipped_definition_has_description_and_prefix(self):
         names = sorted(p.stem for p in PROVIDER_DIR.glob("*.conf"))
