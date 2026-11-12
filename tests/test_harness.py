@@ -1,5 +1,7 @@
 import json
+import os
 import unittest
+from unittest import mock
 
 from helpers import ROOT, Sandbox
 
@@ -8,7 +10,18 @@ class HarnessTest(Sandbox):
     def test_home_has_a_space_and_is_isolated(self):
         self.assertIn(" ", str(self.home))
         r = self.run_cmd("bash", "-c", 'printf %s "$HOME"')
-        self.assertEqual(r.stdout, str(self.home))
+        if os.name == "nt":  # MSYS rewrites HOME into POSIX form
+            self.assertTrue(r.stdout.endswith("home dir"), r.stdout)
+            self.assertEqual(self.run_cmd("bash", "-c", '[ -d "$HOME" ]').returncode, 0)
+        else:
+            self.assertEqual(r.stdout, str(self.home))
+
+    def test_outer_environment_does_not_leak(self):
+        outer = {"XDG_CONFIG_HOME": "/outer/xdg", "ACK_DATA_DIR": "/outer/data"}
+        with mock.patch.dict(os.environ, outer):
+            r = self.run_cmd("bash", "-c", "env")
+        self.assertNotIn("XDG_CONFIG_HOME", r.stdout)
+        self.assertNotIn("ACK_DATA_DIR", r.stdout)
 
     def test_fakebin_is_outside_home(self):
         self.assertNotIn(self.home, self.fakebin.parents)

@@ -24,36 +24,55 @@ class Sandbox(unittest.TestCase):
         path = "%s:/usr/bin:/bin" % self.fakebin
         self.env = {"HOME": str(self.home), "PATH": path}
         if os.name == "nt":
-            # bash needs its own directories and the Windows system dirs.
+            # Windows: the sandbox PATH is fakebin plus the host PATH (bash needs
+            # its own directories), so isolation is weaker there, by necessity.
             self.env["PATH"] = "%s;%s" % (self.fakebin, os.environ["PATH"])
-            for k in ("SYSTEMROOT", "TEMP", "TMP"):
+            for k in ("SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "TEMP", "TMP"):
                 if k in os.environ:
                     self.env[k] = os.environ[k]
 
     def run_cmd(self, *argv, env=None, input=None):
         full = dict(self.env)
         full.update(env or {})
-        argv = list(argv)
-        exe = shutil.which(argv[0], path=full["PATH"])
-        if exe and os.name == "nt" and not exe.lower().endswith((".exe", ".com")):
-            argv = ["bash", exe] + argv[1:]  # Windows cannot exec a shebang script
-        elif exe:
-            argv[0] = exe
+        argv = self._launchable(argv, full["PATH"])
         try:
             return subprocess.run(argv, env=full, input=input, text=True,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except OSError as e:
             return subprocess.CompletedProcess(argv, 127, "", str(e))
 
+    @staticmethod
+    def _launchable(argv, path):
+        """Resolve argv[0] on the sandbox PATH; on Windows run scripts via Git's bash."""
+        argv = list(argv)
+        if os.name != "nt":
+            hit = shutil.which(argv[0], path=path)
+            return [hit] + argv[1:] if hit else argv
+        git = shutil.which("git")
+        bash = str(pathlib.Path(git).parent.parent / "bin" / "bash.exe") if git else ""
+        if not os.path.isfile(bash):
+            bash = shutil.which("bash") or "bash"
+        if argv[0] == "bash":
+            return [bash] + argv[1:]
+        for d in path.split(os.pathsep):
+            hit = pathlib.Path(d) / argv[0]
+            if d and hit.is_file():
+                return [bash, str(hit)] + argv[1:]
+            if d and hit.with_suffix(".exe").is_file():
+                return [str(hit.with_suffix(".exe"))] + argv[1:]
+        return argv
+
     def fake(self, name, script):
         p = self.fakebin / name
-        p.write_text(script)
+        with open(str(p), "w", newline="") as f:
+            f.write(script)
         p.chmod(0o755)
         return p
 
     def write(self, relpath, text, mode=0o644):
         p = self.home / relpath
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(text)
+        with open(str(p), "w", newline="") as f:
+            f.write(text)
         p.chmod(mode)
         return p
