@@ -276,7 +276,10 @@ tool_line() { # NAME MISSING-DETAIL MISSING-STATUS
   else emit "tool:$1" "$3" "$2"; fi
 }
 tool_line karr "not installed (optional)" info
-tool_line claude-code-proxy "not installed (optional)" info
+if ack_find_proxy; then
+  if [ "$ACK_PROXY_ONPATH" = 1 ]; then emit tool:claude-code-proxy ok "$REPLY"
+  else emit tool:claude-code-proxy ok "$REPLY (not on PATH)"; fi
+else emit tool:claude-code-proxy info "not installed (optional)"; fi
 tool_line uvx "needed only for the MiniMax MCP server" info
 tool_line curl "not installed; the proxy check and the local-model probe need it" warn
 

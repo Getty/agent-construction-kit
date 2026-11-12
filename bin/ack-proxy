@@ -40,7 +40,7 @@ usage_err() {
 load_openai() { ack_provider_load openai "$SHARE" || exit 2; }
 
 need_binary() {
-  BIN="$(type -P claude-code-proxy 2>/dev/null)"
+  if ack_find_proxy; then BIN="$REPLY"; else BIN=""; fi
   if [ -z "$BIN" ]; then
     echo "ack-proxy: claude-code-proxy is not installed." >&2
     echo "ack-proxy: install it (see the skill's references/openai-proxy.md), then try again." >&2
@@ -90,13 +90,15 @@ cmd_status() {
   local bin port unit uport
   load_openai
   port="$(ack_conf PROXY_PORT)"
-  bin="$(type -P claude-code-proxy 2>/dev/null)"
-  if [ -n "$bin" ]; then
-    printf 'binary%sok%s%s\n' "$TAB" "$TAB" "$bin"
+  if ack_find_proxy; then
+    bin="$REPLY"
+    if [ "$ACK_PROXY_ONPATH" = 1 ]; then printf 'binary%sok%s%s\n' "$TAB" "$TAB" "$bin"
+    else printf 'binary%sok%s%s (not on PATH)\n' "$TAB" "$TAB" "$bin"; fi
     if ack_run_bounded 20 "$bin" codex auth status; then
       printf 'auth%sok%scodex login present\n' "$TAB" "$TAB"
     else
-      printf 'auth%smissing%srun: claude-code-proxy codex auth login\n' "$TAB" "$TAB"
+      ack_proxy_name "$bin"
+      printf 'auth%smissing%srun: %s codex auth login\n' "$TAB" "$TAB" "$REPLY"
     fi
   else
     printf 'binary%smissing%snot on PATH\n' "$TAB" "$TAB"
@@ -146,10 +148,11 @@ cmd_check_slots() {
   fetch_models
   known="$(model_list codex)" || {
     echo "ack-proxy: claude-code-proxy lists no codex models." >&2
-    echo "ack-proxy: log in with: claude-code-proxy codex auth login" >&2
+    ack_proxy_name "$BIN"
+    echo "ack-proxy: log in with: $REPLY codex auth login" >&2
     exit 5
   }
-  for slot in OPUS SONNET HAIKU FABLE; do
+  for slot in OPUS SONNET HAIKU FABLE SMALL; do
     model="$(ack_conf "${slot}_MODEL")"
     [ -n "$model" ] || continue
     if printf '%s\n' "$known" | grep -Fxq -- "$model"; then

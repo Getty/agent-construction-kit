@@ -296,6 +296,87 @@ class ProxyTest(Sandbox):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(self.started())
 
+    # ---- binary lookup outside PATH ------------------------------------
+
+    def hide_on_path(self, where=".local/bin"):
+        """Move the fake proxy from PATH to a directory under the sandbox HOME."""
+        (self.fakebin / "claude-code-proxy").unlink()
+        d = self.home / where
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "claude-code-proxy").write_text(FAKE_PROXY)
+        (d / "claude-code-proxy").chmod(0o755)
+        return d / "claude-code-proxy"
+
+    def test_status_finds_the_binary_in_local_bin(self):
+        b = self.hide_on_path()
+        r = self.ap("status")
+        self.assertIn("binary\tok\t%s (not on PATH)\n" % b, r.stdout)
+        self.assertIn("auth\tok\t", r.stdout)
+
+    def test_status_finds_the_binary_in_home_bin(self):
+        b = self.hide_on_path("bin")
+        self.assertIn("binary\tok\t%s (not on PATH)\n" % b, self.ap("status").stdout)
+
+    def test_status_on_path_has_no_suffix(self):
+        line = [l for l in self.ap("status").stdout.splitlines() if l.startswith("binary")][0]
+        self.assertTrue(line.startswith("binary\tok\t"), line)
+        self.assertNotIn("not on PATH", line)
+
+    def test_ensure_starts_a_binary_found_off_path(self):
+        self.hide_on_path()
+        r = self.cw("--provider", "openai", "--", "x")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.started())
+        self.assertEqual(self.ap("models").stdout.splitlines()[0], "gpt-5.6-sol")
+
+    def test_not_signed_in_names_the_full_path_off_path(self):
+        b = self.hide_on_path()
+        (b.parent / "claude-code-proxy").write_text(FAKE_PROXY.replace(': > "$HOME/proxy-started"', ':'))
+        self.write("auth-fails", "")
+        r = self.cw("--provider", "openai", "--", "x")
+        self.assertEqual(r.returncode, 5)
+        self.assertIn('The proxy is not signed in. Run: "%s" codex auth login' % b, r.stderr)
+        r = self.ap("status")
+        self.assertIn('auth\tmissing\trun: "%s" codex auth login' % b, r.stdout)
+
+    def test_check_slots_login_hint_names_the_full_path_off_path(self):
+        b = self.hide_on_path()
+        (b.parent / "claude-code-proxy").write_text("#!/usr/bin/env bash\nexit 0\n")
+        r = self.ap("check-slots")
+        self.assertEqual(r.returncode, 5)
+        self.assertIn('log in with: "%s" codex auth login' % b, r.stderr)
+
+    def test_proxy_bin_is_used(self):
+        (self.fakebin / "claude-code-proxy").unlink()
+        d = self.root / "elsewhere"
+        d.mkdir()
+        (d / "claude-code-proxy").write_text(FAKE_PROXY)
+        (d / "claude-code-proxy").chmod(0o755)
+        r = self.ap("status", env={"ACK_PROXY_BIN": str(d / "claude-code-proxy")})
+        self.assertIn("binary\tok\t%s (not on PATH)\n" % (d / "claude-code-proxy"), r.stdout)
+
+    def test_proxy_bin_that_is_not_executable_means_not_installed(self):
+        for cmd in (("ensure",), ("models",), ("check-slots",)):
+            r = self.ap(*cmd, env={"ACK_PROXY_BIN": "/nonexistent/claude-code-proxy"})
+            self.assertEqual(r.returncode, 5, cmd)
+            self.assertIn("claude-code-proxy is not installed", r.stderr)
+        r = self.ap("status", env={"ACK_PROXY_BIN": "/nonexistent/claude-code-proxy"})
+        self.assertIn("binary\tmissing\t", r.stdout)
+        self.assertFalse(self.started())
+
+    def test_service_install_uses_the_binary_found_off_path(self):
+        b = self.hide_on_path()
+        self.assertEqual(self.ap("service", "install").returncode, 0)
+        unit = (self.home / UNIT).read_text()
+        self.assertIn('ExecStart="%s" serve --no-monitor --port 18765' % str(b).replace("%", "%%"), unit)
+
+    def test_check_slots_checks_the_small_model_slot(self):
+        r = self.ap("check-slots", env={"ACK_OPENAI_SMALL_MODEL": "typo-model"})
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("SMALL_MODEL\tunknown\ttypo-model\n", r.stdout)
+        r = self.ap("check-slots")
+        self.assertIn("SMALL_MODEL\tok\tgpt-5.6-luna\n", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

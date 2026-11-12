@@ -12,6 +12,9 @@
 #   ack-wrappers new-local <name> --url URL --model MODEL [--context N] [--key-var VAR] [--thinking N] [--replace]
 # Exit codes: 0 ok, 1 test found a problem, 2 usage error or unknown provider,
 # 3 a foreign file sits at the target (nothing changed).
+# install prints a final "path" line when the target directory is not on PATH:
+# "path<TAB>missing<TAB>DIR" (run path-fix), or "path<TAB>pending<TAB>DIR" when
+# path-fix already added it to the shell profile (active in new terminals).
 
 # Git for Windows may hand over a backslash path (bash 'D:\x\ack-wrappers').
 _slashes() { case "$OSTYPE" in msys*|cygwin*) REPLY="${1//\\//}" ;; *) REPLY="$1" ;; esac; }
@@ -40,6 +43,16 @@ TMP=""
 trap '[ -n "$TMP" ] && rm -rf "$TMP"' EXIT
 
 # ---------------------------------------------------------------- helpers
+
+# _help: the header comment (line 2 up to the first line that is not a comment)
+_help() {
+  local n=0 line
+  while IFS= read -r line; do
+    n=$((n + 1))
+    [ "$n" -ge 2 ] || continue
+    case "$line" in '#'*) line="${line#\#}"; printf '%s\n' "${line# }" ;; *) break ;; esac
+  done < "${BASH_SOURCE[0]}"
+}
 
 usage_err() {
   echo "ack-wrappers: $1" >&2
@@ -380,7 +393,10 @@ cmd_install() {
     [ "$kind" = wrapper ] && chmod 755 "$p"
     printf '%s\t%s\t%s\t%s\n' "$kind" "$st" "$name" "$p"
   done
-  _dir_on_path "$dir" || printf 'path\tmissing\t%s\n' "$dir"
+  if ! _dir_on_path "$dir"; then
+    if _path_pending "$dir"; then printf 'path\tpending\t%s\n' "$dir"
+    else printf 'path\tmissing\t%s\n' "$dir"; fi
+  fi
   return 0
 }
 
@@ -416,6 +432,29 @@ cmd_dir() {
   if _dir_on_path "$TARGET"; then printf 'dir\tok\t%s\n' "$TARGET"
   else printf 'dir\tmissing\t%s\n' "$TARGET"; fi
 }
+# _path_profile DIR -> PROFILE_FILES (newline separated) and PROFILE_LINE: the
+# shell profiles path-fix writes to and the marked line it puts there for DIR.
+_path_profile() {
+  local dir="$1"
+  case "${SHELL##*/}" in zsh) PROFILE_FILES="$HOME/.zshrc" ;; *) PROFILE_FILES="$HOME/.bashrc" ;; esac
+  case "$OSTYPE" in darwin*) [ -f "$HOME/.bash_profile" ] && PROFILE_FILES="$PROFILE_FILES"$'\n'"$HOME/.bash_profile" ;; esac
+  case "$dir" in "${HOME%/}"/*) _dq "${dir#"${HOME%/}"/}"; PROFILE_LINE="export PATH=\"\$HOME/$REPLY:\$PATH\" # agent-construction-kit" ;;
+    *) _dq "$dir"; PROFILE_LINE="export PATH=\"$REPLY:\$PATH\" # agent-construction-kit" ;; esac
+}
+# _path_pending DIR: 0 when a profile already carries the marked line for DIR
+# (path-fix ran; new terminals have the directory on PATH). Never on Windows.
+_path_pending() {
+  local f
+  _is_windows && return 1
+  case "$HOME" in /*) ;; *) return 1 ;; esac
+  _path_profile "$1"
+  while IFS= read -r f; do
+    [ -f "$f" ] && grep -Fxq -- "$PROFILE_LINE" "$f" && return 0
+  done <<EOT
+$PROFILE_FILES
+EOT
+  return 1
+}
 cmd_path_fix() {
   local dir files f line shown have
   ALLOWED="--dir"; _parse "$@"
@@ -429,10 +468,7 @@ cmd_path_fix() {
     return 0
   fi
   case "$HOME" in /*) ;; *) usage_err "HOME is not set to an absolute path." ;; esac
-  case "${SHELL##*/}" in zsh) files="$HOME/.zshrc" ;; *) files="$HOME/.bashrc" ;; esac
-  case "$OSTYPE" in darwin*) [ -f "$HOME/.bash_profile" ] && files="$files"$'\n'"$HOME/.bash_profile" ;; esac
-  case "$dir" in "${HOME%/}"/*) _dq "${dir#"${HOME%/}"/}"; line="export PATH=\"\$HOME/$REPLY:\$PATH\" # agent-construction-kit" ;;
-    *) _dq "$dir"; line="export PATH=\"$REPLY:\$PATH\" # agent-construction-kit" ;; esac
+  _path_profile "$dir"; files="$PROFILE_FILES"; line="$PROFILE_LINE"
   while IFS= read -r f; do
     if [ -f "$f" ] && have="$(grep -F -- '# agent-construction-kit' "$f")" && [ -n "$have" ]; then
       have="${have%%$'\n'*}"
@@ -747,6 +783,10 @@ cmd_new_local() {
   if [ -e "$f" ] || [ -L "$f" ]; then
     if [ "$OPT_REPLACE" = 0 ]; then
       printf 'foreign%s%s\n' "$TAB" "$f"
+      if grep -Fq -- '# Written by "ack-wrappers new-local"' "$f" 2>/dev/null; then
+        echo "ack-wrappers: a definition named $name exists already; pass --replace to overwrite it" >&2
+        exit 3
+      fi
       _foreign_msg "$f" "Re-run with --replace to keep a .bak copy and write the new definition, or pick another name."
       exit 3
     fi
@@ -797,7 +837,7 @@ main() {
     test) cmd_test "$@" ;;
     probe-local) cmd_probe_local "$@" ;;
     new-local) cmd_new_local "$@" ;;
-    -h|--help|help) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed -e 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help|help) _help; exit 0 ;;
     *) usage_err "unknown subcommand '$sub'." ;;
   esac
 }

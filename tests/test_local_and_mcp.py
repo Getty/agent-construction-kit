@@ -316,6 +316,20 @@ class LocalTest(Sandbox):
         self.assertEqual((self.providers / "gemma.conf").read_text(), "PREFIX=GEMMA\nMODEL=mine\n")
         self.assertEqual(list(self.providers.glob("*.bak-*")), [])
 
+    def test_new_local_own_definition_says_to_pass_replace(self):
+        self.assertEqual(self.new().returncode, 0)
+        r = self.new()
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("a definition named gemma exists already; pass --replace to overwrite it", r.stderr)
+        self.assertNotIn("was not created by agent-construction-kit", r.stderr)
+
+    def test_new_local_foreign_definition_keeps_the_foreign_wording(self):
+        self.write(CONF + "providers/gemma.conf", "PREFIX=GEMMA\nMODEL=mine\n")
+        r = self.new()
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("was not created by agent-construction-kit, so it was left alone.", r.stderr)
+        self.assertNotIn("exists already", r.stderr)
+
     def test_new_local_replace_backs_up(self):
         self.write(CONF + "providers/gemma.conf", "PREFIX=GEMMA\nMODEL=mine\n")
         r = self.new("gemma", "--replace")

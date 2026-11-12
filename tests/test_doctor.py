@@ -309,6 +309,27 @@ class DoctorTest(Sandbox):
         self.assertIn("tool:claude-code-proxy\tinfo\t", out)
         self.assertIn("tool:uvx\tinfo\tneeded only for the MiniMax MCP server\n", out)
 
+    def test_proxy_binary_outside_path_is_found(self):
+        self.good()
+        b = self.home / ".local" / "bin" / "claude-code-proxy"
+        b.parent.mkdir(parents=True)
+        b.write_text("#!/bin/sh\n")
+        b.chmod(0o755)
+        out = self.doc().stdout
+        self.assertIn("tool:claude-code-proxy\tok\t%s (not on PATH)\n" % b, out)
+
+    def test_proxy_binary_on_path_has_no_suffix(self):
+        self.good()
+        self.fake("claude-code-proxy", "#!/bin/sh\n")
+        out = self.doc().stdout
+        self.assertIn("tool:claude-code-proxy\tok\t%s\n" % (self.fakebin / "claude-code-proxy"), out)
+
+    def test_proxy_bin_variable_decides(self):
+        self.good()
+        self.fake("claude-code-proxy", "#!/bin/sh\n")
+        out = self.doc(env={"ACK_PROXY_BIN": "/nonexistent/claude-code-proxy"}).stdout
+        self.assertIn("tool:claude-code-proxy\tinfo\tnot installed (optional)\n", out)
+
     def test_platform_line_is_first(self):
         self.good()
         r = self.doc()

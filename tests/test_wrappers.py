@@ -337,6 +337,29 @@ class WrappersTest(Sandbox):
         self.assertFalse((self.home / ".bashrc").exists())
         self.assertIn("SetEnvironmentVariable", r.stdout)
 
+    @unittest.skipIf(NT, "Windows keeps PATH in the user environment")
+    def test_install_after_path_fix_says_pending(self):
+        first = self.aw("install", "minimax").stdout.rstrip("\n").splitlines()[-1]
+        self.assertTrue(first.startswith("path\tmissing\t"), first)
+        self.assertIn("path\tfixed\t", self.aw("path-fix").stdout)
+        again = self.aw("install", "minimax").stdout.rstrip("\n").splitlines()[-1]
+        self.assertTrue(again.startswith("path\tpending\t"), again)
+        self.assertIn(".local", again)
+
+    @unittest.skipIf(NT, "Windows keeps PATH in the user environment")
+    def test_pending_needs_the_line_for_exactly_that_directory(self):
+        self.aw("path-fix")
+        other = self.root / "other bin"
+        r = self.aw("install", "minimax", "--dir", str(other))
+        last = r.stdout.rstrip("\n").splitlines()[-1]
+        self.assertTrue(last.startswith("path\tmissing\t"), last)
+
+    def test_help_prints_the_whole_header(self):
+        r = self.aw("--help")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("3 a foreign file sits at the target (nothing changed).", r.stdout)
+        self.assertIn("path<TAB>pending<TAB>DIR", r.stdout)
+
     # ---- list ---------------------------------------------------------------
 
     def test_list_shows_states_and_no_key(self):

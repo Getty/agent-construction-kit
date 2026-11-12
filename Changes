@@ -16,3 +16,11 @@ Revision history for agent-construction-kit
     - Add the agent-construction-kit skill, which sets up a machine in plain
       questions: prerequisites, a starter per provider, OpenAI through the
       proxy, and local models.
+    - Find claude-code-proxy in ~/.local/bin and ~/bin when it is not on PATH
+      (or at ACK_PROXY_BIN); ack-proxy status and ack-doctor say so, and the
+      sign-in hints then carry the full path.
+    - ack-proxy check-slots checks the small-model slot too.
+    - ack-wrappers new-local tells you to pass --replace when the definition
+      is its own; ack-wrappers --help prints the whole header.
+    - ack-wrappers install reports "path pending" instead of "path missing"
+      once path-fix has added the directory to the shell profile.

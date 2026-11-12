@@ -281,6 +281,41 @@ ack_find_claude() {
 
 # ---------------------------------------------------------------- proxy
 
+# ack_find_proxy -> REPLY = path of claude-code-proxy, returns 1 when none.
+# Also sets ACK_PROXY_ONPATH (1 when the binary is what PATH finds, else 0).
+# Order: $ACK_PROXY_BIN (set but not executable: no fall through), PATH,
+# $HOME/.local/bin, $HOME/bin (the upstream installer's fallback directories,
+# which a running Claude Code session often lacks on PATH).
+ack_find_proxy() {
+  local p onpath ext=""
+  case "$OSTYPE" in msys*|cygwin*) ext=".exe" ;; esac
+  onpath="$(type -P claude-code-proxy 2>/dev/null)"
+  ACK_PROXY_ONPATH=0
+  if [ -n "${ACK_PROXY_BIN:-}" ]; then
+    [ -f "$ACK_PROXY_BIN" ] && [ -x "$ACK_PROXY_BIN" ] || return 1
+    [ "$ACK_PROXY_BIN" = "$onpath" ] && ACK_PROXY_ONPATH=1
+    REPLY="$ACK_PROXY_BIN"
+    return 0
+  fi
+  if [ -n "$onpath" ]; then ACK_PROXY_ONPATH=1; REPLY="$onpath"; return 0; fi
+  for p in "$HOME/.local/bin/claude-code-proxy" "$HOME/bin/claude-code-proxy"; do
+    if [ -f "$p" ] && [ -x "$p" ]; then REPLY="$p"; return 0; fi
+    if [ -n "$ext" ] && [ -f "$p$ext" ] && [ -x "$p$ext" ]; then REPLY="$p$ext"; return 0; fi
+  done
+  return 1
+}
+
+# ack_proxy_name -> REPLY = what a human types to run the proxy: the bare name
+# when PATH finds it, else the full path (in double quotes when it has blanks).
+# Call after ack_find_proxy succeeded.
+ack_proxy_name() {
+  if [ "${ACK_PROXY_ONPATH:-0}" = 1 ]; then REPLY="claude-code-proxy"
+  else
+    case "$1" in *[[:space:]]*) REPLY="\"$1\"" ;; *) REPLY="$1" ;; esac
+  fi
+}
+
+
 ACK_PROXY_UNIT="claude-code-proxy.service"
 
 # ack_has_user_service: a user service manager is here (Linux with systemctl).
@@ -377,7 +412,7 @@ ack_proxy_ensure() {
     fi
     echo "ack: systemctl --user could not start $ACK_PROXY_UNIT (no user service manager session?); starting the proxy directly." >&2
   fi
-  bin="$(type -P claude-code-proxy 2>/dev/null)"
+  if ack_find_proxy; then bin="$REPLY"; else bin=""; fi
   if [ -z "$bin" ]; then
     echo "ack: claude-code-proxy is not installed." >&2
     echo "ack: install it (see the skill's references/openai-proxy.md), then try again." >&2
@@ -399,7 +434,8 @@ ack_proxy_ensure() {
     echo "ack: read the log at $log." >&2
     return 5
   elif [ "$rc" != 0 ]; then
-    echo "ack: The proxy is not signed in. Run: claude-code-proxy codex auth login" >&2
+    ack_proxy_name "$bin"
+    echo "ack: The proxy is not signed in. Run: $REPLY codex auth login" >&2
     return 5
   fi
   echo "ack: the proxy was started but nothing answers on port $port." >&2
