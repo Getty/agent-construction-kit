@@ -592,6 +592,26 @@ class WrappersTest(Sandbox):
         self.assertEqual(r.returncode, 2, diag)
         self.assertFalse(conf.exists(), diag)
 
+    def test_set_refuses_an_unknown_key_a_bad_port_and_a_bad_mcp_file(self):
+        conf = self.home / CONF / "providers"
+        cases = (("minimax", "SONET_MODEL=x", "SONET_MODEL"),
+                 ("minimax", "MCP_CONFIG=../../x.json", "MCP_CONFIG"),
+                 ("minimax", "MCP_CONFIG=nope.json", "nope.json"))
+        cases += tuple(("openai", "PROXY_PORT=" + p, "PROXY_PORT")
+                       for p in ("1 --evil; x", "", "0", "65536", "08", "abc"))
+        for name, kv, said in cases:
+            r = self.aw("set", name, kv)
+            self.assertEqual(r.returncode, 2, kv)
+            self.assertEqual(r.stdout, "", kv)
+            self.assertIn(said, r.stderr, kv)
+            self.assertEqual(list(conf.iterdir()) if conf.exists() else [], [], kv)
+        self.assertEqual(self.aw("set", "openai", "PROXY_PORT=18999").returncode, 0)
+        # a key the definition itself brings (for a ${...} reference) may be set
+        self.write(CONF + "providers/mine.conf",
+                   "PREFIX=MINE\nKEY_REQUIRED=0\nHOST=h\nBASE_URL=http://${HOST}/\n")
+        r = self.aw("set", "mine", "HOST=h2")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
     def test_set_refuses_an_auth_token_that_is_not_a_short_word(self):
         conf = self.home / CONF / "providers/fireworks.conf"
         for v in ("sk-REALKEY-9BBB", "abc123", "x" * 17, "-dash", "a b"):

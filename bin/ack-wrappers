@@ -638,6 +638,19 @@ cmd_set() {
       echo "ack-wrappers: put a key into the key file with 'ack-wrappers key-edit $name'; for a local model without one, run new-local again with --key-var and --replace." >&2
       exit 2
     fi
+    # a typo would be stored and silently ignored; a key the definition brings
+    # itself (for a ${...} reference) is fine
+    case " PREFIX $ACK_KNOWN_KEYS $ACK_KEYS " in
+      *" $k "*) ;;
+      *) echo "ack-wrappers: $k is not a key that a definition knows, so nothing was changed." >&2
+         echo "ack-wrappers: check its spelling against the keys in the providers reference of the skill." >&2
+         exit 2 ;;
+    esac
+    if [ "$k" = PROXY_PORT ] && ! ack_valid_port "$v"; then
+      echo "ack-wrappers: PROXY_PORT takes a port number from 1 to 65535, so nothing was changed." >&2
+      echo "ack-wrappers: give digits only, e.g. PROXY_PORT=18765." >&2
+      exit 2
+    fi
     _check_hash "$k" "$v"
     ks+=("$k"); vs+=("$v")
   done
@@ -660,10 +673,11 @@ cmd_set() {
   done
   _conf_write "$work" "$f" || { rm -f "$work" "$prev"; echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
   chmod 600 "$f" 2>/dev/null
-  if ! ack_provider_load "$name" "$SHARE"; then
+  # the starter must still load it, MCP file included
+  if ! ack_provider_load "$name" "$SHARE" || ! ack_mcp_path; then
     if [ -n "$prev" ]; then _conf_write "$prev" "$f"; else rm -f "$f"; fi
     echo "ack-wrappers: those values break the definition of '$name', so nothing was changed." >&2
-    echo "ack-wrappers: check the \${KEY} references in the values." >&2
+    echo "ack-wrappers: fix the value the message above names (a \${KEY} reference, a file name) and run set again." >&2
     exit 2
   fi
   i=0

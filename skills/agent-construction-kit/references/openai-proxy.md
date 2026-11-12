@@ -104,6 +104,8 @@ so the starter never waits for it. Recommend it. Results:
   reason.
 - exit 3: a service file the kit did not write is in the way; leave it alone and tell
   the user.
+- exit 2 naming `PROXY_PORT`: the port is not a number from 1 to 65535; set a valid one
+  as in step 7, then run it again.
 
 `ack-proxy service remove` undoes it.
 

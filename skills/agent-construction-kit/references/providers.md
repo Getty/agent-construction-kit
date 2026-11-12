@@ -109,8 +109,9 @@ no key file" means the provider needs no key; run `test`.
 `BASE_URL` without user, password, `?query` and `#fragment`). With exit 2 and nothing
 changed it refuses names that look like a secret (`*API_KEY*`, `*SECRET*`, the
 provider's `KEY_VAR`: keys go into the key file), an `AUTH_TOKEN` that is more than one
-short word of letters and `-` (like `local`), and values that would break the
-definition. The file it writes is readable only by the user; a symlinked one is
+short word of letters and `-` (like `local`), a key no definition knows (a typo), a
+`PROXY_PORT` that is not a port number, and values that would break the definition (a
+broken `${KEY}` reference, an `MCP_CONFIG` file that does not exist). The file it writes is readable only by the user; a symlinked one is
 written through.
 
 `new-local` prints `conf<TAB>created<TAB><name><TAB><file>`. Exit 2: the name cannot be

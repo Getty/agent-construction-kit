@@ -178,6 +178,24 @@ unit_port() {
   done < "$1"
 }
 
+# unit_word PATH -> REPLY: PATH as one word of a systemd command line: \ and " are
+# escaped, $ and % doubled (no variables, no specifiers), and the word is quoted
+# when it holds whitespace, a quote or a backslash
+unit_word() {
+  local s="$1" out="" c i=0
+  while [ "$i" -lt "${#s}" ]; do
+    c="${s:$i:1}"
+    case "$c" in
+      \\|\$|%) out="$out$c$c" ;;
+      \") out="$out\\$c" ;;
+      *) out="$out$c" ;;
+    esac
+    i=$((i + 1))
+  done
+  case "$s" in *[[:space:]\"\'\\]*) out="\"$out\"" ;; esac
+  REPLY="$out"
+}
+
 unit_is_ours() {
   local n=0 line
   [ -r "$1" ] || return 1
@@ -222,6 +240,11 @@ cmd_service() {
   fi
   load_openai
   port="$(ack_conf PROXY_PORT)"
+  if ! ack_valid_port "$port"; then
+    echo "ack-proxy: PROXY_PORT '$port' of the openai provider is not a port number from 1 to 65535." >&2
+    echo "ack-proxy: fix it with 'ack-wrappers set openai PROXY_PORT=18765' (or unset ACK_OPENAI_PROXY_PORT), then run this again." >&2
+    exit 2
+  fi
   need_binary
   bin="$BIN"
   case "$bin" in
@@ -230,8 +253,7 @@ cmd_service() {
        echo "ack-proxy: put claude-code-proxy on PATH by its full path and run this again." >&2
        exit 5 ;;
   esac
-  q="${bin//%/%%}"
-  case "$bin" in *[[:space:]]*) q="\"$q\"" ;; esac
+  unit_word "$bin"; q="$REPLY"
   mkdir -p "${unit%/*}" || exit 2
   {
     printf '[Unit]\n%s\nDescription=claude-code-proxy for Claude Code\n\n' "$MARK"

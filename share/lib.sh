@@ -41,6 +41,12 @@ EOT
   REPLY="$crc $size"
 }
 
+# ack_valid_port VALUE: a TCP port, 1 to 65535, digits only, no leading zero
+ack_valid_port() {
+  case "$1" in ''|0*|*[!0-9]*) return 1 ;; esac
+  [ "${#1}" -le 5 ] && [ "$1" -le 65535 ]
+}
+
 # ack_strip_url URL -> REPLY: no credentials, no ?query, no #fragment. Everything
 # between :// and the LAST @ goes (a path with an @ is rarer than a secret, so
 # over-stripping is the safe side). scp-style git@host:path stays as it is.
@@ -225,8 +231,8 @@ ack_provider_load() {
   fi
   p="$ACK_R_PREFIX"
   case "$p" in
-    ''|*[!A-Z0-9_]*)
-      echo "ack: provider '$name' has no valid PREFIX (A-Z, 0-9, _)." >&2
+    ''|[!A-Z]*|*[!A-Z0-9_]*)
+      echo "ack: provider '$name' has no valid PREFIX (A-Z, 0-9 and _, starting with a letter)." >&2
       echo "ack: set PREFIX=... in its definition." >&2
       return 2 ;;
   esac
@@ -455,6 +461,11 @@ ack_proxy_ensure() {
   if [ -z "$port" ]; then
     echo "ack: the provider has no PROXY_PORT, so the proxy cannot be started." >&2
     echo "ack: set PROXY_PORT=... in its definition." >&2
+    return 5
+  fi
+  if ! ack_valid_port "$port"; then
+    echo "ack: PROXY_PORT '$port' is not a port number from 1 to 65535, so the proxy cannot be started." >&2
+    echo "ack: set PROXY_PORT to a number in its definition (ack-wrappers set <provider> PROXY_PORT=18765)." >&2
     return 5
   fi
   ack_proxy_reachable "$port" && return 0

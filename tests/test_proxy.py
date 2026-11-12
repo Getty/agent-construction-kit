@@ -195,6 +195,31 @@ class ProxyTest(Sandbox):
         self.assertIn("ExecStart=%s/claude-code-proxy " % str(pct).replace("%", "%%"),
                       (self.home / UNIT).read_text())
 
+    @unittest.skipIf(os.name == "nt", "systemd units exist on Linux only; the unit holds a native path")
+    def test_service_install_quotes_and_escapes_the_binary_path(self):
+        odd = self.root / 'we "q" \\b $HOME 1%'
+        odd.mkdir()
+        (odd / "claude-code-proxy").write_text(FAKE_PROXY)
+        (odd / "claude-code-proxy").chmod(0o755)
+        r = self.ap("service", "install", env={"ACK_PROXY_BIN": str(odd / "claude-code-proxy")})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        want = '"%s/we \\"q\\" \\\\b $$HOME 1%%%%/claude-code-proxy"' % self.root
+        self.assertIn("ExecStart=%s serve --no-monitor --port 18765\n" % want, (self.home / UNIT).read_text())
+
+    def test_a_port_that_is_not_a_number_is_refused(self):
+        for bad in ("1 --evil; x", "", "0", "65536", "08", "abc"):
+            env = {"ACK_OPENAI_PROXY_PORT": bad}
+            r = self.ap("service", "install", env=env)
+            self.assertEqual(r.returncode, 2, bad)
+            self.assertIn("PROXY_PORT", r.stderr)
+            self.assertFalse((self.home / UNIT).exists(), bad)
+            r = self.cw("--provider", "openai", "--", "x", env=env)
+            self.assertEqual(r.returncode, 5, bad)
+            self.assertIn("PROXY_PORT", r.stderr)
+            self.assertNotIn("ARGV:", r.stdout)
+            self.assertFalse(self.started(), bad)
+        self.assertEqual(self.systemctl_log(), "")
+
     def test_dangling_symlink_at_the_unit_path_is_foreign(self):
         unit = self.home / UNIT
         unit.parent.mkdir(parents=True)

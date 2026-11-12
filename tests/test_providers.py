@@ -170,6 +170,15 @@ class ProviderTest(Sandbox):
             self.assertTrue(keys["PREFIX"].startswith("ACK_"), p.name)
             self.assertIn("or via %s_<KEY>." % keys["PREFIX"], p.read_text().splitlines()[1], p.name)
 
+    def test_a_prefix_must_start_with_a_letter(self):
+        self.write(".config/agent-construction-kit/providers/dig.conf",
+                   "PREFIX=1X\nDESCRIPTION=d\nKEY_REQUIRED=0\n")
+        r = self.run_cmd("bash", CW, "--provider", "dig", "--print-env")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("starting with a letter", r.stderr)
+        self.assertNotIn("invalid variable name", r.stderr)
+
     def test_a_starter_inside_another_starter_gets_only_its_own_settings(self):
         self.fake("claude", NESTED)
         nested = self.run_cmd("bash", CW, "--provider", "kimi", "outer", env=OUTER)
