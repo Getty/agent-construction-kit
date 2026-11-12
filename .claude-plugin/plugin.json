@@ -1,0 +1,10 @@
+{
+  "name": "agent-construction-kit",
+  "description": "Sets up a machine and a repository for agent teams on Claude Code: prerequisites, provider wrappers, and the team itself.",
+  "author": {
+    "name": "Torsten Raudssus",
+    "email": "getty@conflict.industries"
+  },
+  "homepage": "https://github.com/Getty/agent-construction-kit",
+  "license": "Artistic-2.0"
+}

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Stand-in for `claude`: reports its arguments and the relevant environment.
+echo "ARGV:"
+for a in "$@"; do
+  printf '%s\n' "$a"
+done
+env | grep -E '^(ANTHROPIC_|CLAUDE_|API_TIMEOUT|MAX_THINKING|SLASH_|ENABLE_TOOL|CO_AUTHORED)|^[A-Za-z0-9_]*_API_KEY=' | LC_ALL=C sort
+exit 0
