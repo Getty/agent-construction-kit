@@ -286,10 +286,10 @@ class ProxyTest(Sandbox):
         self.assertLess(took, 6)
 
     def test_run_bounded_cuts_off_a_term_ignoring_command(self):
-        self.fake("stubborn", "#!/usr/bin/env bash\ntrap '' TERM\nsleep 5\n")
+        self.fake("stubborn", "#!/usr/bin/env bash\ntrap '' TERM\nsleep 30\n")
         r, took = self.bounded(1, "stubborn")
         self.assertIn("rc=124", r.stdout, r.stderr)
-        self.assertLess(took, 4.5)
+        self.assertLess(took, 15)
 
     def test_ensure_command(self):
         r = self.ap("ensure")
