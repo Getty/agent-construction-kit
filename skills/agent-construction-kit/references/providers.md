@@ -140,7 +140,9 @@ provider definition, finds the key, sets the environment and starts `claude` wit
 user's arguments.
 
 The starter folder is the first of: `--dir`; the folder of a `claude_with_*` already on
-PATH; the folder of `claude` when it lies under the home directory; `~/.local/bin`.
+PATH, unless it belongs to a version manager (a path with `.nvm`, `.volta`, `.asdf`,
+`.fnm`, `node_modules` or `versions`, which the next upgrade leaves off PATH); `~/bin`
+when `claude` is there; `~/.local/bin`.
 
 Permissions: `ask` adds no flag, `allow` adds `--allow-dangerously-skip-permissions`,
 `skip` adds `--dangerously-skip-permissions`. `danger` is `skip` with no provider. A

@@ -346,16 +346,53 @@ class WrappersTest(Sandbox):
         self.assertFalse(self.wrapper("minimax").exists())
         self.assertNotIn("path\tmissing", r.stdout)
 
-    def test_dir_follows_the_claude_binary_under_home(self):
-        apps = self.home / "apps" / "bin"
-        apps.mkdir(parents=True)
-        (apps / "claude").write_text("#!/usr/bin/env bash\necho hi\n")
-        (apps / "claude").chmod(0o755)
-        path = str(apps) + os.pathsep + self.env["PATH"]
+    def claude_in(self, d):
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "claude").write_text("#!/usr/bin/env bash\necho hi\n")
+        (d / "claude").chmod(0o755)
+        return str(d) + os.pathsep + self.env["PATH"]
+
+    def test_dir_follows_claude_only_into_home_bin(self):
+        path = self.claude_in(self.home / "bin")
         r = self.aw("install", "minimax", env={"PATH": path})
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue((apps / "claude_with_minimax").is_file())
+        self.assertTrue((self.home / "bin" / "claude_with_minimax").is_file())
         self.assertNotIn("path\t", r.stdout)
+        for d in ("apps/bin", ".nvm/versions/node/v22.1.0/bin", ".npm-global/bin"):
+            path = self.claude_in(self.home / d)
+            r = self.aw("install", "kimi", env={"PATH": path})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse((self.home / d / "claude_with_kimi").exists(), d)
+            self.assertTrue(self.wrapper("kimi").is_file(), d)
+            self.assertIn("path\tmissing\t", r.stdout)
+            self.wrapper("kimi").unlink()
+
+    def test_dir_follows_claude_into_a_symlinked_home_bin(self):
+        if NT:
+            self.skipTest("symlinks need privileges on Windows")
+        real = self.root / "real bin"
+        os.symlink(str(self.claude_in(real).split(os.pathsep)[0]), str(self.home / "bin"))
+        path = str(real) + os.pathsep + self.env["PATH"]
+        r = self.aw("install", "minimax", env={"PATH": path})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((real / "claude_with_minimax").is_file())
+
+    def test_dir_skips_starters_inside_a_version_manager(self):
+        for d in (".nvm/versions/node/v22.1.0/bin", ".volta/bin", ".asdf/installs/nodejs/22/bin",
+                  ".fnm/node-versions/v22/installation/bin", "proj/node_modules/.bin",
+                  "tools/versions/1.2/bin"):
+            vm = self.home / d
+            vm.mkdir(parents=True)
+            (vm / "claude_with_x").write_text("#!/bin/sh\necho x\n")
+            (vm / "claude_with_x").chmod(0o755)
+            path = self.claude_in(vm)
+            cols = self.aw("dir", env={"PATH": path}).stdout.rstrip("\n").split("\t")
+            self.assertEqual(cols[:2], ["dir", "missing"], d)
+            self.assertEqual(cols[2], self.shown(self.bindir), d)
+        # a starter already there is still found where it is
+        (vm / "claude_with_kimi").write_text("#!/bin/sh\necho mine\n")
+        r = self.aw("list", env={"PATH": path})
+        self.assertIn("kimi\tforeign\t-\t%s\t" % self.shown(vm / "claude_with_kimi"), r.stdout)
 
     def test_target_off_path_reports_path_missing(self):
         r = self.aw("install", "minimax")

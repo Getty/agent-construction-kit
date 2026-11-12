@@ -153,12 +153,19 @@ _select() {
   case "$PERM" in ask|allow|skip) ;; *) usage_err "'$PERM' is not a permission mode (ask, allow or skip)." ;; esac
 }
 
-# directory of the first claude_with_* (not .bak/.cmd) found on PATH
+# _vm_dir DIR: a folder of a version manager, which its next upgrade leaves off PATH
+_vm_dir() {
+  case "$1/" in */.nvm/*|*/.volta/*|*/.asdf/*|*/.fnm/*|*/node_modules/*|*/versions/*) return 0 ;; esac
+  return 1
+}
+# directory of the first claude_with_* (not .bak/.cmd) found on PATH, outside a
+# version manager's folders
 _first_wrapper_dir() {
   local d f n paths="$PATH"
   local IFS=:
   for d in $paths; do
     [ -n "$d" ] && [ -d "$d" ] && [ -w "$d" ] || continue
+    _vm_dir "$d" && continue
     for f in "$d"/claude_with_*; do
       { [ -e "$f" ] || [ -L "$f" ]; } || continue
       n="${f##*/}"; case "$n" in *.*) continue ;; esac
@@ -177,18 +184,23 @@ _scan_path_for() { # FILENAME
   return 1
 }
 # _target_dir -> TARGET: --dir, dir of the first claude_with_* on PATH, dir of claude
-# under $HOME (writable), else $HOME/.local/bin. Creates nothing.
+# when that is ~/bin (writable), else $HOME/.local/bin. Creates nothing. Any other
+# folder of claude may belong to a version manager or a package and vanish with it.
 _target_dir() {
-  local claude cdir h1 h2
+  local claude cdir cphys h
   if [ -n "$OPT_DIR" ]; then _posix "$OPT_DIR"; _abspath "$REPLY"; TARGET="$REPLY"; return 0; fi
   if _first_wrapper_dir; then TARGET="$REPLY"; return 0; fi
   if claude="$(ack_find_claude)"; then
     case "$claude" in */*) cdir="${claude%/*}" ;; *) cdir="" ;; esac
     if [ -n "$cdir" ] && [ -d "$cdir" ] && [ -w "$cdir" ]; then
-      _absdir "$cdir"; cdir="$REPLY"
-      h1="${HOME%/}"; h2="$(cd "$HOME" 2>/dev/null && pwd -P)"
-      case "$cdir" in "$h1"/*) TARGET="$cdir"; return 0 ;; esac
-      case "$(cd "$cdir" && pwd -P)" in "$h2"/*) TARGET="$cdir"; return 0 ;; esac
+      _absdir "$cdir"; cdir="$REPLY"; cphys="$(cd "$cdir" 2>/dev/null && pwd -P)"
+      for h in "$HOME/.local/bin" "$HOME/bin"; do
+        [ -d "$h" ] || continue
+        _absdir "$h"
+        if [ "$cdir" = "$REPLY" ] || [ "$cphys" = "$(cd "$h" 2>/dev/null && pwd -P)" ]; then
+          TARGET="$cdir"; return 0
+        fi
+      done
     fi
   fi
   TARGET="$HOME/.local/bin"
