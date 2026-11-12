@@ -1,4 +1,5 @@
 import os
+import sys
 import shutil
 import stat
 import unittest
@@ -579,7 +580,7 @@ class WrappersTest(Sandbox):
         self.assertIn("minimax.env", log.read_text())
 
     def test_key_edit_does_not_trust_xdg_open_without_a_display(self):
-        if NT:
+        if NT or sys.platform == "darwin":
             self.skipTest("xdg-open is the Linux way")
         log = self.root / "editor.log"
         self.fake("xdg-open", '#!/usr/bin/env bash\necho "$@" >> "%s"\nexit 0\n' % log)
