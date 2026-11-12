@@ -364,7 +364,8 @@ _check_data() {
       echo "ack-wrappers: point ACK_DATA_DIR at an empty or new folder, or fix its permissions." >&2
       exit 2
     fi
-    if [ ! -f "$DATA/.ack-data" ] && [ -n "$(ls -A "$DATA" 2>/dev/null)" ]; then
+    # before the lock is held another install may be half-way through making it
+    if [ "${1:-}" != unlocked ] && [ ! -f "$DATA/.ack-data" ] && [ -n "$(ls -A "$DATA" 2>/dev/null)" ]; then
       echo "ack-wrappers: $DATA exists, is not empty and was not made by agent-construction-kit." >&2
       echo "ack-wrappers: point ACK_DATA_DIR at an empty or new folder, or empty this one." >&2
       exit 2
@@ -434,7 +435,7 @@ cmd_install() {
   _need_names 1; name="${ARGS[0]}"; _valid_name "$name"
   _select "$name"
   _target_dir; dir="$TARGET"; file="$dir/claude_with_$name"; cmdf="$file.cmd"
-  _data_abs; _check_data; _lock_data; _check_data   # again under the lock: another install may have just made it
+  _data_abs; _check_data unlocked; _lock_data; _check_data   # the path first, whose it is only under the lock
   if _is_windows; then
     _bash_windows || { echo "ack-wrappers: cannot determine the path of this bash (cygpath failed)." >&2; echo "ack-wrappers: run it from Git Bash." >&2; exit 1; }
     bashw="$REPLY"
