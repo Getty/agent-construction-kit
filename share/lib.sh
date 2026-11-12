@@ -324,6 +324,12 @@ ack_run_bounded() {
   done
   if kill -0 "$pid" 2>/dev/null; then
     kill "$pid" 2>/dev/null
+    i=0
+    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 20 ]; do
+      sleep 0.1
+      i=$((i + 1))
+    done
+    kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
     wait "$pid" 2>/dev/null
     rc=124
   else
@@ -354,7 +360,7 @@ _ack_proxy_wait() {
 
 # ack_proxy_ensure PORT: make the proxy answer on PORT; 5 when that fails.
 ack_proxy_ensure() {
-  local port="$1" bin log sz pid
+  local port="$1" bin log sz pid rc
   if [ -z "$port" ]; then
     echo "ack: the provider has no PROXY_PORT, so the proxy cannot be started." >&2
     echo "ack: set PROXY_PORT=... in its definition." >&2
@@ -386,7 +392,13 @@ ack_proxy_ensure() {
   nohup "$bin" serve --no-monitor --port "$port" >>"$log" 2>&1 </dev/null &
   pid=$!
   if _ack_proxy_wait "$port" "$pid"; then return 0; fi
-  if ! ack_run_bounded 20 "$bin" codex auth status; then
+  ack_run_bounded 20 "$bin" codex auth status
+  rc=$?
+  if [ "$rc" = 124 ]; then
+    echo "ack: the proxy was started but 'claude-code-proxy codex auth status' timed out after 20 s." >&2
+    echo "ack: read the log at $log." >&2
+    return 5
+  elif [ "$rc" != 0 ]; then
     echo "ack: The proxy is not signed in. Run: claude-code-proxy codex auth login" >&2
     return 5
   fi

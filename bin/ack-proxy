@@ -4,7 +4,9 @@
 # Exit codes: 0 ok, 1 check-slots found an unknown model, 2 usage error,
 # 3 a foreign unit file sits at the target (nothing changed), 5 the proxy or
 # its binary is missing, 6 no user service manager on this platform,
-# 7 the service manager refused (service install/remove).
+# 7 the service manager refused (service install/remove). `models` and
+# `check-slots` also exit 5 when `claude-code-proxy models` fails or times out;
+# `check-slots` exits 1 only for an unknown slot model.
 
 # Git for Windows may hand over a backslash path (bash 'D:\x\ack-proxy').
 _slashes() { case "$OSTYPE" in msys*|cygwin*) REPLY="${1//\\//}" ;; *) REPLY="$1" ;; esac; }
@@ -46,12 +48,19 @@ need_binary() {
   fi
 }
 
-# fetch_models: run `claude-code-proxy models` (bounded) into MODELS_RAW, or exit 1.
+# fetch_models: run `claude-code-proxy models` (bounded) into MODELS_RAW, or exit 5.
 fetch_models() {
-  if ! ack_run_bounded 20 "$BIN" models; then
+  local rc
+  ack_run_bounded 20 "$BIN" models
+  rc=$?
+  if [ "$rc" = 124 ]; then
+    echo "ack-proxy: 'claude-code-proxy models' timed out after 20 s." >&2
+    echo "ack-proxy: run it by hand to see the problem." >&2
+    exit 5
+  elif [ "$rc" != 0 ]; then
     echo "ack-proxy: 'claude-code-proxy models' failed${ACK_BOUNDED_ERR:+: $ACK_BOUNDED_ERR}." >&2
     echo "ack-proxy: run it by hand to see the problem." >&2
-    exit 1
+    exit 5
   fi
   MODELS_RAW="$ACK_BOUNDED_OUT"
 }
@@ -231,7 +240,11 @@ cmd_service() {
   elif ! systemctl --user enable --now "$ACK_PROXY_UNIT" >/dev/null 2>&1; then step="enable --now"
   fi
   if [ -n "$step" ]; then
-    [ "$existed" = 0 ] && rm -f "$unit"
+    if [ "$existed" = 0 ]; then
+      systemctl --user disable "$ACK_PROXY_UNIT" >/dev/null 2>&1
+      rm -f "$unit"
+      systemctl --user daemon-reload >/dev/null 2>&1
+    fi
     echo "ack-proxy: systemctl --user $step failed, so the service is not set up." >&2
     echo "ack-proxy: nothing more is needed; the wrapper starts the proxy on demand anyway." >&2
     exit 7

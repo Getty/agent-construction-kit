@@ -1,4 +1,5 @@
 import os
+import time
 import unittest
 
 from helpers import ROOT, Sandbox
@@ -186,7 +187,6 @@ class ProxyTest(Sandbox):
     def test_service_install_escapes_percent(self):
         pct = self.root / "bin%d"
         pct.mkdir()
-        self.fake("claude-code-proxy", FAKE_PROXY)
         (pct / "claude-code-proxy").write_text(FAKE_PROXY)
         (pct / "claude-code-proxy").chmod(0o755)
         self.env["PATH"] = "%s:%s" % (pct, self.env["PATH"])
@@ -258,8 +258,38 @@ class ProxyTest(Sandbox):
     def test_failing_models_command_shows_its_first_stderr_line(self):
         self.fake("claude-code-proxy", '#!/usr/bin/env bash\necho boom >&2\nexit 3\n')
         r = self.ap("models")
-        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.returncode, 5)
         self.assertIn("failed: boom", r.stderr)
+        self.assertEqual(self.ap("check-slots").returncode, 5)
+
+    @unittest.skipIf(os.name == "nt", "PATH entries and native paths differ on Windows")
+    def test_service_install_refuses_a_relative_binary_path(self):
+        rel = self.home / "rel"
+        rel.mkdir()
+        (rel / "claude-code-proxy").write_text(FAKE_PROXY)
+        (rel / "claude-code-proxy").chmod(0o755)
+        self.env["PATH"] = "rel:" + self.env["PATH"]
+        r = self.run_cmd("bash", "-c", 'cd "$HOME" && exec bash "%s" service install' % AP)
+        self.assertEqual(r.returncode, 5, r.stderr)
+        self.assertIn("not absolute", r.stderr)
+        self.assertFalse((self.home / UNIT).exists())
+
+    def bounded(self, secs, *cmd):
+        script = '. "%s/share/lib.sh"; ack_run_bounded %s %s; echo "rc=$?"' % (ROOT, secs, " ".join(cmd))
+        t = time.time()
+        r = self.run_cmd("bash", "-c", script)
+        return r, time.time() - t
+
+    def test_run_bounded_cuts_off_a_hung_command(self):
+        r, took = self.bounded(1, "sleep", "30")
+        self.assertIn("rc=124", r.stdout, r.stderr)
+        self.assertLess(took, 6)
+
+    def test_run_bounded_cuts_off_a_term_ignoring_command(self):
+        self.fake("stubborn", "#!/usr/bin/env bash\ntrap '' TERM\nsleep 5\n")
+        r, took = self.bounded(1, "stubborn")
+        self.assertIn("rc=124", r.stdout, r.stderr)
+        self.assertLess(took, 4.5)
 
     def test_ensure_command(self):
         r = self.ap("ensure")
