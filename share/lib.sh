@@ -346,16 +346,16 @@ ack_proxy_reachable() {
 # binary needed). Sets ACK_BOUNDED_OUT (stdout), ACK_BOUNDED_ERR (first stderr line);
 # returns the exit status, 124 on timeout.
 ack_run_bounded() {
-  local secs="$1" d pid i=0 max rc
+  local secs="$1" d pid i=0 t0 rc
   shift
   ACK_BOUNDED_OUT="" ACK_BOUNDED_ERR=""
   d="$(mktemp -d)" || return 1
   "$@" >"$d/out" 2>"$d/err" </dev/null &
   pid=$!
-  max=$((secs * 10))
-  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$max" ]; do
+  # Wall clock, not a count of sleeps: where a fork is slow, 0.1 s takes far longer.
+  t0=$SECONDS
+  while kill -0 "$pid" 2>/dev/null && [ $((SECONDS - t0)) -lt "$secs" ]; do
     sleep 0.1
-    i=$((i + 1))
   done
   if kill -0 "$pid" 2>/dev/null; then
     kill "$pid" 2>/dev/null

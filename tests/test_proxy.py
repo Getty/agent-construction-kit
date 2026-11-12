@@ -310,12 +310,12 @@ class ProxyTest(Sandbox):
     def test_status_finds_the_binary_in_local_bin(self):
         b = self.hide_on_path()
         r = self.ap("status")
-        self.assertIn("binary\tok\t%s (not on PATH)\n" % b, r.stdout)
+        self.assertIn("binary\tok\t%s (not on PATH)\n" % self.shown(b), r.stdout)
         self.assertIn("auth\tok\t", r.stdout)
 
     def test_status_finds_the_binary_in_home_bin(self):
         b = self.hide_on_path("bin")
-        self.assertIn("binary\tok\t%s (not on PATH)\n" % b, self.ap("status").stdout)
+        self.assertIn("binary\tok\t%s (not on PATH)\n" % self.shown(b), self.ap("status").stdout)
 
     def test_status_on_path_has_no_suffix(self):
         line = [l for l in self.ap("status").stdout.splitlines() if l.startswith("binary")][0]
@@ -335,16 +335,16 @@ class ProxyTest(Sandbox):
         self.write("auth-fails", "")
         r = self.cw("--provider", "openai", "--", "x")
         self.assertEqual(r.returncode, 5)
-        self.assertIn('The proxy is not signed in. Run: "%s" codex auth login' % b, r.stderr)
+        self.assertIn('The proxy is not signed in. Run: "%s" codex auth login' % self.shown(b), r.stderr)
         r = self.ap("status")
-        self.assertIn('auth\tmissing\trun: "%s" codex auth login' % b, r.stdout)
+        self.assertIn('auth\tmissing\trun: "%s" codex auth login' % self.shown(b), r.stdout)
 
     def test_check_slots_login_hint_names_the_full_path_off_path(self):
         b = self.hide_on_path()
         (b.parent / "claude-code-proxy").write_text("#!/usr/bin/env bash\nexit 0\n")
         r = self.ap("check-slots")
         self.assertEqual(r.returncode, 5)
-        self.assertIn('log in with: "%s" codex auth login' % b, r.stderr)
+        self.assertIn('log in with: "%s" codex auth login' % self.shown(b), r.stderr)
 
     def test_proxy_bin_is_used(self):
         (self.fakebin / "claude-code-proxy").unlink()
@@ -368,7 +368,7 @@ class ProxyTest(Sandbox):
         b = self.hide_on_path()
         self.assertEqual(self.ap("service", "install").returncode, 0)
         unit = (self.home / UNIT).read_text()
-        self.assertIn('ExecStart="%s" serve --no-monitor --port 18765' % str(b).replace("%", "%%"), unit)
+        self.assertIn('ExecStart="%s" serve --no-monitor --port 18765' % self.shown(b).replace("%", "%%"), unit)
 
     def test_check_slots_checks_the_small_model_slot(self):
         r = self.ap("check-slots", env={"ACK_OPENAI_SMALL_MODEL": "typo-model"})

@@ -316,13 +316,13 @@ class DoctorTest(Sandbox):
         b.write_text("#!/bin/sh\n")
         b.chmod(0o755)
         out = self.doc().stdout
-        self.assertIn("tool:claude-code-proxy\tok\t%s (not on PATH)\n" % b, out)
+        self.assertIn("tool:claude-code-proxy\tok\t%s (not on PATH)\n" % self.shown(b), out)
 
     def test_proxy_binary_on_path_has_no_suffix(self):
         self.good()
         self.fake("claude-code-proxy", "#!/bin/sh\n")
         out = self.doc().stdout
-        self.assertIn("tool:claude-code-proxy\tok\t%s\n" % (self.fakebin / "claude-code-proxy"), out)
+        self.assertIn("tool:claude-code-proxy\tok\t%s\n" % self.shown(self.fakebin / "claude-code-proxy"), out)
 
     def test_proxy_bin_variable_decides(self):
         self.good()

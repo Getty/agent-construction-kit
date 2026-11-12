@@ -89,6 +89,14 @@ class Sandbox(unittest.TestCase):
                 return [str(exe)] + argv[1:]
         return argv
 
+    def shown(self, p):
+        """The path as the scripts print it: Git for Windows shows the temp
+        directory as /tmp/..., everywhere else it is the path itself."""
+        p = pathlib.Path(p)
+        if os.name != "nt":
+            return str(p)
+        return "/tmp/%s/%s" % (self.root.name, p.relative_to(self.root).as_posix())
+
     def fake(self, name, script):
         p = self.fakebin / name
         with open(str(p), "w", newline="") as f:
