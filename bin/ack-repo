@@ -1,0 +1,320 @@
+#!/usr/bin/env bash
+# ack-repo: read a directory's git state, create a repository, create a disk remote.
+#   ack-repo inspect [DIR]
+#   ack-repo init [DIR]
+#   ack-repo disk-remote <TARGET-DIR> [--name NAME] [--dir DIR]
+# DIR defaults to the current directory. Output is tab separated, one fact per line:
+#   git<TAB>ok|missing<TAB>TOPLEVEL-or-DIR       missing = not a repository
+#   commits<TAB>N   branch<TAB>NAME   dirty<TAB>N      (only for a repository)
+#   remote<TAB>NAME<TAB>KIND<TAB>URL             one per remote, URL without credentials;
+#                                                KIND = github|codeberg|gitlab|forge|disk|other
+#   signal<TAB>KIND<TAB>FILE                     KIND = perl|node|python|go|rust|make|ci
+#   tests<TAB>DIR<TAB>N<TAB>nested|flat          N files; nested = tests in subdirectories
+#   team<TAB>agents|rules|skills<TAB>N   team<TAB>skilletor<TAB>yes|no   team<TAB>board<TAB>karr|none
+#   sibling<TAB>DIR                              a neighbour with git and the same name prefix
+#   prefix<TAB>NAME                              the name in kebab-case, without p5-/node-/py-
+# inspect only reads. init runs "git init" on branch main and writes a .gitignore when
+# there is none; it prints "git<TAB>created<TAB>DIR", or "git<TAB>ok<TAB>DIR" when DIR is
+# already inside a repository (then nothing changes, no commit either).
+# disk-remote creates TARGET-DIR/<repo>.git as a bare repository, adds it as remote NAME
+# (default origin; backup when origin is taken) and pushes all branches. It prints
+# "remote<TAB>created<TAB>NAME<TAB>PATH" and "push<TAB>ok|skipped<TAB>REASON" (skipped
+# while there is no commit). --dir DIR selects the repository (default: current directory).
+# Exit codes: 0 ok, 1 the push failed, 2 usage error or unusable target (missing, not
+# writable, inside the repository, DIR is no repository), 3 something of that name
+# already exists (nothing changed).
+# Errors are two lines on stderr: "ack-repo: <what>" and "ack-repo: <what to do>".
+
+_help() {
+  local n=0 line
+  while IFS= read -r line; do
+    n=$((n + 1))
+    [ "$n" -ge 2 ] || continue
+    case "$line" in '#'*) line="${line#\#}"; printf '%s\n' "${line# }" ;; *) break ;; esac
+  done < "$_self"
+}
+
+# Git for Windows may hand over a backslash path (bash 'D:\x\ack-repo').
+_slashes() { case "$OSTYPE" in msys*|cygwin*) REPLY="${1//\\//}" ;; *) REPLY="$1" ;; esac; }
+_slashes "${BASH_SOURCE[0]}"; _self="$REPLY"
+_src="$_self"
+while [ -L "$_src" ]; do
+  _slashes "$(readlink "$_src")"; _t="$REPLY"
+  case "$_t" in
+    /*) _src="$_t" ;;
+    *) case "$_src" in */*) _src="${_src%/*}/$_t" ;; *) _src="./$_t" ;; esac ;;
+  esac
+done
+case "$_src" in */*) _dir="${_src%/*}" ;; *) _dir="." ;; esac
+if ! SHARE="$(cd "$_dir/../share" 2>/dev/null && pwd)"; then
+  echo "ack-repo: cannot find the share directory next to bin/." >&2
+  echo "ack-repo: reinstall agent-construction-kit." >&2
+  exit 2
+fi
+# shellcheck source=../share/lib.sh
+. "$SHARE/lib.sh" || exit 2
+
+TAB=$'\t'
+
+# fail CODE WHAT TODO
+fail() {
+  echo "ack-repo: $2" >&2
+  echo "ack-repo: $3" >&2
+  exit "$1"
+}
+usage_err() {
+  fail 2 "$1" "usage: ack-repo inspect|init|disk-remote (see the header of $0)."
+}
+
+command -v git >/dev/null 2>&1 || fail 2 "git is not installed." "install git and run ack-repo again."
+
+# _absdir DIR -> REPLY (logical absolute path), fails when DIR is no directory
+_absdir() { REPLY="$(cd "$1" 2>/dev/null && pwd)" && [ -n "$REPLY" ]; }
+_physdir() { REPLY="$(cd "$1" 2>/dev/null && pwd -P)" && [ -n "$REPLY" ]; }
+
+# _toplevel DIR -> REPLY: the repository's top directory; fails outside a repository
+_toplevel() {
+  REPLY="$(cd "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$REPLY" ]
+}
+
+# _count N -> REPLY without the padding some wc versions add
+_count() { REPLY="${1//[[:space:]]/}"; [ -n "$REPLY" ] || REPLY=0; }
+
+# _kebab NAME -> REPLY: small letters and digits, dashes between, no p5-/node-/py-
+_kebab() {
+  local n
+  n="$(printf '%s' "$1" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9\n' '-' | tr -s '-')"
+  n="${n#-}"; n="${n%-}"
+  case "$n" in
+    p5-?*) n="${n#p5-}" ;;
+    node-?*) n="${n#node-}" ;;
+    py-?*) n="${n#py-}" ;;
+  esac
+  REPLY="$n"
+}
+
+# _host URL -> REPLY: the host part of a remote URL (empty for a local path)
+_host() {
+  local u="$1"
+  case "$u" in
+    *://*) u="${u#*://}"; u="${u##*@}"; REPLY="${u%%[/:]*}" ;;
+    /*|./*|../*|[A-Za-z]:[\\/]*|'') REPLY="" ;;
+    *:*) u="${u%%:*}"; REPLY="${u##*@}" ;;
+    *) REPLY="" ;;
+  esac
+}
+
+# _kind URL -> REPLY (URL already without credentials)
+_kind() {
+  local u="$1" h
+  case "$u" in
+    file://*|/*|./*|../*|[A-Za-z]:[\\/]*) REPLY=disk; return ;;
+  esac
+  _host "$u"; h="$(printf '%s' "$REPLY" | tr 'A-Z' 'a-z')"
+  case "$h" in
+    '') REPLY=disk ;;
+    *github.com*) REPLY=github ;;
+    *codeberg.org*) REPLY=codeberg ;;
+    *gitlab*) REPLY=gitlab ;;
+    *gitea*|*forgejo*|git.*|*.git.*) REPLY=forge ;;
+    *) REPLY=other ;;
+  esac
+}
+
+# ---------------------------------------------------------------- inspect
+
+cmd_inspect() {
+  local dir="${1:-.}" top base name f d n f2 rel nested kind url
+  [ $# -le 1 ] || usage_err "inspect takes at most one directory."
+  [ -d "$dir" ] || fail 2 "'$dir' is not a directory." "pass an existing directory."
+  _absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
+  base="$REPLY"
+  if _toplevel "$base"; then
+    top="$REPLY"; base="$top"
+    printf 'git%sok%s%s\n' "$TAB" "$TAB" "$top"
+    if git -C "$top" rev-parse --verify -q HEAD >/dev/null 2>&1; then
+      _count "$(git -C "$top" rev-list --count HEAD 2>/dev/null)"
+    else
+      REPLY=0
+    fi
+    printf 'commits%s%s\n' "$TAB" "$REPLY"
+    n="$(git -C "$top" symbolic-ref --short -q HEAD 2>/dev/null)" || n=""
+    printf 'branch%s%s\n' "$TAB" "${n:-detached}"
+    _count "$(git -C "$top" status --porcelain -uall 2>/dev/null | wc -l)"
+    printf 'dirty%s%s\n' "$TAB" "$REPLY"
+    while IFS= read -r name; do
+      [ -n "$name" ] || continue
+      url="$(git -C "$top" remote get-url "$name" 2>/dev/null)" || url=""
+      ack_strip_url "$url"; url="$REPLY"
+      _kind "$url"; kind="$REPLY"
+      printf 'remote%s%s%s%s%s%s\n' "$TAB" "$name" "$TAB" "$kind" "$TAB" "$url"
+    done <<EOT
+$(git -C "$top" remote 2>/dev/null)
+EOT
+  else
+    printf 'git%smissing%s%s\n' "$TAB" "$TAB" "$base"
+  fi
+
+  # build and test signals: top level and .github/workflows only
+  for f in Makefile.PL Build.PL dist.ini cpanfile; do
+    [ -e "$base/$f" ] && printf 'signal%sperl%s%s\n' "$TAB" "$TAB" "$f"
+  done
+  [ -e "$base/package.json" ] && printf 'signal%snode%spackage.json\n' "$TAB" "$TAB"
+  for f in pyproject.toml setup.py setup.cfg requirements.txt; do
+    [ -e "$base/$f" ] && printf 'signal%spython%s%s\n' "$TAB" "$TAB" "$f"
+  done
+  [ -e "$base/go.mod" ] && printf 'signal%sgo%sgo.mod\n' "$TAB" "$TAB"
+  [ -e "$base/Cargo.toml" ] && printf 'signal%srust%sCargo.toml\n' "$TAB" "$TAB"
+  for f in Makefile GNUmakefile makefile; do
+    [ -e "$base/$f" ] && printf 'signal%smake%s%s\n' "$TAB" "$TAB" "$f"
+  done
+  for f in .gitlab-ci.yml .woodpecker.yml; do
+    [ -e "$base/$f" ] && printf 'signal%sci%s%s\n' "$TAB" "$TAB" "$f"
+  done
+  for f in "$base"/.github/workflows/*.yml "$base"/.github/workflows/*.yaml; do
+    [ -f "$f" ] && printf 'signal%sci%s.github/workflows/%s\n' "$TAB" "$TAB" "${f##*/}"
+  done
+
+  # tests
+  for d in t tests test spec __tests__; do
+    [ -d "$base/$d" ] || continue
+    n=0; nested=flat
+    while IFS= read -r f2; do
+      [ -n "$f2" ] || continue
+      n=$((n + 1))
+      rel="${f2#"$base/$d/"}"
+      case "$rel" in */*) nested=nested ;; esac
+    done <<EOT
+$(find "$base/$d" -type f 2>/dev/null)
+EOT
+    printf 'tests%s%s%s%s%s%s\n' "$TAB" "$d" "$TAB" "$n" "$TAB" "$nested"
+  done
+
+  # the team
+  for d in agents rules; do
+    n=0
+    for f in "$base/.claude/$d"/*.md; do [ -f "$f" ] && n=$((n + 1)); done
+    printf 'team%s%s%s%s\n' "$TAB" "$d" "$TAB" "$n"
+  done
+  n=0
+  for f in "$base/.claude/skills"/*; do { [ -e "$f" ] || [ -L "$f" ]; } && n=$((n + 1)); done
+  printf 'team%sskills%s%s\n' "$TAB" "$TAB" "$n"
+  if [ -e "$base/skilletor.json" ]; then
+    printf 'team%sskilletor%syes\n' "$TAB" "$TAB"
+  else
+    printf 'team%sskilletor%sno\n' "$TAB" "$TAB"
+  fi
+  if [ -n "$top" ] && [ -n "$(git -C "$top" for-each-ref --count=1 refs/karr 2>/dev/null)" ]; then
+    printf 'team%sboard%skarr\n' "$TAB" "$TAB"
+  else
+    printf 'team%sboard%snone\n' "$TAB" "$TAB"
+  fi
+
+  # neighbours with git and the same prefix, then the suggested name
+  name="${base##*/}"
+  _kebab "$name"; n="$REPLY"
+  local mine="${n%%-*}" parent="${base%/*}" s sn
+  [ -n "$parent" ] || parent="/"
+  if [ -n "$mine" ]; then
+    for s in "$parent"/*; do
+      [ -d "$s" ] && [ "$s" != "$base" ] || continue
+      [ -e "$s/.git" ] || continue
+      _kebab "${s##*/}"; sn="$REPLY"
+      [ "${sn%%-*}" = "$mine" ] && printf 'sibling%s%s\n' "$TAB" "$s"
+    done
+  fi
+  printf 'prefix%s%s\n' "$TAB" "$n"
+}
+
+# ---------------------------------------------------------------- init
+
+cmd_init() {
+  local dir="${1:-.}" top
+  [ $# -le 1 ] || usage_err "init takes at most one directory."
+  [ -d "$dir" ] || fail 2 "'$dir' is not a directory." "create it or pass an existing directory."
+  _absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
+  dir="$REPLY"
+  if _toplevel "$dir"; then
+    printf 'git%sok%s%s\n' "$TAB" "$TAB" "$REPLY"
+    return 0
+  fi
+  git init -q "$dir" >/dev/null 2>&1 && git -C "$dir" symbolic-ref HEAD refs/heads/main ||
+    fail 1 "git init failed in '$dir'." "check that the directory is writable."
+  if [ ! -e "$dir/.gitignore" ] && [ ! -L "$dir/.gitignore" ]; then
+    printf '%s\n' '.claude/settings.local.json' '.env' '*.key' > "$dir/.gitignore" ||
+      fail 1 "cannot write '$dir/.gitignore'." "check that the directory is writable."
+  fi
+  printf 'git%screated%s%s\n' "$TAB" "$TAB" "$dir"
+}
+
+# ---------------------------------------------------------------- disk-remote
+
+cmd_disk_remote() {
+  local target="" name="" dir="." explicit=0 top ptop ptarget bare repo branch
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name) [ $# -ge 2 ] || usage_err "--name needs a value."; name="$2"; explicit=1; shift 2 ;;
+      --dir) [ $# -ge 2 ] || usage_err "--dir needs a value."; dir="$2"; shift 2 ;;
+      -*) usage_err "unknown option '$1'." ;;
+      *) [ -z "$target" ] || usage_err "disk-remote takes one target directory."; target="$1"; shift ;;
+    esac
+  done
+  [ -n "$target" ] || usage_err "disk-remote needs a target directory."
+  [ -d "$dir" ] || fail 2 "'$dir' is not a directory." "pass the repository with --dir."
+  _toplevel "$dir" || fail 2 "'$dir' is not a git repository." "run ack-repo init first."
+  top="$REPLY"
+  [ -d "$target" ] || fail 2 "the target '$target' does not exist." "mount or create it, then run ack-repo again."
+  [ -w "$target" ] || fail 2 "the target '$target' is not writable." "check the permissions or the mount."
+  _physdir "$top" && ptop="$REPLY" || ptop="$top"
+  _physdir "$target" && ptarget="$REPLY" || fail 2 "cannot enter '$target'." "check its permissions."
+  case "$ptarget/" in
+    "$ptop"/*) fail 2 "the target '$target' lies inside the repository." "pick a directory outside '$top'." ;;
+  esac
+  _absdir "$target" && target="$REPLY"
+  repo="${top##*/}"
+  bare="$target/$repo.git"
+  if [ -e "$bare" ] || [ -L "$bare" ]; then
+    fail 3 "'$bare' already exists." "pick another target or remove it yourself; nothing was changed."
+  fi
+  if [ "$explicit" = 0 ]; then
+    name=origin
+    if git -C "$top" remote | grep -Fxq origin; then
+      name=backup
+    fi
+  fi
+  if git -C "$top" remote | grep -Fxq "$name"; then
+    fail 3 "the remote '$name' already exists." "pick another name with --name; nothing was changed."
+  fi
+  git init -q --bare "$bare" >/dev/null 2>&1 ||
+    fail 1 "cannot create '$bare'." "check that the target is writable."
+  branch="$(git -C "$top" symbolic-ref -q HEAD 2>/dev/null)" || branch=""
+  [ -n "$branch" ] && git --git-dir="$bare" symbolic-ref HEAD "$branch" >/dev/null 2>&1
+  if ! git -C "$top" remote add "$name" "$bare" >/dev/null 2>&1; then
+    rm -rf "$bare"
+    fail 1 "cannot add the remote '$name'." "check the repository's config."
+  fi
+  printf 'remote%screated%s%s%s%s\n' "$TAB" "$TAB" "$name" "$TAB" "$bare"
+  if ! git -C "$top" rev-parse --verify -q HEAD >/dev/null 2>&1; then
+    printf 'push%sskipped%sno commit yet\n' "$TAB" "$TAB"
+    return 0
+  fi
+  if git -C "$top" push -q "$name" --all >/dev/null 2>&1; then
+    printf 'push%sok%sall branches\n' "$TAB" "$TAB"
+  else
+    fail 1 "the push to '$bare' failed." "run: git -C '$top' push $name --all"
+  fi
+}
+
+main() {
+  [ $# -gt 0 ] || usage_err "missing subcommand."
+  local sub="$1"
+  shift
+  case "$sub" in
+    inspect) cmd_inspect "$@" ;;
+    init) cmd_init "$@" ;;
+    disk-remote) cmd_disk_remote "$@" ;;
+    -h|--help|help) _help; exit 0 ;;
+    *) usage_err "unknown subcommand '$sub'." ;;
+  esac
+}
+main "$@"
