@@ -18,6 +18,14 @@ ROLES = ("scout", "worker", "test-writer", "reviewer")
 READONLY = ("scout", "reviewer")
 
 
+def rmtree_force(path):
+    """Remove a tree including a .git directory (read-only object files on Windows)."""
+    def onerror(func, p, _info):
+        os.chmod(p, 0o700)
+        func(p)
+    shutil.rmtree(path, onerror=onerror)
+
+
 def agent_text(name, skills=("harbor-core",), extra="", description="Does the work.",
                style="block", nl="\n", indent="  ", tools=None):
     lines = ["---", "name: " + name, "description: " + description]
@@ -588,7 +596,7 @@ class TeamTest(Sandbox):
 
     def test_no_repository(self):
         d = self.team()
-        shutil.rmtree(str(d / ".git"))
+        rmtree_force(str(d / ".git"))
         r = self.at("check", cwd=d)
         self.assertEqual(r.returncode, 1)
         self.one(r, "git", "missing", ".")
