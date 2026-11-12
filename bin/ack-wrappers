@@ -4,6 +4,7 @@
 #   ack-wrappers install <provider|danger> [--permissions ask|allow|skip] [--dir DIR] [--replace]
 #   ack-wrappers uninstall <provider|danger> [--dir DIR]
 #   ack-wrappers path-fix [--dir DIR]
+#   ack-wrappers dir [--dir DIR]
 #   ack-wrappers key-template <provider>      ack-wrappers key-edit <provider>
 #   ack-wrappers set <provider> KEY=VALUE...
 #   ack-wrappers test <provider|danger> [--dir DIR]
@@ -42,7 +43,7 @@ trap '[ -n "$TMP" ] && rm -rf "$TMP"' EXIT
 
 usage_err() {
   echo "ack-wrappers: $1" >&2
-  echo "ack-wrappers: usage: ack-wrappers list|install|uninstall|path-fix|key-template|key-edit|set|test|probe-local|new-local (see the header of $0)." >&2
+  echo "ack-wrappers: usage: ack-wrappers list|install|uninstall|path-fix|dir|key-template|key-edit|set|test|probe-local|new-local (see the header of $0)." >&2
   exit 2
 }
 _is_windows() { case "$OSTYPE" in msys*|cygwin*) return 0 ;; esac; return 1; }
@@ -185,6 +186,12 @@ _find_wrapper_dir() {
   if [ -z "$OPT_DIR" ] && _scan_path_for "claude_with_$1"; then TARGET="$REPLY"; return 0; fi
   _target_dir
 }
+# _squeeze PATH -> REPLY with every run of slashes collapsed to one
+_squeeze() {
+  local two='//' one='/'
+  REPLY="$1"
+  while case "$REPLY" in *//*) true ;; *) false ;; esac; do REPLY="${REPLY//$two/$one}"; done
+}
 _data_abs() { # -> DATA (absolute, bash form); refuses ".." components
   _posix "$ACK_DATA_DIR"
   case "/$REPLY/" in
@@ -193,7 +200,7 @@ _data_abs() { # -> DATA (absolute, bash form); refuses ".." components
       echo "ack-wrappers: give an absolute path without '..', or unset ACK_DATA_DIR." >&2
       exit 2 ;;
   esac
-  _abspath "$REPLY"; DATA="$REPLY"
+  _abspath "$REPLY"; _squeeze "$REPLY"; DATA="$REPLY"
 }
 
 # _state FILE -> STATE absent|installed|foreign, STATE_PERM
@@ -267,9 +274,12 @@ _check_data() {
   p="${DATA%/}"; [ -n "$p" ] || p=/
   while [ ! -d "$p" ] && [ "$p" != / ]; do p="${p%/*}"; [ -n "$p" ] || p=/; done
   a="$(cd "$p" 2>/dev/null && pwd -P)" || a="$p"
+  _squeeze "$a"; a="$REPLY"
   if [ "$p" = "${DATA%/}" ] || [ "$DATA" = / ]; then r="$a"
   else r="${a%/}/${DATA#"${p%/}"/}"; fi
+  _squeeze "$r"; r="$REPLY"
   h="$(cd "$HOME" 2>/dev/null && pwd -P)" || h="${HOME%/}"
+  _squeeze "$h"; h="$REPLY"
   if [ "$r" = / ] || [ "$r" = "$h" ] || case "$h/" in "${r%/}/"*) true ;; *) false ;; esac; then
     echo "ack-wrappers: $DATA is your home directory or contains it, so it cannot be the data directory." >&2
     echo "ack-wrappers: unset ACK_DATA_DIR or point it at an empty folder of its own." >&2
@@ -399,6 +409,13 @@ cmd_uninstall() {
   return 0
 }
 
+cmd_dir() {
+  ALLOWED="--dir"; _parse "$@"
+  [ "${#ARGS[@]}" = 0 ] || usage_err "dir takes no argument."
+  _target_dir
+  if _dir_on_path "$TARGET"; then printf 'dir\tok\t%s\n' "$TARGET"
+  else printf 'dir\tmissing\t%s\n' "$TARGET"; fi
+}
 cmd_path_fix() {
   local dir files f line shown have
   ALLOWED="--dir"; _parse "$@"
@@ -742,6 +759,7 @@ main() {
     install) cmd_install "$@" ;;
     uninstall) cmd_uninstall "$@" ;;
     path-fix) cmd_path_fix "$@" ;;
+    dir) cmd_dir "$@" ;;
     key-template) cmd_key_template "$@" ;;
     key-edit) cmd_key_edit "$@" ;;
     set) cmd_set "$@" ;;

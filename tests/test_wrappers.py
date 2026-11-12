@@ -79,15 +79,61 @@ class WrappersTest(Sandbox):
         self.assertFalse((self.root / "claude-with").exists())
 
     def assert_home_untouched(self):
-        for name in (".ack-data", "claude-with", "lib.sh", "providers", "nx"):
+        for name in (".ack-data", "claude-with", "lib.sh", "providers", "VERSION", "nx"):
             self.assertFalse((self.home / name).exists(), name)
 
     def test_data_dir_with_dotdot_cannot_reach_home(self):
         for value in (str(self.home) + "/nx/..", str(self.home) + "/nx/../"):
             r = self.aw("install", "minimax", env={"ACK_DATA_DIR": value})
             self.assertEqual(r.returncode, 2, value)
-            self.assertIn("..", r.stderr)
+            if not NT:  # MSYS removes the ".." from the variable before bash sees it
+                self.assertIn("..", r.stderr)
             self.assert_home_untouched()
+
+    @unittest.skipIf(NT, "a leading // is a network path on Windows")
+    def test_data_dir_with_extra_slashes_cannot_reach_home(self):
+        h = str(self.home)
+        for value in ("/" + h, "/" + h + "/.", "//" + h, "///" + h + "//"):
+            r = self.aw("install", "minimax", env={"ACK_DATA_DIR": value})
+            self.assertEqual(r.returncode, 2, value + r.stdout + r.stderr)
+            self.assert_home_untouched()
+
+    def test_data_dir_through_a_symlink_to_root_is_refused(self):
+        if NT:
+            self.skipTest("symlinks need privileges on Windows")
+        os.symlink("/", str(self.home / "l"))
+        value = str(self.home) + "/l" + str(self.home)
+        r = self.aw("install", "minimax", env={"ACK_DATA_DIR": value})
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        for name in (".ack-data", "claude-with", "lib.sh", "providers", "VERSION"):
+            self.assertFalse((self.home / name).exists(), name)
+
+    # ---- dir ----------------------------------------------------------------
+
+    def test_dir_default_is_local_bin_and_missing(self):
+        r = self.aw("dir")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertEqual(len(lines), 1)
+        cols = lines[0].split("\t")
+        self.assertEqual(cols[:2], ["dir", "missing"])
+        self.assertTrue(cols[2].endswith(".local/bin"), cols[2])
+        self.assertFalse(self.bindir.exists())
+
+    def test_dir_follows_a_wrapper_on_path(self):
+        self.fake("claude_with_x", "#!/bin/sh\necho x\n")
+        cols = self.aw("dir").stdout.rstrip("\n").split("\t")
+        self.assertEqual(cols[:2], ["dir", "ok"])
+        self.assertTrue(cols[2].endswith("fakebin"), cols[2])
+
+    def test_dir_with_dir_option(self):
+        d = self.root / "new bin"
+        cols = self.aw("dir", "--dir", str(d)).stdout.rstrip("\n").split("\t")
+        self.assertEqual(cols[:2], ["dir", "missing"])
+        self.assertTrue(cols[2].endswith("new bin"), cols[2])
+        self.assertFalse(d.exists())
+        cols = self.aw("dir", "--dir", str(self.fakebin)).stdout.rstrip("\n").split("\t")
+        self.assertEqual(cols[:2], ["dir", "ok"])
 
     def test_relative_data_dir_with_dotdot_is_refused(self):
         r = self.run_cmd("bash", "-c", 'cd "$HOME" && exec bash "$0" install minimax', AW,
