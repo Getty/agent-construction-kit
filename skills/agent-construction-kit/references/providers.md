@@ -59,8 +59,10 @@ error or unknown provider; 3 a foreign file is in the way, nothing changed.
 - `path<TAB>pending<TAB><dir>`: `path-fix` added the folder to the shell startup file
   already; new terminal windows find the starters. Do not ask again; say it once at the
   end.
-- Exit 3: `foreign<TAB><path>` (and `symlink<TAB>...` for a link), then a diff. Show it,
-  ask, and repeat with `--replace` only after an explicit yes.
+- Exit 3: `foreign<TAB><path>` (and `symlink<TAB>...` for a link); stderr gives its size
+  and date. Say that a file of that name exists that this kit did not create; never open
+  or paste it, as a hand-written starter often holds a key. Ask whether to replace it (a
+  backup is kept as `.bak-<date>`), and repeat with `--replace` only after an explicit yes.
 
 `path-fix` prints one line per shell startup file:
 

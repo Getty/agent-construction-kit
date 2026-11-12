@@ -255,17 +255,25 @@ _cmd_text() { # name perm bash_windows -> stdout (CRLF)
   printf 'rem %s provider=%s permissions=%s\r\n' "$MARK" "$mprov" "$2"
 }
 
-# _show_foreign PATH NEWFILE: what is in the way, as a diff
+# _foreign_note PATH -> REPLY: the path with its kind, size and date. Never its
+# content: a hand-written starter often carries a key.
+_foreign_note() {
+  local p="$1" mode links uid gid size mon day tm
+  if [ -L "$p" ]; then REPLY="$p (a symbolic link)"; return 0; fi
+  if [ ! -f "$p" ]; then REPLY="$p (not a regular file)"; return 0; fi
+  read -r mode links uid gid size mon day tm _ <<EOT
+$(LC_ALL=C ls -ldn -- "$p" 2>/dev/null)
+EOT
+  case "$size" in ''|*[!0-9]*) REPLY="$p"; return 0 ;; esac
+  REPLY="$p ($size bytes, last changed $mon $day $tm)"
+}
+# _show_foreign PATH: what is in the way: its path on stdout, its size and date on stderr
 _show_foreign() {
-  local p="$1" new="$2"
+  local p="$1"
   printf 'foreign%s%s\n' "$TAB" "$p"
   [ -L "$p" ] && printf 'symlink%s%s%s%s\n' "$TAB" "$p" "$TAB" "$(readlink "$p")"
-  [ -f "$p" ] || return 0
-  if type diff >/dev/null 2>&1; then
-    diff -u -L "$p (existing)" -L "$p (new)" "$p" "$new"
-  else
-    printf -- '--- %s (existing)\n' "$p"; cat "$p"; printf -- '--- %s (new)\n' "$p"; cat "$new"
-  fi
+  _foreign_note "$p"
+  echo "ack-wrappers: $REPLY was not created by agent-construction-kit, so it was left alone." >&2
   return 0
 }
 _foreign_msg() {
@@ -354,7 +362,7 @@ cmd_list() {
 }
 
 cmd_install() {
-  local p src name dir file cmdf bashw="" rc=0 st kind bad=""
+  local p src name dir file cmdf bashw="" rc=0 st kind
   ALLOWED="--permissions --dir --replace"; _parse "$@"
   _need_names 1; name="${ARGS[0]}"; _valid_name "$name"
   _select "$name"
@@ -368,12 +376,12 @@ cmd_install() {
   _wrapper_text "$name" "$PERM" > "$TMP/new"
   _cmd_text "$name" "$PERM" "$bashw" > "$TMP/new.cmd"
   if [ "$OPT_REPLACE" = 0 ]; then
-    _state "$file"; [ "$STATE" = foreign ] && { _show_foreign "$file" "$TMP/new"; rc=3; bad="$file"; }
+    _state "$file"; [ "$STATE" = foreign ] && { _show_foreign "$file"; rc=3; }
     if _is_windows; then
-      _state "$cmdf"; [ "$STATE" = foreign ] && { _show_foreign "$cmdf" "$TMP/new.cmd"; rc=3; bad="${bad:+$bad and }$cmdf"; }
+      _state "$cmdf"; [ "$STATE" = foreign ] && { _show_foreign "$cmdf"; rc=3; }
     fi
     if [ "$rc" = 3 ]; then
-      _foreign_msg "$bad" "Compare the diff above, then re-run with --replace to keep a .bak copy and install over it, or pick another --dir."
+      echo "ack-wrappers: re-run with --replace to keep a .bak-YYYY-MM-DD copy and install over it, or pick another --dir." >&2
       exit 3
     fi
   fi

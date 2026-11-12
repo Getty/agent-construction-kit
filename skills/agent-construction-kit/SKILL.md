@@ -6,10 +6,9 @@ description: "Use when the user wants to set up a machine for agent teams, creat
 # Agent Construction Kit: machine setup
 
 End state: the plugins agent teams need are installed, and the user has one working
-`claude_with_<name>` starter per provider they want. The user needs to know nothing
-about the kit: you run every command, they only answer. This version sets up the
-machine; the team itself (its shape, roles, rules, board) comes with a later version of
-the kit. If the user asks for it, say so plainly instead of improvising one.
+`claude_with_<name>` starter per provider they want, without knowing anything about the
+kit. This version sets up the machine; the team itself (its shape, roles, rules, board)
+comes with a later version. If the user asks for it, say so plainly instead of improvising.
 
 ## Talking with the user
 
@@ -82,8 +81,9 @@ ones the user has an account with; if none, recommend skipping, since their norm
 2. `ack-wrappers install <provider> --permissions <mode>`. On `path<TAB>missing` (a new
    terminal would not find the starter): ask, then run `ack-wrappers path-fix`. On
    `path<TAB>pending`, or on Windows `missing` once you ran path-fix's line: done, do not
-   ask again. On exit 3 (a `foreign` file, a diff): show the diff, say what differs, ask
-   whether to replace it (kept as `.bak-<date>`); add `--replace` only after a clear yes.
+   ask again. On exit 3 (`foreign`): a file of that name exists that this kit did not
+   create. Say so; never open or paste it (it may hold a key). Ask whether to replace it
+   (a backup is kept as `.bak-<date>`); add `--replace` only after a clear yes.
 3. `ack-wrappers test <provider>`, with a command timeout of at least 200 seconds (it
    waits up to two minutes). It prints one line `test<TAB>ok|missing<TAB><reason>`.
    - `no key yet`: ask the user to get an API key on the provider's website, and not to

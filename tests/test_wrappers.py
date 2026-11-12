@@ -218,12 +218,22 @@ class WrappersTest(Sandbox):
 
     # ---- foreign files ---------------------------------------------------
 
-    def test_foreign_file_is_kept_and_diff_shown(self):
-        w = self.write(".local/bin/claude_with_minimax", "#!/bin/sh\necho mine\n", 0o755)
+    def test_foreign_file_is_kept_and_its_content_never_shown(self):
+        # a hand-written starter with an inline key is exactly what sits there
+        text = '#!/bin/bash\nexport ANTHROPIC_AUTH_TOKEN=sk-FAKE-OLD-SECRET-123\nexec claude "$@"\n'
+        w = self.write(".local/bin/claude_with_minimax", text, 0o755)
         r = self.aw("install", "minimax")
         self.assertEqual(r.returncode, 3)
-        self.assertEqual(w.read_text(), "#!/bin/sh\necho mine\n")
-        self.assertIn("echo mine", r.stdout)
+        self.assertEqual(w.read_text(), text)
+        for part in ("sk-FAKE", "SECRET-123", "ANTHROPIC_AUTH_TOKEN", "exec claude"):
+            self.assertNotIn(part, r.stdout + r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertEqual(len(lines), 1, r.stdout)
+        self.assertTrue(lines[0].startswith("foreign\t"), lines[0])
+        self.assertTrue(lines[0].endswith("/claude_with_minimax"), lines[0])
+        self.assertIn("claude_with_minimax (%d bytes, last changed " % len(text), r.stderr)
+        self.assertIn("was not created by agent-construction-kit", r.stderr)
+        self.assertIn("--replace to keep a .bak-YYYY-MM-DD copy", r.stderr)
         self.assertFalse((self.home / ".local/share/agent-construction-kit").exists())
 
     def test_replace_backs_up_the_foreign_file(self):
@@ -242,6 +252,8 @@ class WrappersTest(Sandbox):
         os.symlink(str(other), str(self.wrapper("minimax")))
         r = self.aw("install", "minimax")
         self.assertEqual(r.returncode, 3)
+        self.assertNotIn("echo other", r.stdout + r.stderr)
+        self.assertIn("claude_with_minimax (a symbolic link) was not created", r.stderr)
         self.assertTrue(os.path.islink(str(self.wrapper("minimax"))))
         self.assertEqual(os.readlink(str(self.wrapper("minimax"))), str(other))
         self.assertEqual(other.read_text(), "#!/bin/sh\necho other\n")
