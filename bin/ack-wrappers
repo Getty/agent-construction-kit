@@ -74,10 +74,9 @@ _absdir() { REPLY="$(cd "$1" 2>/dev/null && pwd)"; }
 _abspath() {
   local p="$1"
   while [ "${p%/}" != "$p" ] && [ -n "${p%/}" ]; do p="${p%/}"; done
-  if [ -d "$p" ]; then _absdir "$p"
-  else
-    case "$p" in /*|[A-Za-z]:*) REPLY="$p" ;; *) REPLY="$PWD/$p" ;; esac
-  fi
+  # a folder that cannot be entered keeps its written form
+  if [ -d "$p" ] && _absdir "$p" && [ -n "$REPLY" ]; then return 0; fi
+  case "$p" in /*|[A-Za-z]:*) REPLY="$p" ;; *) REPLY="$PWD/$p" ;; esac
 }
 # _norm DIR -> REPLY: form for comparing PATH entries
 _norm() {
@@ -288,24 +287,50 @@ _backup() { # PATH -> moves it to PATH.bak-YYYY-MM-DD[-N]
   printf 'backup%s%s%s%s\n' "$TAB" "$p" "$TAB" "$b"
 }
 
-# _check_data: the data dir must be ours (marker), new or empty; never /, $HOME or above it
+# _resolve PATH -> REPLY: the physical absolute form of PATH, also when its end does
+# not exist yet: the deepest existing ancestor is resolved, the rest is appended with
+# . and .. applied.
+_resolve() {
+  local p d out rest c
+  _posix "$1"; _abspath "$REPLY"; _squeeze "$REPLY"; p="$REPLY"
+  while [ "${p%/}" != "$p" ] && [ -n "${p%/}" ]; do p="${p%/}"; done
+  d="$p"
+  while [ ! -d "$d" ] && [ "$d" != / ]; do d="${d%/*}"; [ -n "$d" ] || d=/; done
+  out="$(cd "$d" 2>/dev/null && pwd -P)" || out="$d"
+  rest="${p#"$d"}"; rest="${rest#/}"
+  while [ -n "$rest" ]; do
+    case "$rest" in */*) c="${rest%%/*}"; rest="${rest#*/}" ;; *) c="$rest"; rest="" ;; esac
+    case "$c" in
+      ''|.) ;;
+      ..) out="${out%/*}"; [ -n "$out" ] || out=/ ;;
+      *) out="${out%/}/$c" ;;
+    esac
+  done
+  _squeeze "$out"; REPLY="$out"
+}
+# _within A B: resolved path A is B or lies inside it
+_within() { case "${1%/}/" in "${2%/}/"*) return 0 ;; esac; return 1; }
+
+# _check_data: the data dir must be ours (marker), new or empty; never /, $HOME or above
+# it, and apart from the config and state directories, whose files install would replace
 _check_data() {
-  local p a r h
-  # resolve the deepest existing ancestor, then append what does not exist yet
-  p="${DATA%/}"; [ -n "$p" ] || p=/
-  while [ ! -d "$p" ] && [ "$p" != / ]; do p="${p%/*}"; [ -n "$p" ] || p=/; done
-  a="$(cd "$p" 2>/dev/null && pwd -P)" || a="$p"
-  _squeeze "$a"; a="$REPLY"
-  if [ "$p" = "${DATA%/}" ] || [ "$DATA" = / ]; then r="$a"
-  else r="${a%/}/${DATA#"${p%/}"/}"; fi
-  _squeeze "$r"; r="$REPLY"
-  h="$(cd "$HOME" 2>/dev/null && pwd -P)" || h="${HOME%/}"
-  _squeeze "$h"; h="$REPLY"
-  if [ "$r" = / ] || [ "$r" = "$h" ] || case "$h/" in "${r%/}/"*) true ;; *) false ;; esac; then
+  local r h o which dir
+  _resolve "$DATA"; r="$REPLY"
+  _resolve "$HOME"; h="$REPLY"
+  if _within "$h" "$r"; then
     echo "ack-wrappers: $DATA is your home directory or contains it, so it cannot be the data directory." >&2
     echo "ack-wrappers: unset ACK_DATA_DIR or point it at an empty folder of its own." >&2
     exit 2
   fi
+  for which in config state; do
+    if [ "$which" = config ]; then dir="$ACK_CONFIG_DIR"; else dir="$ACK_STATE_DIR"; fi
+    _resolve "$dir"; o="$REPLY"
+    if _within "$r" "$o" || _within "$o" "$r"; then
+      echo "ack-wrappers: $DATA is, contains or lies inside the kit's $which directory $dir, so it cannot be the data directory." >&2
+      echo "ack-wrappers: set ACK_DATA_DIR to a folder apart from ACK_CONFIG_DIR and ACK_STATE_DIR (or XDG_DATA_HOME apart from XDG_CONFIG_HOME and XDG_STATE_HOME)." >&2
+      exit 2
+    fi
+  done
   if [ -e "$DATA" ]; then
     if [ ! -d "$DATA" ] || [ ! -r "$DATA" ] || [ ! -x "$DATA" ]; then
       echo "ack-wrappers: $DATA is not a readable directory, so it cannot be the data directory." >&2

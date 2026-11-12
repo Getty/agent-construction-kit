@@ -63,6 +63,9 @@ error or unknown provider; 3 a foreign file is in the way, nothing changed.
   and date. Say that a file of that name exists that this kit did not create; never open
   or paste it, as a hand-written starter often holds a key. Ask whether to replace it (a
   backup is kept as `.bak-<date>`), and repeat with `--replace` only after an explicit yes.
+- Exit 2 naming the data directory: `ACK_DATA_DIR` (or `XDG_DATA_HOME`) points at the
+  home directory, at or around the kit's config or state directory, or at a folder with
+  other files. Nothing was written; relay the message, it names what to change.
 
 `path-fix` prints one line per shell startup file:
 

@@ -175,6 +175,62 @@ class WrappersTest(Sandbox):
         self.assertEqual(sorted(p.name for p in d.iterdir()), ["keep.txt", "sub"])
         self.assertEqual(stat.S_IMODE((d / "sub").stat().st_mode), before)
 
+    def test_data_dir_equal_to_the_config_dir_is_refused(self):
+        xdg = str(self.home / ".xdg")
+        env = {"XDG_DATA_HOME": xdg, "XDG_CONFIG_HOME": xdg}
+        # the review's order: an install first, while the shared folder is still empty
+        r = self.aw("install", "kimi", env=env)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("config directory", r.stderr)
+        r = self.aw("new-local", "mybox", "--url", "http://127.0.0.1:11434", "--model", "qwen", env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.aw("set", "minimax", "MODEL=MyChoice", env=env).returncode, 0)
+        conf = self.home / ".xdg" / "agent-construction-kit"
+        for name in ("minimax", "mybox"):
+            r = self.aw("install", name, env=env)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("config directory", r.stderr)
+            self.assertEqual(r.stdout, "")
+        self.assertTrue((conf / "providers" / "mybox.conf").is_file())
+        self.assertIn("MODEL=MyChoice", (conf / "providers" / "minimax.conf").read_text())
+        self.assertFalse((conf / ".ack-data").exists())
+        self.assertFalse((conf / "claude-with").exists())
+        self.assertFalse(self.wrapper("minimax").exists())
+
+    def test_data_dir_inside_or_around_the_config_or_state_dir_is_refused(self):
+        cfg, st = self.root / "cfg", self.root / "state"
+        cfg.mkdir()
+        dirs = {"ACK_CONFIG_DIR": str(cfg), "ACK_STATE_DIR": str(st)}
+        for data, word in ((cfg / "data", "config"), (cfg, "config"), (cfg / ".", "config"),
+                           (st, "state"), (st / "x" / "y", "state"), (self.root / "nx" / ".." / "cfg", None)):
+            r = self.aw("install", "minimax", env=dict(dirs, ACK_DATA_DIR=str(data)))
+            self.assertEqual(r.returncode, 2, "%s: %s" % (data, r.stderr))
+            if word:
+                self.assertIn(word + " directory", r.stderr)
+        around = self.root / "around"
+        r = self.aw("install", "minimax", env={"ACK_DATA_DIR": str(around),
+                                               "ACK_CONFIG_DIR": str(around / "cfg")})
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertFalse(around.exists())
+        self.assertEqual(list(cfg.iterdir()), [])
+        self.assertFalse(st.exists())
+        # a sibling whose name only starts like the config dir is fine
+        r = self.aw("install", "minimax", env=dict(dirs, ACK_DATA_DIR=str(self.root / "cfg2")))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    @unittest.skipIf(NT, "symlinks need privileges on Windows")
+    def test_data_dir_through_a_symlink_to_the_config_dir_is_refused(self):
+        cfg = self.root / "cfg"
+        cfg.mkdir()
+        os.symlink(str(cfg), str(self.root / "link"))
+        for data in (self.root / "link", self.root / "link" / "sub"):
+            r = self.aw("install", "minimax", env={"ACK_CONFIG_DIR": str(cfg), "ACK_DATA_DIR": str(data)})
+            self.assertEqual(r.returncode, 2, r.stderr)
+        r = self.aw("install", "minimax", env={"ACK_CONFIG_DIR": str(self.root / "link" / "c"),
+                                               "ACK_DATA_DIR": str(cfg / "c")})
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertEqual(list(cfg.iterdir()), [])
+
     def test_empty_data_dir_is_accepted(self):
         d = self.root / "fresh"
         d.mkdir()
