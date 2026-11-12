@@ -640,6 +640,22 @@ _prefix_of() {
   )"
 }
 
+# _model_ids BODY -> REPLY: the model ids of a /v1/models reply, one per line; 1 when the
+# body is not a model list. Only ids that open an object count (a "permission" array or
+# an error object carries ids of its own); without any such id all remaining ids do.
+_model_ids() {
+  local flat
+  flat="$(printf '%s' "$1" | tr '\n\r\t' '   ')"
+  printf '%s' "$flat" | grep -q '"data" *: *\[' || return 1
+  printf '%s' "$flat" | grep -q '"error" *:' && return 1
+  flat="$(printf '%s' "$flat" | sed -e 's/"permission" *: *\[[^]]*\]//g')"
+  REPLY="$(printf '%s' "$flat" | grep -o '{ *"id" *: *"[^"]*"' | sed -e 's/^{ *"id" *: *"//' -e 's/"$//')"
+  if [ -z "$REPLY" ]; then
+    REPLY="$(printf '%s' "$flat" | grep -o '"id" *: *"[^"]*"' | sed -e 's/^"id" *: *"//' -e 's/"$//')"
+  fi
+  [ -n "$REPLY" ]
+}
+
 cmd_probe_local() {
   local port url body id seen ids
   ALLOWED=""; _parse "$@"
@@ -651,12 +667,11 @@ cmd_probe_local() {
   for port in 11434 1234 8000 8080; do
     url="http://127.0.0.1:$port"
     body="$(curl -s --noproxy '*' --max-time 2 "$url/v1/models" 2>/dev/null)" || continue
-    ids="$(printf '%s\n' "$body" | grep -o '"id" *: *"[^"]*"')" || continue
+    _model_ids "$body" || continue
+    ids="$REPLY"
     seen=$'\n'
     while IFS= read -r id || [ -n "$id" ]; do
-      id="${id#*:}"; _ack_trim "$id"; id="$REPLY"
-      id="${id#\"}"; id="${id%\"}"
-      [ -n "$id" ] || continue
+      case "$id" in ''|*\\*) continue ;; esac
       case "$seen" in *$'\n'"$id"$'\n'*) continue ;; esac
       seen="$seen$id"$'\n'
       printf 'local%s%s%s%s\n' "$TAB" "$url" "$TAB" "$id"
@@ -686,6 +701,8 @@ cmd_new_local() {
   _ack_trim "$OPT_MODEL"; OPT_MODEL="$REPLY"
   [ -n "$OPT_MODEL" ] || usage_err "--model must not be empty."
   _check_hash --model "$OPT_MODEL"
+  _check_hash DESCRIPTION "Local model $OPT_MODEL at $OPT_URL"
+  case "$OPT_MODEL" in '#'*) usage_err "--model must not start with '#', where the loader cuts the line." ;; esac
   case "$OPT_URL$OPT_MODEL" in *'${'*) usage_err "--url and --model must not contain a \${...} reference." ;; esac
   for n in context thinking; do
     case "$n" in context) other="$OPT_CONTEXT" ;; *) other="$OPT_THINKING" ;; esac
@@ -696,6 +713,10 @@ cmd_new_local() {
     esac
   done
   if [ -n "$OPT_KEYVAR" ]; then
+    case "$OPT_KEYVAR" in
+      PATH|HOME|SHELL|USER|ANTHROPIC_*|CLAUDE_*|ACK_*)
+        usage_err "--key-var $OPT_KEYVAR is a variable the system or the kit uses; pick another name." ;;
+    esac
     case "$OPT_KEYVAR" in
       [A-Z]*) case "$OPT_KEYVAR" in *[!A-Z0-9_]*) usage_err "--key-var must be upper case letters, digits and _, starting with a letter." ;; esac ;;
       *) usage_err "--key-var must be upper case letters, digits and _, starting with a letter." ;;
@@ -716,6 +737,12 @@ cmd_new_local() {
       exit 2
     fi
   done
+  case "$pfx" in
+    ANTHROPIC|CLAUDE|ACK|ANTHROPIC_*|CLAUDE_*|ACK_*)
+      echo "ack-wrappers: '$name' would get the PREFIX $pfx, and an outer $pfx variable would override the definition." >&2
+      echo "ack-wrappers: pick another name that does not start with anthropic, claude or ack." >&2
+      exit 2 ;;
+  esac
   f="$ACK_CONFIG_DIR/providers/$name.conf"
   if [ -e "$f" ] || [ -L "$f" ]; then
     if [ "$OPT_REPLACE" = 0 ]; then
@@ -744,8 +771,12 @@ cmd_new_local() {
     if [ -n "$OPT_KEYVAR" ]; then printf 'KEY_VAR=%s\n' "$OPT_KEYVAR"
     else printf 'KEY_REQUIRED=0\nAUTH_TOKEN=local\n'; fi
   } > "$TMP/new"
-  if [ -e "$f" ] || [ -L "$f" ]; then _backup "$f" || exit 1; fi
-  cat "$TMP/new" > "$f" || { echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check the permissions of ${f%/*}." >&2; exit 1; }
+  bak=""
+  if [ -e "$f" ] || [ -L "$f" ]; then
+    bak="$(_backup "$f")" || exit 1
+    printf '%s\n' "$bak"; bak="${bak##*"$TAB"}"
+  fi
+  cat "$TMP/new" > "$f" || { rm -f "$f"; [ -n "$bak" ] && mv "$bak" "$f"; echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check the permissions of ${f%/*}." >&2; exit 1; }
   printf 'conf%screated%s%s%s%s\n' "$TAB" "$TAB" "$name" "$TAB" "$f"
   return 0
 }

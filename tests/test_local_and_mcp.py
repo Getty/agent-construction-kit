@@ -422,6 +422,62 @@ class LocalTest(Sandbox):
         r = self.aw("new-local", "found", "--url", line[1], "--model", line[2])
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    # ---- probe-local: only real model ids ------------------------------
+
+    def probe(self, body):
+        self.fake("curl", "#!/usr/bin/env bash\ncat <<'EOB'\n%s\nEOB\n" % body)
+        r = self.aw("probe-local")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return sorted(set(l.split("\t")[2] for l in r.stdout.splitlines()))
+
+    def test_probe_ignores_permission_arrays(self):
+        body = ('{"object":"list","data":[{"id":"m1","object":"model","permission":'
+                '[{"id":"modelperm-1","object":"model_permission"}]},{"id":"m2","permission":'
+                '[{"id":"modelperm-2"}]}]}')
+        self.assertEqual(self.probe(body), ["m1", "m2"])
+
+    def test_probe_ignores_an_error_object(self):
+        self.assertEqual(self.probe('{"error":{"message":"x","id":"err-1"}}'), [])
+        self.assertEqual(self.probe('{"data":[],"error":{"id":"err-1"}}'), [])
+
+    def test_probe_ignores_a_json_404_and_html(self):
+        self.assertEqual(self.probe('{"detail":"Not Found","id":"x1"}'), [])
+        self.assertEqual(self.probe('<html><body>{"id":"x"}</body></html>'), [])
+
+    def test_probe_skips_an_id_with_an_escaped_quote(self):
+        self.assertEqual(self.probe('{"data":[{"id":"a\\"b"},{"id":"ok"}]}'), ["ok"])
+
+    def test_probe_reads_pretty_printed_json(self):
+        body = '{\n  "data": [\n    {\n      "id": "p1",\n      "object": "model"\n    },\n    {\n      "id": "p2"\n    }\n  ]\n}'
+        self.assertEqual(self.probe(body), ["p1", "p2"])
+
+    def test_probe_falls_back_to_all_ids_without_leading_ids(self):
+        self.assertEqual(self.probe('{"data":[{"object":"model","id":"f1"}]}'), ["f1"])
+
+    def test_probe_prints_each_id_once_per_url(self):
+        self.fake("curl", "#!/usr/bin/env bash\necho '{\"data\":[{\"id\":\"d\"},{\"id\":\"d\"}]}'\n")
+        r = self.aw("probe-local")
+        self.assertEqual(len(r.stdout.splitlines()), 4)
+
+    # ---- new-local: reserved names ------------------------------------
+
+    def test_new_local_refuses_reserved_prefixes(self):
+        for bad in ("anthropic", "claude", "ack", "claude-x", "ack-foo", "anthropic_y"):
+            self.assertEqual(self.new(bad).returncode, 2, bad)
+        self.assertFalse(self.providers.exists())
+        self.assertEqual(self.new("acknowledge").returncode, 0)
+
+    def test_new_local_refuses_a_model_starting_with_hash(self):
+        r = self.aw("new-local", "h", "--url", "http://h", "--model", "#x")
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse((self.providers / "h.conf").exists())
+
+    def test_new_local_refuses_system_key_vars(self):
+        for bad in ("PATH", "HOME", "SHELL", "USER", "ANTHROPIC_API_KEY", "CLAUDE_X", "ACK_Y"):
+            r = self.new("kv", "--key-var", bad)
+            self.assertEqual(r.returncode, 2, bad)
+        self.assertEqual(self.new("kv", "--key-var", "USERNAME").returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
