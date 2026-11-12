@@ -92,6 +92,70 @@ class DoctorTest(Sandbox):
         self.assertEqual(r.returncode, 0)
         self.assertIn("plugin:briefing\twarn\t", r.stdout)
 
+    def raw_plugins(self, text):
+        self.write("plugins.json", text)
+        self.marketplaces("getty")
+        return self.doc()
+
+    def test_nested_object_between_id_and_enabled(self):
+        r = self.raw_plugins(
+            '[{"id":"briefing@getty","meta":{"a":[1,{"b":2}],"id":"q"},"list":[{"enabled":false}],"enabled":true},'
+            '{"id":"skilletor@getty","enabled":true}]')
+        self.assertIn("plugin:briefing\tok\t", r.stdout)
+
+    def test_string_with_braces_and_escaped_quote(self):
+        r = self.raw_plugins(
+            '[{"id":"briefing@getty","note":"a {brace} and \\"quote\\" and } \\\\","enabled":true},'
+            '{"id":"skilletor@getty","enabled":true}]')
+        self.assertIn("plugin:briefing\tok\t", r.stdout)
+        self.assertIn("plugin:skilletor\tok\t", r.stdout)
+
+    def test_nested_enabled_in_disabled_plugin_does_not_count(self):
+        r = self.raw_plugins(
+            '[{"id":"briefing@getty","enabled":false,"x":{"id":"q","enabled":true}},'
+            '{"id":"skilletor@getty","enabled":true}]')
+        self.assertIn("plugin:briefing\twarn\t", r.stdout)
+
+    def test_nested_id_does_not_count(self):
+        r = self.raw_plugins(
+            '[{"id":"other@getty","enabled":true,"x":{"id":"briefing@getty","enabled":true}},'
+            '{"id":"skilletor@getty","enabled":true}]')
+        self.assertIn("plugin:briefing\tmissing\t", r.stdout)
+
+    def test_prefix_id_does_not_satisfy(self):
+        r = self.raw_plugins('[{"id":"briefing-extra@getty","enabled":true},'
+                             '{"id":"skilletor@getty","enabled":true}]')
+        self.assertIn("plugin:briefing\tmissing\t", r.stdout)
+        self.assertEqual(r.returncode, 1)
+
+    def test_same_plugin_in_two_scopes_one_disabled(self):
+        r = self.raw_plugins('[{"id":"briefing@getty","scope":"project","enabled":false},'
+                             '{"id":"briefing@getty","scope":"user","enabled":true},'
+                             '{"id":"skilletor@getty","enabled":true}]')
+        self.assertIn("plugin:briefing\tok\t", r.stdout)
+
+    def test_long_pretty_list_is_read(self):
+        ids = ["p%d@m" % i for i in range(300)] + ["briefing@getty", "skilletor@getty"]
+        self.plugins(*ids)
+        self.marketplaces("getty")
+        r = self.doc()
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("plugin:skilletor\tok\t", r.stdout)
+
+    def test_version_timeout_skips_plugin_calls(self):
+        self.fake("claude", "#!/usr/bin/env bash\n"
+                  'echo "$*" >> "$HOME/calls"\n'
+                  '[ "$*" = "--version" ] && exec sleep 30\nexit 0\n')
+        import time
+        t = time.time()
+        r = self.doc()
+        self.assertLess(time.time() - t, 25)
+        calls = (self.home / "calls").read_text().splitlines()
+        self.assertEqual(calls, ["--version"])
+        self.assertIn("claude\twarn\t", r.stdout)
+        self.assertIn("plugin:briefing\twarn\tcould not ask claude", r.stdout)
+        self.assertEqual(r.returncode, 0)
+
     def test_compact_json_with_swapped_field_order(self):
         self.plugins("briefing@getty", "skilletor@getty", "superpowers@x", compact=True)
         self.marketplaces("getty")
@@ -110,16 +174,15 @@ class DoctorTest(Sandbox):
         self.write("claude-fails", "")
         r = self.doc()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        for name in ("marketplace:getty", "plugin:briefing", "plugin:skilletor",
-                     "plugin:superpowers"):
-            self.assertIn("%s\twarn\tcould not ask claude" % name, r.stdout)
-        self.assertIn("required", r.stdout)
+        req = "could not ask claude, so this required line is not counted as missing; run the check again\n"
+        opt = "could not ask claude; run the check again\n"
+        for name in ("marketplace:getty", "plugin:briefing", "plugin:skilletor"):
+            self.assertIn("%s\twarn\t%s" % (name, req), r.stdout)
+        for name in ("plugin:superpowers", "plugin:mattpocock-skills"):
+            self.assertIn("%s\twarn\t%s" % (name, opt), r.stdout)
 
     def test_claude_not_found_is_exit_1(self):
-        (self.fakebin / "claude").unlink()
-        r = self.doc(env={"HOME": str(self.home)})
-        if (self.home / ".local" / "bin" / "claude").exists():
-            self.skipTest("a claude exists in the sandbox")
+        r = self.doc(env={"ACK_CLAUDE_BIN": str(self.root / "no-such-claude")})
         self.assertEqual(r.returncode, 1)
         self.assertIn("claude\tmissing\t", r.stdout)
 
@@ -135,7 +198,13 @@ class DoctorTest(Sandbox):
         self.good()
         r = self.doc(env={"ANTHROPIC_BASE_URL": "http://user:pw@host.example:1/x?y=z"})
         self.assertIn("session-model\tinfo\tdefault via host.example\n", r.stdout)
-        self.assertNotIn("pw", r.stdout.replace("plugin", "").replace("pwd", ""))
+
+    def test_session_model_host_with_slash_in_password(self):
+        self.good()
+        r = self.doc(env={"ANTHROPIC_BASE_URL": "http://user:S3/CRET@host:1/x"})
+        self.assertIn("session-model\tinfo\tdefault via host\n", r.stdout)
+        self.assertNotIn("S3", r.stdout + r.stderr)
+        self.assertNotIn("CRET", r.stdout + r.stderr)
 
     def test_session_model_default(self):
         self.good()
@@ -161,6 +230,30 @@ class DoctorTest(Sandbox):
         self.assertIn("repo\tok\torigin https://example.com/a/b.git", r.stdout)
         self.assertNotIn("token123", r.stdout + r.stderr)
         self.assertNotIn("user:", r.stdout)
+
+    def remote_detail(self, url):
+        repo = self.root / "work"
+        repo.mkdir(exist_ok=True)
+        git = lambda *a: subprocess.run(["git"] + list(a), cwd=str(repo), env=dict(
+            os.environ, HOME=str(self.home)), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        git("init", "-q")
+        git("remote", "add", "origin", url)
+        r = self.doc(cwd=str(repo))
+        self.assertNotIn("S3CRET", r.stdout + r.stderr)
+        return [l for l in r.stdout.splitlines() if l.startswith("repo\t")][0]
+
+    def test_remote_credentials_in_odd_urls(self):
+        self.good()
+        for i, (url, want) in enumerate((
+                ("https://user:pa/S3CRET@host.example/o/r.git", "origin https://host.example/o/r.git"),
+                ("https://host.example/o/r.git?token=S3CRET", "origin https://host.example/o/r.git"),
+                ("https://host.example/o/r.git#S3CRET", "origin https://host.example/o/r.git"),
+                ("https://x-access-token:S3CRET@host.example/o/r.git", "origin https://host.example/o/r.git"),
+                ("git@host.example:o/r.git", "origin git@host.example:o/r.git"))):
+            if i:
+                import shutil
+                shutil.rmtree(str(self.root / "work"))
+            self.assertEqual(self.remote_detail(url), "repo\tok\t" + want, url)
 
     def test_repo_without_remote(self):
         self.good()
@@ -206,7 +299,7 @@ class DoctorTest(Sandbox):
         self.good()
         out = self.doc().stdout
         self.assertIn("wrapper-dir\twarn\t", out)
-        self.assertIn("is not on PATH", out)
+        self.assertIn("is not on PATH; the setup can add it to PATH\n", out)
 
     def test_optional_tools(self):
         self.good()

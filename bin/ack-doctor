@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ack-doctor: read-only check of this machine. Prints name<TAB>status<TAB>detail,
-# status ok|missing|warn|info. Exit 1 if a required line is missing, else 0.
+# status ok|missing|warn|info. Exit 0 when no required line is missing, 1 when one
+# is, 2 when the install is broken (the share directory next to bin/ is missing).
 # It creates, changes and deletes nothing and starts no proxy.
 
 # Git for Windows may hand over a backslash path (bash 'D:\x\ack-doctor').
@@ -27,6 +28,7 @@ ack_paths
 TAB=$'\t'
 RC=0
 NOASK="could not ask claude"
+AGAIN="; run the check again"
 
 # emit NAME STATUS DETAIL [required]: one line; tabs and newlines in DETAIL become spaces.
 emit() {
@@ -37,18 +39,18 @@ emit() {
   return 0
 }
 
-# strip_url_creds URL -> REPLY without user:password@ in the authority part
+# strip_url_creds URL -> REPLY: no credentials, no ?query, no #fragment. Everything
+# between :// and the LAST @ goes (a path with an @ is rarer than a secret, so
+# over-stripping is the safe side). scp-style git@host:path stays as it is.
 strip_url_creds() {
-  local u="$1" scheme rest auth
+  local u="$1" scheme rest
   case "$u" in
     *://*)
       scheme="${u%%://*}"; rest="${u#*://}"
-      auth="${rest%%/*}"
-      case "$auth" in
-        *@*) if [ "$auth" = "$rest" ]; then rest="${auth##*@}"; else rest="${auth##*@}/${rest#*/}"; fi ;;
-      esac
+      rest="${rest##*@}"
+      rest="${rest%%[?#]*}"
       REPLY="$scheme://$rest" ;;
-    *) REPLY="$u" ;;
+    *) REPLY="${u%%[?#]*}" ;;
   esac
 }
 
@@ -56,8 +58,8 @@ strip_url_creds() {
 url_host() {
   local h="$1"
   case "$h" in *://*) h="${h#*://}" ;; esac
-  h="${h%%[/?#]*}"
   h="${h##*@}"
+  h="${h%%[/?#]*}"
   case "$h" in
     '['*) h="${h%%]*}]" ;;
     *) h="${h%%:*}" ;;
@@ -65,25 +67,77 @@ url_host() {
   REPLY="$h"
 }
 
-# flat_json TEXT -> REPLY: one object per line, no whitespace inside
-flat_json() {
-  REPLY="$(printf '%s' "$1" | tr -d ' \r\t\n' | tr '{}[]' '\n\n\n\n')"
+# json_objects TEXT -> PLUGIN_OBJS: one line per top-level object of a JSON array,
+# holding only that object's depth-1 members (nested objects and arrays collapse
+# to ~, whitespace outside strings is dropped), written as ,"k":v,"k":v, so a
+# member is matched as ,"id":"x@ or ,"enabled":true, . Strings (with backslash
+# escapes) never confuse the scan. The text is cut into short segments at every
+# comma (a comma inside a string is put back), and each segment is scanned token
+# by token with parameter expansion: fast on a 150 KB list, no tool per character.
+json_objects() {
+  local seg pre c rest first=1 sk="" instr=0 depth=0
+  local special=']"{}[ '$TAB   # the brace must not sit inside ${...%%[..]*}
+  PLUGIN_OBJS=""
+  while IFS= read -r seg; do
+    if [ "$first" = 1 ]; then first=0
+    elif [ "$depth" = 2 ]; then sk="$sk,"; fi
+    while [ -n "$seg" ]; do
+      if [ "$instr" = 1 ]; then
+        pre="${seg%%[\"\\]*}"
+        if [ "$pre" = "$seg" ]; then
+          [ "$depth" = 2 ] && sk="$sk$seg"
+          seg=""
+        else
+          c="${seg:${#pre}:1}"; rest="${seg:$((${#pre} + 1))}"
+          if [ "$c" = '"' ]; then
+            instr=0; [ "$depth" = 2 ] && sk="$sk$pre$c"
+            seg="$rest"
+          else
+            [ "$depth" = 2 ] && sk="$sk$pre$c${rest:0:1}"
+            seg="${rest:1}"
+          fi
+        fi
+        continue
+      fi
+      seg="${seg#"${seg%%[![:space:]]*}"}"
+      [ -n "$seg" ] || break
+      pre="${seg%%[$special]*}"
+      if [ -n "$pre" ]; then
+        [ "$depth" = 2 ] && sk="$sk$pre"
+        seg="${seg:${#pre}}"
+        continue
+      fi
+      c="${seg:0:1}"; seg="${seg:1}"
+      case "$c" in
+        '"') instr=1; [ "$depth" = 2 ] && sk="$sk$c" ;;
+        '{'|'[')
+          depth=$((depth + 1))
+          if [ "$depth" = 2 ]; then sk=","
+          elif [ "$depth" = 3 ]; then sk="$sk~"; fi ;;
+        '}'|']')
+          [ "$depth" = 2 ] && PLUGIN_OBJS="$PLUGIN_OBJS$sk,"$'\n'
+          [ "$depth" -gt 0 ] && depth=$((depth - 1)) ;;
+      esac
+    done
+  done <<EOT
+$(printf '%s' "$1" | tr -d '\r\n' | tr ',' '\n')
+EOT
+  return 0
 }
 
-# plugin_state NAME -> PSTATE: enabled | disabled | absent (from PLUGIN_OBJS)
+# plugin_state NAME -> PSTATE: enabled | disabled | absent (from PLUGIN_OBJS).
+# A plugin counts as enabled if any entry (one per scope) is enabled.
 plugin_state() {
-  local name="$1" obj id seen=0 on=0
+  local name="$1" obj seen=0 on=0
   PSTATE=absent
   while IFS= read -r obj; do
-    case "$obj" in *'"id":"'"$name"'@'*) ;; *) continue ;; esac
-    case "$obj" in
-      *'"id":"'"$name"'@'*'"enabled":true'*|*'"enabled":true'*'"id":"'"$name"'@'*) on=1 ;;
-    esac
+    case "$obj" in *',"id":"'"$name"'@'*) ;; *) continue ;; esac
     seen=1
+    case "$obj" in *',"enabled":true,'*) on=1 ;; esac
   done <<EOT
 $PLUGIN_OBJS
 EOT
-  [ "$on" = 1 ] && PSTATE=enabled || { [ "$seen" = 1 ] && PSTATE=disabled; }
+  if [ "$on" = 1 ]; then PSTATE=enabled; elif [ "$seen" = 1 ]; then PSTATE=disabled; fi
   return 0
 }
 
@@ -105,15 +159,19 @@ ${out%%$'\n'*}
 EOT
   dd="${dd//$'\r'/}"
   if [ "$st" = ok ]; then emit wrapper-dir ok "$dd"
-  else emit wrapper-dir warn "$dd is not on PATH"; fi
+  else emit wrapper-dir warn "$dd is not on PATH; the setup can add it to PATH"; fi
 else
   emit wrapper-dir warn "could not ask ack-wrappers; check that bin/ack-wrappers is intact"
 fi
 
 # ---------------------------------------------------------------- claude, git
-CLAUDE=""
+CLAUDE="" CLAUDE_OK=1
 if CLAUDE="$(ack_find_claude)"; then
-  if ack_run_bounded 15 "$CLAUDE" --version && [ -n "$ACK_BOUNDED_OUT" ]; then
+  ack_run_bounded 15 "$CLAUDE" --version; vrc=$?
+  if [ "$vrc" = 124 ]; then
+    emit claude warn "$CLAUDE did not answer --version within 15 s; run it by hand to see why"
+    CLAUDE_OK=0
+  elif [ "$vrc" = 0 ] && [ -n "$ACK_BOUNDED_OUT" ]; then
     v="${ACK_BOUNDED_OUT%%$'\n'*}"
     emit claude ok "$CLAUDE ($v)" required
   else
@@ -163,7 +221,7 @@ emit session-model info "$detail"
 
 # ---------------------------------------------------------------- marketplace, plugins
 MARKETS="" PLUGIN_OBJS="" ASKED_M=0 ASKED_P=0
-if [ -n "$CLAUDE" ]; then
+if [ -n "$CLAUDE" ] && [ "$CLAUDE_OK" = 1 ]; then
   if ack_run_bounded 15 "$CLAUDE" plugin marketplace list; then
     ASKED_M=1
     while IFS= read -r line; do
@@ -177,7 +235,7 @@ EOT
   fi
   if ack_run_bounded 15 "$CLAUDE" plugin list --json; then
     ASKED_P=1
-    flat_json "$ACK_BOUNDED_OUT"; PLUGIN_OBJS="$REPLY"
+    json_objects "$ACK_BOUNDED_OUT"
   fi
 fi
 
@@ -187,14 +245,14 @@ if [ "$ASKED_M" = 1 ]; then
     *) emit marketplace:getty missing "marketplace getty is not configured; run: claude plugin marketplace add Getty/marketplace" required ;;
   esac
 else
-  emit marketplace:getty warn "$NOASK, so this required line is not counted as missing"
+  emit marketplace:getty warn "$NOASK, so this required line is not counted as missing$AGAIN"
 fi
 
 plugin_line() { # NAME required|optional
   local n="$1"
   if [ "$ASKED_P" != 1 ]; then
-    if [ "$2" = required ]; then emit "plugin:$n" warn "$NOASK, so this required line is not counted as missing"
-    else emit "plugin:$n" warn "$NOASK"; fi
+    if [ "$2" = required ]; then emit "plugin:$n" warn "$NOASK, so this required line is not counted as missing$AGAIN"
+    else emit "plugin:$n" warn "$NOASK$AGAIN"; fi
     return 0
   fi
   plugin_state "$n"
