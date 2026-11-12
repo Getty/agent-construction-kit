@@ -126,6 +126,15 @@ class LauncherTest(Sandbox):
         r = self.run_cmd("bash", "-c", script)
         self.assertEqual(r.stdout.splitlines(), ["abc", "plain value", "q", "a#b"], r.stderr)
 
+    def test_key_file_with_blanks_around_the_equals_sign(self):
+        self.write(".config/agent-construction-kit/demo.env",
+                   'DEMO_API_KEY_OLD=no\nDEMO_API_KEY = "sk-SP"\n', mode=0o600)
+        r = self.cw("--provider", "demo")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("ANTHROPIC_AUTH_TOKEN=sk-SP\n", r.stdout)
+        self.write(".config/agent-construction-kit/demo.env", "DEMO_API_KEYX = no\n", mode=0o600)
+        self.assertEqual(self.cw("--provider", "demo").returncode, 3)
+
     @unittest.skipIf(os.name == "nt", "symlinks need privileges on Windows")
     def test_symlinked_key_file_does_not_warn_and_symlinked_launcher_works(self):
         real = self.write("real.env", "DEMO_API_KEY=k-file\n", mode=0o600)

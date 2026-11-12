@@ -101,8 +101,9 @@ any long piece of the key in a reason shows as `***`:
 | `unexpected answer:` or other text | relay the text; for a model server, the usual cause is that it does not speak the Anthropic Messages API |
 
 `key-edit` prints the key file's path and opens it in the system's text editor (stdin
-is not a terminal here, so `$EDITOR` is skipped). On stderr, "no editor could be
-started" means: give the user that path to open in any text editor. Exit 2 with "needs
+is not a terminal here, so `$EDITOR` is skipped; on Linux it needs a desktop, `DISPLAY`
+or `WAYLAND_DISPLAY`). On stderr, "no editor could be started", or the user sees no
+editor: give the user that path to open in any text editor. Exit 2 with "needs
 no key file" means the provider needs no key; run `test`.
 
 `set <provider> KEY=VALUE...` prints `set<TAB><KEY><TAB><VALUE>` per value (a
@@ -241,8 +242,8 @@ First match wins:
 1. the environment variable named by `KEY_VAR` (e.g. `MINIMAX_API_KEY`) in the shell the
    starter runs from;
 2. the key file `KEY_FILE` (default `$ACK_CONFIG_DIR/<name>.env`), line
-   `<KEY_FILE_VAR>=<key>`; `export` in front and quotes around the key are fine, and the
-   last such line wins. `key-edit` creates the file with mode 600; the starter warns
+   `<KEY_FILE_VAR>=<key>`; `export` in front, blanks around the `=` and quotes around
+   the key are fine, and the last such line wins. `key-edit` creates the file with mode 600; the starter warns
    when other users can read it;
 3. neither: the starter stops with exit 3. With `KEY_REQUIRED=0` no key is needed and
    `AUTH_TOKEN` is sent instead (openai, local models without `--key-var`).

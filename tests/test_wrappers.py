@@ -519,9 +519,40 @@ class WrappersTest(Sandbox):
         body = '#!/usr/bin/env bash\necho "$@" >> "%s"\n' % str(log).replace("\\", "/")
         for n in ("xdg-open", "open", "notepad", "myeditor"):
             self.fake(n, body)
-        r = self.aw("key-edit", "minimax", env={"EDITOR": "myeditor"}, input="")
+        r = self.aw("key-edit", "minimax", env={"EDITOR": "myeditor", "DISPLAY": ":0"}, input="")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("minimax.env", log.read_text())
+
+    def test_key_edit_does_not_trust_xdg_open_without_a_display(self):
+        if NT:
+            self.skipTest("xdg-open is the Linux way")
+        log = self.root / "editor.log"
+        self.fake("xdg-open", '#!/usr/bin/env bash\necho "$@" >> "%s"\nexit 0\n' % log)
+        for env in ({}, {"WAYLAND_DISPLAY": "wayland-0"}):
+            r = self.aw("key-edit", "minimax", env=dict(env, EDITOR=""))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("minimax.env", r.stdout)
+            if env:
+                self.assertTrue(log.exists())
+                self.assertEqual(r.stderr, "")
+            else:
+                self.assertFalse(log.exists())
+                self.assertIn("no editor could be started", r.stderr)
+
+    def test_key_template_writes_through_a_symlink_to_an_existing_file(self):
+        if NT:
+            self.skipTest("symlinks need privileges on Windows")
+        real = self.root / "vault" / "mm.env"
+        real.parent.mkdir()
+        real.write_text("MINIMAX_API_KEY=sk-kept\n")
+        (self.home / CONF).mkdir(parents=True)
+        link = self.home / CONF / "minimax.env"
+        os.symlink(str(real), str(link))
+        r = self.aw("key-template", "minimax")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(real.read_text(), "MINIMAX_API_KEY=sk-kept\n")
+        self.assertNotIn("sk-kept", r.stdout + r.stderr)
 
     def test_key_edit_skips_a_terminal_editor_without_a_tty(self):
         log = self.root / "editor.log"

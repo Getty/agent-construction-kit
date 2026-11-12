@@ -583,6 +583,8 @@ _open_editor() { # FILE -> 0 when an editor ran
   case "$OSTYPE" in
     darwin*) type -P open >/dev/null 2>&1 && open -t "$f" >/dev/null 2>&1 </dev/null; return ;;
   esac
+  # without a display xdg-open may report success and open nothing
+  [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || return 1
   type -P xdg-open >/dev/null 2>&1 && xdg-open "$f" >/dev/null 2>&1 </dev/null
 }
 cmd_key_edit() {

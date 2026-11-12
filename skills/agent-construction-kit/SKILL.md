@@ -85,10 +85,10 @@ with; if none, recommend skipping, since their normal `claude` keeps working. Fo
    (a backup is kept as `.bak-<date>`); add `--replace` only after a clear yes.
 3. `ack-wrappers test <provider>`, with a command timeout of at least 200 seconds (it
    waits up to two minutes). It prints one line `test<TAB>ok|missing<TAB><reason>`.
-   - `no key yet`: ask the user to get an API key on the provider's website, and not to
-     paste it here. Then run `ack-wrappers key-edit <provider>` (10-minute timeout; on
-     Windows it returns when Notepad closes): in the editor they paste the key right
-     after the `=`, save, close and tell you; then test again.
+   - `no key yet`: ask the user to get an API key on the provider's website, not to paste
+     it here. Then run `ack-wrappers key-edit <provider>` (10-minute timeout; on Windows
+     it returns when Notepad closes): in the editor (none appears: give them the path it
+     printed) they paste the key after the `=`, save, close and tell you; then test again.
    - Any other reason: relay it in plain words and take the next step from
      [references/providers.md](references/providers.md); do not debug the provider.
    - `ok`: it works; in a new terminal window the user types the starter's name.

@@ -295,14 +295,16 @@ ack_provider_names() {
 # ack_key_read FILE VAR -> prints the value of VAR in FILE (last assignment wins)
 ack_key_read() {
   local file="$1" var="$2" line v found=1 out="" first=1 bom=$'\xef\xbb\xbf'
-  [ -f "$file" ] || return 1
+  [ -n "$var" ] && [ -f "$file" ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     if [ "$first" = 1 ]; then line="${line#"$bom"}"; first=0; fi
     _ack_trim "$line"; line="$REPLY"
     case "$line" in 'export'[[:space:]]*) _ack_trim "${line#export}"; line="$REPLY" ;; esac
-    case "$line" in
-      "$var"=*)
-        _ack_trim "${line#*=}"; v="$REPLY"
+    # VAR=value, also with blanks around the = (VAR = value)
+    case "$line" in "$var"*) _ack_trim "${line#"$var"}" ;; *) REPLY="" ;; esac
+    case "$REPLY" in
+      =*)
+        _ack_trim "${REPLY#=}"; v="$REPLY"
         case "$v" in
           \"*) v="${v#\"}"; case "$v" in *\"*) v="${v%%\"*}" ;; esac ;;
           \'*) v="${v#\'}"; case "$v" in *\'*) v="${v%%\'*}" ;; esac ;;
