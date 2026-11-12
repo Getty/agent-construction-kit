@@ -154,13 +154,7 @@ fi
 
 if [ -n "$provider" ]; then
   if [ "$ACK_C_PREFLIGHT" = proxy ]; then
-    if type ack_proxy_ensure >/dev/null 2>&1; then
-      ack_proxy_ensure || exit 5
-    else
-      echo "claude-with: provider '$provider' needs its proxy, but this install cannot start one." >&2
-      echo "claude-with: update agent-construction-kit and run ack-wrappers install." >&2
-      exit 5
-    fi
+    ack_proxy_ensure "$ACK_C_PROXY_PORT" || exit 5
   fi
   unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
   if [ -n "$exports" ]; then

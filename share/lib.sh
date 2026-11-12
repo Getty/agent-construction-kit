@@ -248,3 +248,77 @@ ack_find_claude() {
   [ -n "$p" ] || return 1
   printf '%s\n' "$p"
 }
+
+# ---------------------------------------------------------------- proxy
+
+ACK_PROXY_UNIT="claude-code-proxy.service"
+
+# ack_has_user_service: a user service manager is here (Linux with systemctl).
+# ACK_UNAME pins the OS name for tests.
+ack_has_user_service() {
+  [ "${ACK_UNAME:-$(uname -s)}" = Linux ] || return 1
+  [ -n "$(type -P systemctl 2>/dev/null)" ]
+}
+
+# ack_proxy_unit_file -> prints the path of the user unit
+ack_proxy_unit_file() { printf '%s' "$HOME/.config/systemd/user/$ACK_PROXY_UNIT"; }
+
+# ack_proxy_reachable PORT: 0 when 127.0.0.1:PORT answers with any HTTP status.
+ack_proxy_reachable() {
+  if [ -z "$(type -P curl 2>/dev/null)" ]; then
+    if [ -z "${ACK_CURL_WARNED:-}" ]; then
+      ACK_CURL_WARNED=1
+      echo "ack: curl is not installed, so the proxy cannot be probed." >&2
+      echo "ack: install curl and try again." >&2
+    fi
+    return 1
+  fi
+  curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/"
+}
+
+# _ack_proxy_wait PORT: up to 10 rounds of 0.5 s until the proxy answers.
+_ack_proxy_wait() {
+  local i=0
+  while [ "$i" -lt 10 ]; do
+    ack_proxy_reachable "$1" && return 0
+    sleep 0.5
+    i=$((i + 1))
+  done
+  ack_proxy_reachable "$1"
+}
+
+# ack_proxy_ensure PORT: make the proxy answer on PORT; 5 when that fails.
+ack_proxy_ensure() {
+  local port="$1" bin log
+  if [ -z "$port" ]; then
+    echo "ack: the provider has no PROXY_PORT, so the proxy cannot be started." >&2
+    echo "ack: set PROXY_PORT=... in its definition." >&2
+    return 5
+  fi
+  ack_proxy_reachable "$port" && return 0
+  ack_paths
+  if ack_has_user_service && [ -f "$(ack_proxy_unit_file)" ]; then
+    systemctl --user start "$ACK_PROXY_UNIT" >/dev/null 2>&1
+    if _ack_proxy_wait "$port"; then return 0; fi
+    echo "ack: the proxy service was started but nothing answers on port $port." >&2
+    echo "ack: check it with: systemctl --user status $ACK_PROXY_UNIT" >&2
+    return 5
+  fi
+  bin="$(type -P claude-code-proxy 2>/dev/null)"
+  if [ -z "$bin" ]; then
+    echo "ack: claude-code-proxy is not installed." >&2
+    echo "ack: install it (see the skill's references/openai-proxy.md), then try again." >&2
+    return 5
+  fi
+  mkdir -p "$ACK_STATE_DIR" || return 5
+  log="$ACK_STATE_DIR/proxy.log"
+  if [ -n "$(type -P setsid 2>/dev/null)" ]; then
+    setsid "$bin" serve --no-monitor --port "$port" >>"$log" 2>&1 </dev/null &
+  else
+    nohup "$bin" serve --no-monitor --port "$port" >>"$log" 2>&1 </dev/null &
+  fi
+  if _ack_proxy_wait "$port"; then return 0; fi
+  echo "ack: the proxy was started but nothing answers on port $port." >&2
+  echo "ack: read the log at $log." >&2
+  return 5
+}

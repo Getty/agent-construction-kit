@@ -105,10 +105,11 @@ class LauncherTest(Sandbox):
                     env={"DEMO_API_KEY": "k", "DEMO_HAIKU_MODEL": "h-1"})
         self.assertIn("ANTHROPIC_DEFAULT_HAIKU_MODEL=h-1", r.stdout)
 
-    def test_preflight_proxy_without_support_is_exit_5(self):
+    def test_preflight_proxy_without_port_is_exit_5(self):
         self.write(PROVIDERS + "demo.conf", DEMO + "PREFLIGHT=proxy\n")
         r = self.cw("--provider", "demo", env={"DEMO_API_KEY": "k"})
         self.assertEqual(r.returncode, 5)
+        self.assertIn("PROXY_PORT", r.stderr)
         self.assertNotIn("ARGV:", r.stdout)
 
     def test_key_file_var_names_the_variable_inside_the_file(self):

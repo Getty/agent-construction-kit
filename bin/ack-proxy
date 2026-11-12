@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+# ack-proxy: manage the claude-code-proxy behind the openai provider.
+#   ack-proxy status | ensure | models [provider] | check-slots | service install|remove
+# Exit codes: 0 ok, 1 check-slots found an unknown model, 2 usage error,
+# 3 a foreign unit file sits at the target (nothing changed), 5 the proxy or
+# its binary is missing, 6 no user service manager on this platform.
+
+# Git for Windows may hand over a backslash path (bash 'D:\x\ack-proxy').
+_slashes() { case "$OSTYPE" in msys*|cygwin*) REPLY="${1//\\//}" ;; *) REPLY="$1" ;; esac; }
+_slashes "${BASH_SOURCE[0]}"; _self="$REPLY"
+while [ -L "$_self" ]; do
+  _slashes "$(readlink "$_self")"; _t="$REPLY"
+  case "$_t" in
+    /*) _self="$_t" ;;
+    *) case "$_self" in */*) _self="${_self%/*}/$_t" ;; *) _self="./$_t" ;; esac ;;
+  esac
+done
+case "$_self" in */*) _dir="${_self%/*}" ;; *) _dir="." ;; esac
+if ! SHARE="$(cd "$_dir/../share" 2>/dev/null && pwd)"; then
+  echo "ack-proxy: cannot find the share directory next to bin/." >&2
+  echo "ack-proxy: reinstall agent-construction-kit." >&2
+  exit 2
+fi
+# shellcheck source=../share/lib.sh
+. "$SHARE/lib.sh" || exit 2
+ack_paths
+
+TAB=$'\t'
+MARK="# agent-construction-kit unit v1"
+
+usage_err() {
+  echo "ack-proxy: $1" >&2
+  echo "ack-proxy: usage: ack-proxy status|ensure|models [provider]|check-slots|service install|remove" >&2
+  exit 2
+}
+
+load_openai() { ack_provider_load openai "$SHARE" || exit 2; }
+
+need_binary() {
+  BIN="$(type -P claude-code-proxy 2>/dev/null)"
+  if [ -z "$BIN" ]; then
+    echo "ack-proxy: claude-code-proxy is not installed." >&2
+    echo "ack-proxy: install it (see the skill's references/openai-proxy.md), then try again." >&2
+    exit 5
+  fi
+}
+
+# model_list PROVIDER -> one model per line from `claude-code-proxy models`
+model_list() {
+  local want="$1" out line name rest found=1 m
+  out="$("$BIN" models 2>/dev/null)"
+  while IFS= read -r line; do
+    _ack_trim "$line"; line="$REPLY"
+    case "$line" in *:*) ;; *) continue ;; esac
+    _ack_trim "${line%%:*}"; name="$REPLY"
+    [ "$name" = "$want" ] || continue
+    rest="${line#*:}"
+    found=0
+    while [ -n "$rest" ]; do
+      case "$rest" in *,*) m="${rest%%,*}"; rest="${rest#*,}" ;; *) m="$rest"; rest="" ;; esac
+      _ack_trim "$m"
+      [ -n "$REPLY" ] && printf '%s\n' "$REPLY"
+    done
+  done <<EOT
+$out
+EOT
+  return "$found"
+}
+
+cmd_status() {
+  local bin port detail unit
+  load_openai
+  port="$(ack_conf PROXY_PORT)"
+  bin="$(type -P claude-code-proxy 2>/dev/null)"
+  if [ -n "$bin" ]; then
+    printf 'binary%sok%s%s\n' "$TAB" "$TAB" "$bin"
+    if "$bin" codex auth status >/dev/null 2>&1; then
+      printf 'auth%sok%scodex login present\n' "$TAB" "$TAB"
+    else
+      printf 'auth%smissing%srun: claude-code-proxy codex auth login\n' "$TAB" "$TAB"
+    fi
+  else
+    printf 'binary%smissing%snot on PATH\n' "$TAB" "$TAB"
+    printf 'auth%smissing%sneeds claude-code-proxy\n' "$TAB" "$TAB"
+  fi
+  unit="$(ack_proxy_unit_file)"
+  if ! ack_has_user_service; then
+    printf 'service%sinfo%sno user service manager here\n' "$TAB" "$TAB"
+  elif [ -f "$unit" ]; then
+    printf 'service%sok%s%s\n' "$TAB" "$TAB" "$unit"
+  else
+    printf 'service%smissing%sno unit; run: ack-proxy service install\n' "$TAB" "$TAB"
+  fi
+  if ack_proxy_reachable "$port" 2>/dev/null; then
+    printf 'reachable%sok%shttp://127.0.0.1:%s/\n' "$TAB" "$TAB" "$port"
+  else
+    printf 'reachable%smissing%snothing answers on port %s\n' "$TAB" "$TAB" "$port"
+  fi
+  return 0
+}
+
+cmd_ensure() {
+  load_openai
+  ack_proxy_ensure "$(ack_conf PROXY_PORT)" || exit 5
+}
+
+cmd_models() {
+  local prov="${1:-codex}"
+  need_binary
+  if ! model_list "$prov"; then
+    echo "ack-proxy: claude-code-proxy lists no models for '$prov'." >&2
+    echo "ack-proxy: run 'claude-code-proxy models' to see the providers it knows." >&2
+    exit 1
+  fi
+}
+
+cmd_check_slots() {
+  local slot model known bad=0
+  load_openai
+  need_binary
+  known="$(model_list codex)" || {
+    echo "ack-proxy: claude-code-proxy lists no codex models." >&2
+    echo "ack-proxy: log in with: claude-code-proxy codex auth login" >&2
+    exit 5
+  }
+  for slot in OPUS SONNET HAIKU FABLE; do
+    model="$(ack_conf "${slot}_MODEL")"
+    [ -n "$model" ] || continue
+    if printf '%s\n' "$known" | grep -Fxq -- "$model"; then
+      printf '%s_MODEL%sok%s%s\n' "$slot" "$TAB" "$TAB" "$model"
+    else
+      printf '%s_MODEL%sunknown%s%s\n' "$slot" "$TAB" "$TAB" "$model"
+      bad=1
+    fi
+  done
+  exit "$bad"
+}
+
+unit_is_ours() {
+  local n=0 line
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    _ack_trim "$line"
+    [ "$n" = 2 ] && { [ "$REPLY" = "$MARK" ]; return; }
+  done < "$1"
+  return 1
+}
+
+cmd_service() {
+  local action="$1" unit port bin q
+  case "$action" in install|remove) ;; *) usage_err "service needs install or remove." ;; esac
+  if ! ack_has_user_service; then
+    echo "ack-proxy: no user service manager here; the wrapper starts the proxy on demand" >&2
+    exit 6
+  fi
+  unit="$(ack_proxy_unit_file)"
+  if [ -f "$unit" ] && ! unit_is_ours "$unit"; then
+    echo "ack-proxy: '$unit' exists and was not written by agent-construction-kit." >&2
+    echo "ack-proxy: leave it as it is, or move it away and run this again." >&2
+    exit 3
+  fi
+  if [ "$action" = remove ]; then
+    if [ ! -f "$unit" ]; then
+      echo "ack-proxy: no proxy service unit to remove."
+      exit 0
+    fi
+    systemctl --user disable --now "$ACK_PROXY_UNIT" >/dev/null 2>&1
+    rm -f "$unit"
+    systemctl --user daemon-reload >/dev/null 2>&1
+    echo "ack-proxy: removed $unit"
+    exit 0
+  fi
+  load_openai
+  port="$(ack_conf PROXY_PORT)"
+  need_binary
+  bin="$BIN"
+  q="$bin"
+  case "$bin" in *[[:space:]]*) q="\"$bin\"" ;; esac
+  mkdir -p "${unit%/*}" || exit 2
+  {
+    printf '[Unit]\n%s\nDescription=claude-code-proxy for Claude Code\n\n' "$MARK"
+    printf '[Service]\nExecStart=%s serve --no-monitor --port %s\nRestart=on-failure\n\n' "$q" "$port"
+    printf '[Install]\nWantedBy=default.target\n'
+  } > "$unit"
+  systemctl --user daemon-reload || exit 5
+  systemctl --user enable --now "$ACK_PROXY_UNIT" || exit 5
+  echo "ack-proxy: installed and started $unit"
+}
+
+[ $# -ge 1 ] || usage_err "no command given."
+cmd="$1"; shift
+case "$cmd" in
+  status) cmd_status ;;
+  ensure) cmd_ensure ;;
+  models) cmd_models "$@" ;;
+  check-slots) cmd_check_slots ;;
+  service) cmd_service "${1:-}" ;;
+  *) usage_err "unknown command '$cmd'." ;;
+esac
