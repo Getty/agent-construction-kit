@@ -41,8 +41,8 @@ class Sandbox(unittest.TestCase):
         full = dict(self.env)
         full.update(env or {})
         argv = self._launchable(argv, full["PATH"])
-        if os.name == "nt":
-            argv = self._quoted(argv)
+        if os.name == "nt" and os.path.basename(argv[0]).lower() == "bash.exe":
+            argv = self._quoted(argv)   # only MSYS programs; cmd.exe parses differently
         try:
             return subprocess.run(argv, env=full, input=input, text=True,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
