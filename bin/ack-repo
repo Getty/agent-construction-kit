@@ -5,7 +5,9 @@
 #   ack-repo disk-remote <TARGET-DIR> [--name NAME] [--dir DIR]
 # DIR defaults to the current directory. Output is tab separated, one fact per line:
 #   git<TAB>ok|missing<TAB>TOPLEVEL-or-DIR       missing = not a repository
-#   commits<TAB>N   branch<TAB>NAME   dirty<TAB>N      (only for a repository)
+#   commits<TAB>N   branch<TAB>NAME   dirty<TAB>N      (only for a repository; NAME is
+#                                                "detached" on a detached HEAD; dirty counts
+#                                                changed and untracked files, each one)
 #   remote<TAB>NAME<TAB>KIND<TAB>URL             one per remote, URL without credentials;
 #                                                KIND = github|codeberg|gitlab|forge|disk|other
 #   signal<TAB>KIND<TAB>FILE                     KIND = perl|node|python|go|rust|make|ci
@@ -21,9 +23,11 @@
 #                                                Read only, offline, never a token or key.
 #   sibling<TAB>DIR                              a neighbour with git and the same name prefix
 #   prefix<TAB>NAME                              the name in kebab-case, without p5-/node-/py-
+# A bare repository has no work tree, so inspect reports it as "git<TAB>missing".
 # inspect only reads. init runs "git init" on branch main and writes a .gitignore when
 # there is none; it prints "git<TAB>created<TAB>DIR", or "git<TAB>ok<TAB>DIR" when DIR is
-# already inside a repository (then nothing changes, no commit either).
+# already inside a repository, or is a bare repository or a .git directory (then nothing
+# changes, no commit either).
 # disk-remote creates TARGET-DIR/<repo>.git as a bare repository, adds it as remote NAME
 # (default origin; backup when origin is taken) and pushes all branches. It prints
 # "remote<TAB>created<TAB>NAME<TAB>PATH" and "push<TAB>ok|skipped<TAB>REASON" (skipped
@@ -187,15 +191,9 @@ EOT
   # tests
   for d in t tests test spec __tests__; do
     [ -d "$base/$d" ] || continue
-    n=0; nested=flat
-    while IFS= read -r f2; do
-      [ -n "$f2" ] || continue
-      n=$((n + 1))
-      rel="${f2#"$base/$d/"}"
-      case "$rel" in */*) nested=nested ;; esac
-    done <<EOT
-$(find "$base/$d" -type f 2>/dev/null)
-EOT
+    _count "$(find "$base/$d" -type f 2>/dev/null | wc -l)"; n="$REPLY"
+    nested=flat
+    [ -n "$(find "$base/$d" -mindepth 2 -type f 2>/dev/null | head -n 1)" ] && nested=nested
     printf 'tests%s%s%s%s%s%s\n' "$TAB" "$d" "$TAB" "$n" "$TAB" "$nested"
   done
 
@@ -227,10 +225,24 @@ EOT
   local mine="${n%%-*}" parent="${base%/*}" s sn
   [ -n "$parent" ] || parent="/"
   if [ -n "$mine" ]; then
+    # a case-insensitive glob for the prefix, so most neighbours are ruled out without a fork
+    local pat="" i c
+    for ((i = 0; i < ${#mine}; i++)); do
+      c="${mine:i:1}"
+      case "$c" in
+        [a-z]) pat="$pat[$c$(printf '%s' "$c" | tr 'a-z' 'A-Z')]" ;;
+        *) pat="$pat$c" ;;
+      esac
+    done
     for s in "$parent"/*; do
-      [ -d "$s" ] && [ "$s" != "$base" ] || continue
-      [ -e "$s/.git" ] || continue
-      _kebab "${s##*/}"; sn="$REPLY"
+      [ "$s" != "$base" ] || continue
+      sn="${s##*/}"
+      case "$sn" in
+        $pat*|[Pp]5-$pat*|[Nn][Oo][Dd][Ee]-$pat*|[Pp][Yy]-$pat*) ;;
+        *) continue ;;
+      esac
+      [ -d "$s" ] && [ -e "$s/.git" ] || continue
+      _kebab "$sn"; sn="$REPLY"
       [ "${sn%%-*}" = "$mine" ] && printf 'sibling%s%s\n' "$TAB" "$s"
     done
   fi
@@ -238,19 +250,31 @@ EOT
   _accounts
 }
 
-# _yaml_user FILE HOST -> REPLY: the "user:" value inside HOST's block of a gh/glab
-# hosts file. Only that one value is ever extracted from the file.
+# _yaml_user FILE HOST -> REPLY: the "user:" value at the first indent level below HOST's
+# entry in a gh/glab hosts file. Only that one value is ever extracted. Returns 1 when
+# there is none; REPLY is empty (return 0) when the value cannot be a user name (a token).
 _yaml_user() {
+  local v
   [ -f "$1" ] || return 1
-  REPLY="$(awk -v host="$2" '
+  v="$(awk -v host="$2" '
     { sub(/\r$/, ""); match($0, /^[ \t]*/); ind = RLENGTH; t = substr($0, ind + 1) }
-    t == "" { next }
+    t == "" || t ~ /^#/ { next }
     inb && ind <= hind { inb = 0 }
-    !inb && t == host ":" { inb = 1; hind = ind; next }
-    inb && t ~ /^user:/ {
-      v = substr(t, 6); gsub(/^[ \t"\x27]+|[ \t"\x27]+$/, "", v); print v; exit
+    !inb && t == host ":" { inb = 1; hind = ind; cind = -1; next }
+    inb {
+      if (cind < 0) cind = ind
+      if (ind == cind && t ~ /^user:/) {
+        v = substr(t, 6); gsub(/^[ \t"\x27]+|[ \t"\x27]+$/, "", v); print "u " v; exit
+      }
     }' "$1" 2>/dev/null)"
-  [ -n "$REPLY" ]
+  v="${v#u }"
+  [ -n "$v" ] || return 1
+  REPLY="$v"
+  case "$v" in
+    gh?_*|github_pat_*|glpat-*|*[!A-Za-z0-9._-]*) REPLY="" ;;
+  esac
+  [ "${#v}" -le 39 ] || REPLY=""
+  return 0
 }
 
 # _ssh_knows HOST: HOST appears in ~/.ssh/config (Host/HostName) or un-hashed in known_hosts
@@ -295,7 +319,10 @@ _accounts() {
       if _ssh_knows "$host"; then
         src=ssh
       else
-        case "$gitcfg" in *"$host"*) src=gitconfig ;; esac
+        case "$gitcfg" in
+          *"//$host/"*|*"//$host:"*|*"@$host:"*|*"@$host/"*|*"//$host.helper"*|*"//$host.username"*|*"//$host.usehttppath"*)
+            src=gitconfig ;;
+        esac
       fi
     fi
     [ -n "$src" ] && printf 'account%s%s%s%s%s%s\n' "$TAB" "$svc" "$TAB" "$src" "$TAB" "$name"
@@ -313,6 +340,11 @@ cmd_init() {
   dir="$REPLY"
   if _toplevel "$dir"; then
     printf 'git%sok%s%s\n' "$TAB" "$TAB" "$REPLY"
+    return 0
+  fi
+  # a bare repository or a .git directory has no work tree but is a repository all the same
+  if git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
+    printf 'git%sok%s%s\n' "$TAB" "$TAB" "$dir"
     return 0
   fi
   git init -q "$dir" >/dev/null 2>&1 && git -C "$dir" symbolic-ref HEAD refs/heads/main ||

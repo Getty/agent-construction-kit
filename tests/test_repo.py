@@ -211,6 +211,30 @@ class RepoTest(Sandbox):
 
     # ---- accounts ----------------------------------------------------------
 
+    def tools_path(self, extra=None):
+        """A PATH holding only the tools ack-repo needs (as tiny wrapper scripts, which
+        work the same on Linux, macOS and Git for Windows), so gh and glab are absent
+        even on a machine that has them."""
+        d = self.root / "tools"
+        d.mkdir(exist_ok=True)
+        gitexe = shutil.which("git") or "git"
+        gitroot = os.path.dirname(os.path.dirname(gitexe))
+        for tool in ("git", "bash", "awk", "grep", "tr", "find", "wc", "head", "sed", "cat"):
+            real = shutil.which(tool)
+            if not real and NT:
+                for sub in ("usr/bin", "bin"):
+                    cand = os.path.join(gitroot, sub, tool + ".exe")
+                    if os.path.isfile(cand):
+                        real = cand
+                        break
+            if not real or (d / tool).exists():
+                continue
+            with open(str(d / tool), "w", newline="") as f:
+                f.write('#!/bin/sh\nexec "%s" "$@"\n' % real.replace("\\", "/"))
+            (d / tool).chmod(0o755)
+        parts = [str(d)] + ([extra] if extra else [])
+        return os.pathsep.join(parts)
+
     def accounts(self, env=None):
         r = self.ar("inspect", str(self.work), env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -243,11 +267,13 @@ class RepoTest(Sandbox):
         self.assertEqual(acc, [])
 
     def test_account_hosts_file_without_the_tool_is_ignored(self):
-        if shutil.which("gh", path=self.env["PATH"]):
-            self.skipTest("a real gh is on the sandbox PATH")
         self.write(".config/gh/hosts.yml", "github.com:\n    user: octo\n")
-        r, acc = self.accounts()
+        r, acc = self.accounts(env={"PATH": self.tools_path()})
         self.assertEqual(acc, [])
+        # control: with gh on that PATH the same file counts
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        r, acc = self.accounts(env={"PATH": self.tools_path(extra=str(self.fakebin))})
+        self.assertEqual(acc, [["account", "github", "gh", "octo"]])
 
     def test_account_other_host_in_hosts_file_is_not_github(self):
         self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
@@ -347,6 +373,10 @@ class RepoTest(Sandbox):
         self.assertTrue(all(l.startswith("ack-repo: ") for l in r.stderr.splitlines()))
 
     # ---- disk-remote -------------------------------------------------------
+
+    def abs_posix(self, p):
+        """The path as git and bash see it (Git for Windows: /tmp/... style, as printed)."""
+        return self.shown(p) if NT else p.as_posix()
 
     def disk(self, name="disk target"):
         d = self.root / name
@@ -483,6 +513,165 @@ class RepoTest(Sandbox):
         self.assertEqual(r.returncode, 3)
         self.assertEqual(os.listdir(str(t)), [])
         self.assertEqual(self.git(d, "remote", "get-url", "stick"), "/x/y.git")
+
+    # ---- fix round 1 -------------------------------------------------------
+
+    def test_inspect_detached_head_branch_is_detached(self):
+        d = self.repo()
+        self.git(d, "checkout", "-q", "--detach")
+        r = self.ar("inspect", str(d))
+        self.assertEqual(self.fact(r, "branch"), [["branch", "detached"]])
+
+    def test_inspect_counts_several_commits(self):
+        d = self.repo()
+        for i in range(2):
+            self.put(d, "f%d" % i)
+            self.git(d, "add", "-A")
+            self.git(d, "commit", "-q", "-m", "c%d" % i)
+        r = self.ar("inspect", str(d))
+        self.assertEqual(self.fact(r, "commits"), [["commits", "3"]])
+
+    def test_inspect_dirty_counts_untracked_files_in_subdirectories(self):
+        d = self.repo()
+        self.put(d, "a/b/one.txt")
+        self.put(d, "a/b/two.txt")
+        self.put(d, "top.txt")
+        (d / "README").write_text("changed\n")
+        r = self.ar("inspect", str(d))
+        self.assertEqual(self.fact(r, "dirty"), [["dirty", "4"]])
+
+    def test_inspect_remote_kinds_gitlab_and_gitea_forgejo(self):
+        d = self.repo()
+        self.git(d, "remote", "add", "gl", "https://gitlab.com/o/r.git")
+        self.git(d, "remote", "add", "gt", "https://gitea.example.org/o/r.git")
+        self.git(d, "remote", "add", "fj", "git@forgejo.example.org:o/r.git")
+        r = self.ar("inspect", str(d))
+        got = {l[1]: l[2] for l in self.fact(r, "remote")}
+        self.assertEqual(got, {"gl": "gitlab", "gt": "forge", "fj": "forge"})
+
+    def test_inspect_bare_repository_is_reported_missing(self):
+        b = self.work / "b.git"
+        self.git(self.work, "init", "-q", "--bare", str(b))
+        r = self.ar("inspect", str(b))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.fact(r, "git")[0][1], "missing")
+        self.assertEqual(self.fact(r, "commits"), [])
+
+    def test_init_on_a_bare_repository_changes_nothing(self):
+        b = self.work / "b2.git"
+        self.git(self.work, "init", "-q", "--bare", str(b))
+        before = sorted(os.listdir(str(b)))
+        r = self.ar("init", str(b))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.fact(r, "git")[0][1], "ok")
+        self.assertEqual(sorted(os.listdir(str(b))), before)
+        self.assertFalse((b / ".git").exists())
+        self.assertFalse((b / ".gitignore").exists())
+
+    def test_init_inside_the_dot_git_directory_changes_nothing(self):
+        d = self.repo()
+        g = d / ".git"
+        before = sorted(os.listdir(str(g)))
+        r = self.ar("init", str(g))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.fact(r, "git")[0][1], "ok")
+        self.assertEqual(sorted(os.listdir(str(g))), before)
+        self.assertFalse((g / ".gitignore").exists())
+
+    def test_disk_remote_push_failure_exits_1_and_keeps_what_it_made(self):
+        d = self.repo("proj")
+        t = self.disk()
+        # pushInsteadOf sends every push to the disk remote to a dead place, so the
+        # remote can be added but the push fails
+        with open(self.env["GIT_CONFIG_GLOBAL"], "w") as f:
+            f.write('[url "%s/"]\n\tpushInsteadOf = %s/\n'
+                    % ((self.root / "no such place").as_posix(), self.abs_posix(t)))
+        r = self.ar("disk-remote", str(t), cwd=d)
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(len(self.fact(r, "remote")), 1)
+        self.assertEqual(self.fact(r, "push"), [])
+        self.assertTrue((t / "proj.git").is_dir())
+        self.assertIn("origin", self.git(d, "remote").split())
+        lines = r.stderr.splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("push origin --all", lines[1])
+
+    def test_disk_remote_dir_option_on_a_non_repo(self):
+        p = self.work / "plain"
+        p.mkdir()
+        t = self.disk()
+        r = self.ar("disk-remote", str(t), "--dir", str(p), cwd=self.work)
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(len(r.stderr.splitlines()), 2)
+        self.assertEqual(os.listdir(str(t)), [])
+
+    def test_account_gh_hosts_file_with_crlf(self):
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        self.write(".config/gh/hosts.yml", "github.com:\r\n    user: octo\r\n    git_protocol: https\r\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [["account", "github", "gh", "octo"]])
+
+    def test_account_hosts_file_found_via_xdg_config_home(self):
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        self.fake("glab", "#!/usr/bin/env bash\nexit 99\n")
+        x = self.root / "xdg"
+        (x / "gh").mkdir(parents=True)
+        (x / "glab-cli").mkdir()
+        (x / "gh" / "hosts.yml").write_text("github.com:\n    user: xdguser\n")
+        (x / "glab-cli" / "config.yml").write_text("hosts:\n    gitlab.com:\n        user: xdglab\n")
+        r, acc = self.accounts(env={"XDG_CONFIG_HOME": str(x)})
+        self.assertEqual(acc, [["account", "github", "gh", "xdguser"],
+                               ["account", "gitlab", "glab", "xdglab"]])
+
+    def test_account_gh_config_dir_beats_xdg_config_home(self):
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        x = self.root / "xdg"
+        (x / "gh").mkdir(parents=True)
+        (x / "gh" / "hosts.yml").write_text("github.com:\n    user: fromxdg\n")
+        g = self.root / "ghcfg"
+        g.mkdir()
+        (g / "hosts.yml").write_text("github.com:\n    user: fromenv\n")
+        r, acc = self.accounts(env={"XDG_CONFIG_HOME": str(x), "GH_CONFIG_DIR": str(g)})
+        self.assertEqual(acc, [["account", "github", "gh", "fromenv"]])
+
+    def test_account_hashed_known_hosts_line_is_not_matched(self):
+        self.write(".ssh/known_hosts", "|1|c2FsdA==|aGFzaA== ssh-ed25519 AAAAKEY\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [])
+
+    def test_account_user_only_at_the_first_level_below_the_host(self):
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        self.write(".config/gh/hosts.yml",
+                   "github.com:\n    users:\n        deep:\n            user: nested\n"
+                   "    user: octo\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [["account", "github", "gh", "octo"]])
+        self.write(".config/gh/hosts.yml", "github.com:\n    users:\n        deep:\n            user: nested\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [])
+
+    def test_account_token_like_value_is_refused(self):
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        self.fake("glab", "#!/usr/bin/env bash\nexit 99\n")
+        self.write(".config/gh/hosts.yml", "github.com:\n    user: ghp_AbCdEf0123456789\n")
+        self.write(".config/glab-cli/config.yml", "hosts:\n    gitlab.com:\n        user: glpat-AbCdEf0123\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [["account", "github", "gh", ""], ["account", "gitlab", "glab", ""]])
+        self.assertNotIn("AbCdEf", r.stdout + r.stderr)
+        self.write(".config/gh/hosts.yml", "github.com:\n    user: %s\n" % ("a" * 40))
+        r, acc = self.accounts()
+        self.assertEqual(acc[0], ["account", "github", "gh", ""])
+        self.write(".config/gh/hosts.yml", "github.com:\n    user: has space!\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc[0], ["account", "github", "gh", ""])
+
+    def test_account_gitconfig_matches_the_host_only_at_a_boundary(self):
+        (self.root / "gitconfig").write_text(
+            '[url "git@notgithub.com:"]\n\tinsteadOf = x:\n'
+            '[url "https://gitlab.com.evil.example/"]\n\tinsteadOf = y:\n'
+            '[credential "https://mycodeberg.org"]\n\thelper = store\n')
+        r, acc = self.accounts()
+        self.assertEqual(acc, [])
 
     # ---- usage -------------------------------------------------------------
 
