@@ -130,7 +130,7 @@ _first_wrapper_dir() {
   local d f n paths="$PATH"
   local IFS=:
   for d in $paths; do
-    [ -n "$d" ] && [ -d "$d" ] || continue
+    [ -n "$d" ] && [ -d "$d" ] && [ -w "$d" ] || continue
     for f in "$d"/claude_with_*; do
       { [ -e "$f" ] || [ -L "$f" ]; } || continue
       n="${f##*/}"; case "$n" in *.*) continue ;; esac
@@ -231,24 +231,46 @@ _foreign_msg() {
   echo "ack-wrappers: $2" >&2
 }
 _backup() { # PATH -> moves it to PATH.bak-YYYY-MM-DD[-N]
-  local p="$1" b n=1
-  b="$p.bak-$(date +%Y-%m-%d)"
-  while [ -e "$b" ] || [ -L "$b" ]; do n=$((n + 1)); b="$p.bak-$(date +%Y-%m-%d)-$n"; done
+  local p="$1" b n=1 day
+  day="$(date +%Y-%m-%d)"; b="$p.bak-$day"
+  while [ -e "$b" ] || [ -L "$b" ]; do n=$((n + 1)); b="$p.bak-$day-$n"; done
   mv "$p" "$b" || return 1
   printf 'backup%s%s%s%s\n' "$TAB" "$p" "$TAB" "$b"
 }
 
-# copy share/ to the data dir; drop providers that no longer ship
+# _check_data: the data dir must be ours (marker), new or empty; never /, $HOME or above it
+_check_data() {
+  local d h
+  d="$(cd "$DATA" 2>/dev/null && pwd -P)" || d="$DATA"
+  h="$(cd "$HOME" 2>/dev/null && pwd -P)" || h="$HOME"
+  if [ "$d" = / ] || [ "$d" = "$h" ] || [ "$DATA" = "${HOME%/}" ] || case "$h/" in "${d%/}/"*) true ;; *) false ;; esac; then
+    echo "ack-wrappers: $DATA is your home directory or contains it, so it cannot be the data directory." >&2
+    echo "ack-wrappers: unset ACK_DATA_DIR or point it at an empty folder of its own." >&2
+    exit 2
+  fi
+  if [ -e "$DATA" ] && [ ! -f "$DATA/.ack-data" ] && [ -n "$(ls -A "$DATA" 2>/dev/null)" ]; then
+    echo "ack-wrappers: $DATA exists, is not empty and was not made by agent-construction-kit." >&2
+    echo "ack-wrappers: point ACK_DATA_DIR at an empty or new folder, or empty this one." >&2
+    exit 2
+  fi
+}
+# copy share/ to the data dir; drop providers/*.conf that no longer ship
 _sync_share() {
   local f rel first
   mkdir -p "$DATA" || { echo "ack-wrappers: cannot create $DATA." >&2; echo "ack-wrappers: check its permissions or set ACK_DATA_DIR." >&2; exit 1; }
   [ "$(cd "$SHARE" && pwd -P)" = "$(cd "$DATA" && pwd -P)" ] && return 0
+  printf 'agent-construction-kit data directory; the kit overwrites its files here\n' > "$DATA/.ack-data"
   if [ -d "$DATA/providers" ]; then
-    for f in "$DATA"/providers/*; do
+    for f in "$DATA"/providers/*.conf; do
       [ -f "$f" ] && [ ! -e "$SHARE/providers/${f##*/}" ] && rm -f "$f"
     done
   fi
   cp -R "$SHARE"/. "$DATA"/ || { echo "ack-wrappers: copying the shared files to $DATA failed." >&2; echo "ack-wrappers: check free space and permissions there." >&2; exit 1; }
+  while IFS= read -r rel; do
+    chmod 755 "$DATA/${rel#./}"
+  done <<EOT
+$(cd "$SHARE" && find . -type d)
+EOT
   while IFS= read -r rel; do
     f="$DATA/${rel#./}"; first=""
     IFS= read -r first < "$f"
@@ -256,7 +278,6 @@ _sync_share() {
   done <<EOT
 $(cd "$SHARE" && find . -type f)
 EOT
-  find "$DATA" -type d -exec chmod 755 {} + 2>/dev/null
   return 0
 }
 
@@ -276,12 +297,12 @@ cmd_list() {
 }
 
 cmd_install() {
-  local p src name dir file cmdf bashw="" rc=0 st kind
+  local p src name dir file cmdf bashw="" rc=0 st kind bad=""
   ALLOWED="--permissions --dir --replace"; _parse "$@"
   _need_names 1; name="${ARGS[0]}"; _valid_name "$name"
   _select "$name"
   _target_dir; dir="$TARGET"; file="$dir/claude_with_$name"; cmdf="$file.cmd"
-  _data_abs
+  _data_abs; _check_data
   if _is_windows; then
     _bash_windows || { echo "ack-wrappers: cannot determine the path of this bash (cygpath failed)." >&2; echo "ack-wrappers: run it from Git Bash." >&2; exit 1; }
     bashw="$REPLY"
@@ -290,24 +311,25 @@ cmd_install() {
   _wrapper_text "$name" "$PERM" > "$TMP/new"
   _cmd_text "$name" "$PERM" "$bashw" > "$TMP/new.cmd"
   if [ "$OPT_REPLACE" = 0 ]; then
-    _state "$file"; [ "$STATE" = foreign ] && { _show_foreign "$file" "$TMP/new"; rc=3; }
+    _state "$file"; [ "$STATE" = foreign ] && { _show_foreign "$file" "$TMP/new"; rc=3; bad="$file"; }
     if _is_windows; then
-      _state "$cmdf"; [ "$STATE" = foreign ] && { _show_foreign "$cmdf" "$TMP/new.cmd"; rc=3; }
+      _state "$cmdf"; [ "$STATE" = foreign ] && { _show_foreign "$cmdf" "$TMP/new.cmd"; rc=3; bad="${bad:+$bad and }$cmdf"; }
     fi
     if [ "$rc" = 3 ]; then
-      _foreign_msg "A file at the target" "Compare the diff above, then re-run with --replace to keep a .bak copy and install over it, or pick another --dir."
+      _foreign_msg "$bad" "Compare the diff above, then re-run with --replace to keep a .bak copy and install over it, or pick another --dir."
       exit 3
     fi
   fi
   mkdir -p "$dir" || { echo "ack-wrappers: cannot create $dir." >&2; echo "ack-wrappers: pass --dir with a writable directory." >&2; exit 1; }
   _absdir "$dir"; dir="$REPLY"; file="$dir/claude_with_$name"; cmdf="$file.cmd"
+  [ -w "$dir" ] || { echo "ack-wrappers: $dir is not writable." >&2; echo "ack-wrappers: pass --dir with a folder you can write to." >&2; exit 1; }
   _sync_share
   for kind in wrapper cmd; do
     if [ "$kind" = wrapper ]; then p="$file"; src="$TMP/new"
     else _is_windows || continue; p="$cmdf"; src="$TMP/new.cmd"; fi
     _state "$p"; st="installed"
     case "$STATE" in
-      foreign) _backup "$p" || exit 1 ;;
+      foreign) if [ "$OPT_REPLACE" = 1 ]; then _backup "$p" || exit 1; else exit 3; fi ;;
       installed) st="updated" ;;
     esac
     cat "$src" > "$p" || { echo "ack-wrappers: cannot write $p." >&2; echo "ack-wrappers: check the permissions of $dir." >&2; exit 1; }
@@ -319,30 +341,32 @@ cmd_install() {
 }
 
 cmd_uninstall() {
-  local name file cmdf rc=0 p
+  local name file cmdf rc=0 p kind bad="" files
   ALLOWED="--dir"; _parse "$@"
   _need_names 1; name="${ARGS[0]}"; _valid_name "$name"
   _find_wrapper_dir "$name"; file="$TARGET/claude_with_$name"; cmdf="$file.cmd"
-  for p in "$file" "$cmdf"; do
+  files=("$file"); _is_windows && files+=("$cmdf")
+  for p in "${files[@]}"; do
     _state "$p"
-    [ "$STATE" = foreign ] && { printf 'foreign%s%s\n' "$TAB" "$p"; rc=3; }
+    [ "$STATE" = foreign ] && { printf 'foreign%s%s\n' "$TAB" "$p"; rc=3; bad="${bad:+$bad and }$p"; }
   done
   if [ "$rc" = 3 ]; then
-    _foreign_msg "A file at the target" "Remove it by hand if it is really yours to delete."
+    _foreign_msg "$bad" "If your wrapper lives elsewhere, pass its folder with --dir; otherwise remove the file by hand."
     exit 3
   fi
-  for p in "$file" "$cmdf"; do
+  for p in "${files[@]}"; do
+    kind=wrapper; [ "$p" = "$cmdf" ] && kind=cmd
     _state "$p"
     case "$STATE" in
-      installed) rm -f "$p" && printf '%s\t%s\t%s\t%s\n' wrapper removed "$name" "$p" ;;
-      absent) [ "$p" = "$file" ] && printf '%s\t%s\t%s\t%s\n' wrapper absent "$name" "$p" ;;
+      installed) rm -f "$p" && printf '%s\t%s\t%s\t%s\n' "$kind" removed "$name" "$p" ;;
+      absent) [ "$kind" = wrapper ] && printf '%s\t%s\t%s\t%s\n' wrapper absent "$name" "$p" ;;
     esac
   done
   return 0
 }
 
 cmd_path_fix() {
-  local dir files f line shown
+  local dir files f line shown have
   ALLOWED="--dir"; _parse "$@"
   _target_dir; dir="$TARGET"
   if _dir_on_path "$dir"; then printf 'path\tok\t%s\n' "$dir"; return 0; fi
@@ -359,7 +383,12 @@ cmd_path_fix() {
   case "$dir" in "${HOME%/}"/*) _dq "${dir#"${HOME%/}"/}"; line="export PATH=\"\$HOME/$REPLY:\$PATH\" # agent-construction-kit" ;;
     *) _dq "$dir"; line="export PATH=\"$REPLY:\$PATH\" # agent-construction-kit" ;; esac
   while IFS= read -r f; do
-    if [ -f "$f" ] && grep -Fxq -- "$line" "$f"; then printf 'path\tunchanged\t%s\n' "$f"; continue; fi
+    if [ -f "$f" ] && have="$(grep -F -- '# agent-construction-kit' "$f")" && [ -n "$have" ]; then
+      have="${have%%$'\n'*}"
+      if [ "$have" = "$line" ]; then printf 'path\tunchanged\t%s\n' "$f"
+      else printf 'path\texists\t%s\t%s\n' "$f" "$have"; fi
+      continue
+    fi
     if [ -f "$f" ] && [ -n "$(tail -c1 "$f")" ]; then printf '\n' >> "$f"; fi
     printf '%s\n' "$line" >> "$f" || { echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: add the line yourself: $line" >&2; exit 1; }
     printf 'path\tfixed\t%s\n' "$f"
@@ -371,7 +400,7 @@ EOT
 
 # _key_template NAME -> KEYFILE (creates the file with mode 600 if missing)
 _key_template() {
-  local var f
+  local var f kd
   _valid_name "$1"
   ack_provider_load "$1" "$SHARE" || exit 2
   var="$ACK_C_KEY_FILE_VAR"; f="$ACK_C_KEY_FILE"
@@ -380,8 +409,14 @@ _key_template() {
     echo "ack-wrappers: run 'ack-wrappers test $1' to check that it works." >&2
     exit 2
   fi
+  if [ -L "$f" ] && [ ! -e "$f" ]; then
+    echo "ack-wrappers: $f is a symlink to nothing." >&2
+    echo "ack-wrappers: remove the link or create what it points to." >&2
+    exit 2
+  fi
   if [ ! -e "$f" ]; then
-    mkdir -p "${f%/*}" || { echo "ack-wrappers: cannot create the folder of $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
+    case "$f" in */*) kd="${f%/*}" ;; *) kd=. ;; esac
+    mkdir -p "$kd" || { echo "ack-wrappers: cannot create the folder of $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
     ( umask 077; printf '%s=\n' "$var" > "$f" ) || { echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
     chmod 600 "$f" 2>/dev/null
   fi
@@ -392,22 +427,24 @@ cmd_key_template() {
   _key_template "${ARGS[0]}"; printf '%s\n' "$KEYFILE"
 }
 _open_editor() { # FILE -> 0 when an editor ran
-  local f="$1" e
+  local f="$1"
   if _is_windows; then
-    type -P notepad >/dev/null 2>&1 && notepad "$(cygpath -w "$f")"
-  else
-    case "$OSTYPE" in
-      darwin*) type -P open >/dev/null 2>&1 && open -t "$f" ;;
-      *) e="${EDITOR:-}"
-         if [ -n "$e" ]; then set -- $e; type -P "$1" >/dev/null 2>&1 && "$@" "$f"
-         else type -P xdg-open >/dev/null 2>&1 && xdg-open "$f"; fi ;;
-    esac
+    type -P notepad >/dev/null 2>&1 && notepad "$(cygpath -w "$f")" >/dev/null 2>&1 </dev/null
+    return
   fi
+  case "$OSTYPE" in
+    darwin*) type -P open >/dev/null 2>&1 && open -t "$f" >/dev/null 2>&1 </dev/null; return ;;
+  esac
+  # a terminal editor needs the real terminal
+  if [ -n "${EDITOR:-}" ] && [ -t 0 ]; then
+    ( set -f; set -- $EDITOR; type -P "$1" >/dev/null 2>&1 && "$@" "$f" ) && return 0
+  fi
+  type -P xdg-open >/dev/null 2>&1 && xdg-open "$f" >/dev/null 2>&1 </dev/null
 }
 cmd_key_edit() {
   ALLOWED=""; _parse "$@"; _need_names 1
   _key_template "${ARGS[0]}"; printf '%s\n' "$KEYFILE"
-  _open_editor "$KEYFILE" >/dev/null 2>&1 </dev/null || {
+  _open_editor "$KEYFILE" || {
     echo "ack-wrappers: no editor could be started." >&2
     echo "ack-wrappers: open $KEYFILE yourself and put the key after the '='." >&2; }
   return 0
@@ -416,7 +453,7 @@ cmd_key_edit() {
 # _conf_put FILE KEY VALUE: replace the key in place (drop repeats) or append it
 _conf_put() {
   local f="$1" k="$2" v="$3" tmp="$1.tmp.$$" line t key done=0
-  : > "$tmp" || return 1
+  : > "$tmp" || { rm -f "$tmp"; return 1; }
   if [ -f "$f" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
       _ack_trim "$line"; t="$REPLY"; key=""
@@ -428,16 +465,17 @@ _conf_put() {
     done < "$f"
   fi
   [ "$done" = 1 ] || printf '%s=%s\n' "$k" "$v" >> "$tmp"
-  mv "$tmp" "$f"
+  mv "$tmp" "$f" || { rm -f "$tmp"; return 1; }
 }
 cmd_set() {
-  local name f prev kv k v keyvar
+  local name f prev kv k v keyvar i ks=() vs=()
   ALLOWED=""; _parse "$@"; _need_names 2; name="${ARGS[0]}"; _valid_name "$name"
   ack_provider_load "$name" "$SHARE" || exit 2
   keyvar="$ACK_C_KEY_VAR"
   for kv in "${ARGS[@]:1}"; do
     case "$kv" in *=*) ;; *) usage_err "'$kv' is not KEY=VALUE." ;; esac
-    k="${kv%%=*}"; v="${kv#*=}"
+    k="${kv%%=*}"; _ack_trim "${kv#*=}"; v="$REPLY"
+    case "$kv" in *$'\n'*|*$'\r'*) usage_err "the value of $k must be a single line." ;; esac
     case "$k" in ''|*[!A-Z_]*) usage_err "'$k' is not a definition key (only A-Z and _)." ;; esac
     case "$k" in
       *API_KEY*|*SECRET*|"$keyvar")
@@ -445,15 +483,19 @@ cmd_set() {
         echo "ack-wrappers: run 'ack-wrappers key-edit $name' and put the key into the key file." >&2
         exit 2 ;;
     esac
-    case "$v" in *[[:space:]]'#'*) usage_err "the value of $k contains ' #', which would start a comment." ;; esac
+    case "$v" in '#'*) usage_err "the value of $k starts with '#', which reads like a comment." ;; esac
+    ks+=("$k"); vs+=("$v")
   done
   f="$ACK_CONFIG_DIR/providers/$name.conf"; prev="$f.prev.$$"
   mkdir -p "${f%/*}" || { echo "ack-wrappers: cannot create ${f%/*}." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
   if [ -f "$f" ]; then cp "$f" "$prev"; else prev=""; fi
-  for kv in "${ARGS[@]:1}"; do
-    _ack_trim "${kv#*=}"
-    _conf_put "$f" "${kv%%=*}" "$REPLY" || { echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
-    printf 'set%s%s%s%s\n' "$TAB" "${kv%%=*}" "$TAB" "$REPLY"
+  i=0
+  while [ "$i" -lt "${#ks[@]}" ]; do
+    _conf_put "$f" "${ks[$i]}" "${vs[$i]}" || {
+      [ -n "$prev" ] && mv "$prev" "$f"
+      echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
+    printf 'set%s%s%s%s\n' "$TAB" "${ks[$i]}" "$TAB" "${vs[$i]}"
+    i=$((i + 1))
   done
   if ! ack_provider_load "$name" "$SHARE"; then
     if [ -n "$prev" ]; then mv "$prev" "$f"; else rm -f "$f"; fi
@@ -475,6 +517,7 @@ cmd_test() {
   local wst name file out rc=0 t=0 limit pid line s kv reason="" ans
   ALLOWED="--dir"; _parse "$@"
   _need_names 1; name="${ARGS[0]}"; _valid_name "$name"
+  case "${ACK_TEST_TIMEOUT:-120}" in ''|0|*[!0-9]*) usage_err "ACK_TEST_TIMEOUT must be a positive whole number of seconds." ;; esac
   OPT_PERM=""; _select "$name"
   _find_wrapper_dir "$name"; file="$TARGET/claude_with_$name"
   _state "$file"
@@ -484,7 +527,7 @@ cmd_test() {
   fi
   TMP="$(mktemp -d)"; out="$TMP/out"
   limit=$(( ${ACK_TEST_TIMEOUT:-120} * 5 ))
-  bash "$file" -p "$PROMPT" > "$out" 2>&1 < /dev/null &
+  "$BASH" "$file" -p "$PROMPT" > "$out" 2>&1 < /dev/null &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$t" -ge "$limit" ]; then kill "$pid" 2>/dev/null; rc=124; break; fi
@@ -511,8 +554,9 @@ cmd_test() {
     124) reason="could not reach $ans (no answer after ${ACK_TEST_TIMEOUT:-120}s)" ;;
     3) reason="no key yet — add it to $ACK_C_KEY_FILE" ;;
     4) reason="claude is not installed — install Claude Code, or set ACK_CLAUDE_BIN" ;;
-    5) if grep -Eiq 'sign(ed)? ?in|log(ged)? ?in|logged' "$out"; then reason="the proxy is not signed in"
-       else reason="could not reach $ans"; fi ;;
+    5) if grep -Eiq 'claude-code-proxy is not installed' "$out"; then reason="claude-code-proxy is not installed"
+       elif grep -Eiq 'sign(ed)? ?in|log(ged)? ?in' "$out"; then reason="the proxy is not signed in"
+       else reason="the proxy did not start"; fi ;;
     *) if [ "$rc" != 0 ] || grep -q 'API Error' "$out"; then
          if grep -Eiq '(^|[^0-9])40[13]([^0-9]|$)|invalid.*(api.?key|x-api-key)|authentication|unauthori' "$out"; then
            reason="the provider rejected the key"
@@ -521,6 +565,9 @@ cmd_test() {
          else reason="${line:-claude exited with status $rc and no output}"; fi
        fi ;;
   esac
+  if [ -z "$reason" ] && ! grep -Eiq '(^|[^A-Za-z])ok([^A-Za-z]|$)' "$out"; then
+    reason="unexpected answer: ${line:-(empty)}"
+  fi
   if [ -n "$reason" ]; then printf 'test%smissing%s%s\n' "$TAB" "$TAB" "$reason"; exit 1; fi
   printf 'test%sok%s%s\n' "$TAB" "$TAB" "$line"
 }

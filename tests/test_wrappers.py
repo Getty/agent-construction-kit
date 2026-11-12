@@ -11,8 +11,8 @@ NT = os.name == "nt"
 
 
 class WrappersTest(Sandbox):
-    def aw(self, *args, env=None):
-        return self.run_cmd("bash", AW, *args, env=env)
+    def aw(self, *args, env=None, input=None):
+        return self.run_cmd("bash", AW, *args, env=env, input=input)
 
     @property
     def bindir(self):
@@ -47,17 +47,62 @@ class WrappersTest(Sandbox):
         self.assertIn("ARGV:\n-p\nhi\n", r.stdout)
 
     def test_install_copies_share_and_drops_stale_providers(self):
+        data = self.home / ".local/share/agent-construction-kit"
+        self.write(".local/share/agent-construction-kit/.ack-data", "ours\n")
         stale = self.write(".local/share/agent-construction-kit/providers/old.conf", "PREFIX=OLD\n")
+        notes = self.write(".local/share/agent-construction-kit/providers/notes.txt", "keep\n")
         mine = self.write(CONF + "providers/mine.conf", "PREFIX=MINE\n")
         self.assertEqual(self.aw("install", "kimi").returncode, 0)
-        data = self.home / ".local/share/agent-construction-kit"
         self.assertFalse(stale.exists())
+        self.assertTrue(notes.exists())
+        self.assertTrue((data / ".ack-data").is_file())
         self.assertTrue(mine.exists())
         self.assertTrue((data / "lib.sh").is_file())
         self.assertTrue((data / "providers/kimi.conf").is_file())
         if not NT:
             self.assertTrue(os.access(str(data / "claude-with"), os.X_OK))
             self.assertFalse(os.access(str(data / "lib.sh"), os.X_OK))
+
+    def test_data_dir_equal_to_home_is_refused(self):
+        keep = self.write("providers/mine.txt", "mine\n")
+        r = self.aw("install", "minimax", env={"ACK_DATA_DIR": str(self.home)})
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(keep.read_text(), "mine\n")
+        self.assertFalse((self.home / "claude-with").exists())
+        self.assertFalse(self.wrapper("minimax").exists())
+
+    def test_data_dir_above_home_is_refused(self):
+        r = self.aw("install", "minimax", env={"ACK_DATA_DIR": str(self.root)})
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse((self.root / "claude-with").exists())
+
+    def test_foreign_nonempty_data_dir_is_refused_and_untouched(self):
+        d = self.root / "elsewhere"
+        d.mkdir()
+        (d / "keep.txt").write_text("keep\n")
+        (d / "sub").mkdir()
+        before = stat.S_IMODE((d / "sub").stat().st_mode)
+        r = self.aw("install", "minimax", env={"ACK_DATA_DIR": str(d)})
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("elsewhere", r.stderr)
+        self.assertEqual(sorted(p.name for p in d.iterdir()), ["keep.txt", "sub"])
+        self.assertEqual(stat.S_IMODE((d / "sub").stat().st_mode), before)
+
+    def test_empty_data_dir_is_accepted(self):
+        d = self.root / "fresh"
+        d.mkdir()
+        r = self.aw("install", "minimax", env={"ACK_DATA_DIR": str(d)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((d / ".ack-data").is_file())
+
+    def test_second_same_day_replace_keeps_the_first_backup(self):
+        w = ".local/bin/claude_with_minimax"
+        self.write(w, "#!/bin/sh\necho one\n", 0o755)
+        self.assertEqual(self.aw("install", "minimax", "--replace").returncode, 0)
+        self.write(w, "#!/bin/sh\necho two\n", 0o755)
+        self.assertEqual(self.aw("install", "minimax", "--replace").returncode, 0)
+        texts = sorted(p.read_text() for p in self.bindir.glob("claude_with_minimax.bak-*"))
+        self.assertEqual(texts, ["#!/bin/sh\necho one\n", "#!/bin/sh\necho two\n"])
 
     def test_danger_wrapper_has_no_provider_env(self):
         self.assertEqual(self.aw("install", "danger").returncode, 0)
@@ -181,6 +226,18 @@ class WrappersTest(Sandbox):
         self.assertEqual((self.home / ".zshrc").read_text().count("# agent-construction-kit"), 1)
 
     @unittest.skipIf(NT, "Windows keeps PATH in the user environment")
+    def test_path_fix_with_another_dir_adds_no_second_line(self):
+        self.aw("path-fix")
+        other = self.root / "other bin"
+        other.mkdir()
+        r = self.aw("path-fix", "--dir", str(other))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rc = (self.home / ".bashrc").read_text()
+        self.assertEqual(rc.count("# agent-construction-kit"), 1)
+        self.assertIn("path\texists\t", r.stdout)
+        self.assertIn(".local/bin", r.stdout)
+
+    @unittest.skipIf(NT, "Windows keeps PATH in the user environment")
     def test_path_fix_leaves_a_dir_on_path_alone(self):
         r = self.aw("path-fix", "--dir", str(self.fakebin))
         self.assertEqual(r.returncode, 0)
@@ -247,9 +304,26 @@ class WrappersTest(Sandbox):
         body = '#!/usr/bin/env bash\necho "$@" >> "%s"\n' % str(log).replace("\\", "/")
         for n in ("xdg-open", "open", "notepad", "myeditor"):
             self.fake(n, body)
-        r = self.aw("key-edit", "minimax", env={"EDITOR": "myeditor"})
+        r = self.aw("key-edit", "minimax", env={"EDITOR": "myeditor"}, input="")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("minimax.env", log.read_text())
+
+    def test_key_edit_skips_a_terminal_editor_without_a_tty(self):
+        log = self.root / "editor.log"
+        self.fake("myeditor", '#!/usr/bin/env bash\necho "$@" >> "%s"\n' % str(log).replace("\\", "/"))
+        for n in ("xdg-open", "open", "notepad"):
+            self.fake(n, "#!/usr/bin/env bash\nexit 1\n")
+        r = self.aw("key-edit", "minimax", env={"EDITOR": "myeditor"}, input="")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("minimax.env", r.stdout)
+        self.assertFalse(log.exists())
+
+    def test_key_template_refuses_a_dangling_symlink(self):
+        if NT:
+            self.skipTest("symlinks need privileges on Windows")
+        (self.home / CONF).mkdir(parents=True)
+        os.symlink(str(self.root / "nowhere"), str(self.home / CONF / "minimax.env"))
+        self.assertEqual(self.aw("key-template", "minimax").returncode, 2)
 
     def test_set_writes_override_and_launcher_uses_it(self):
         r = self.aw("set", "openai", "OPUS_MODEL=gpt-x")
@@ -263,6 +337,13 @@ class WrappersTest(Sandbox):
         self.assertEqual(r.returncode, 0, r.stderr)
         text = p.read_bytes().decode().replace("\r", "")
         self.assertEqual(text, "# mine\nOPUS_MODEL=b\nHAIKU_MODEL=h\nSONNET_MODEL=s\n")
+        self.assertEqual(r.stdout.splitlines(), ["set\tOPUS_MODEL\tb", "set\tSONNET_MODEL\ts"])
+        self.assertEqual([x.name for x in p.parent.iterdir()], ["openai.conf"])
+
+    def test_set_rejects_multiline_values(self):
+        r = self.aw("set", "openai", "OPUS_MODEL=a\nb")
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse((self.home / CONF / "providers/openai.conf").exists())
 
     def test_set_refuses_a_key_and_a_broken_reference(self):
         r = self.aw("set", "minimax", "MINIMAX_API_KEY=sk-abc")
@@ -270,8 +351,11 @@ class WrappersTest(Sandbox):
         self.assertNotIn("sk-abc", r.stdout + r.stderr)
         self.assertFalse((self.home / CONF / "providers/minimax.conf").exists())
         r = self.aw("set", "minimax", "MODEL=${NOPE}")
-        self.assertEqual(r.returncode, 2)
-        self.assertFalse((self.home / CONF / "providers/minimax.conf").exists())
+        conf = self.home / CONF / "providers/minimax.conf"
+        diag = "rc=%s stdout=%r stderr=%r conf=%r" % (
+            r.returncode, r.stdout, r.stderr, conf.read_text() if conf.exists() else None)
+        self.assertEqual(r.returncode, 2, diag)
+        self.assertFalse(conf.exists(), diag)
 
     # ---- test subcommand ---------------------------------------------------
 
@@ -306,11 +390,27 @@ class WrappersTest(Sandbox):
             self.assertIn(want, r.stdout)
             self.assertNotIn("sk-live-1", r.stdout + r.stderr)
 
-    def test_test_without_a_proxy_says_it_could_not_reach_it(self):
+    def test_test_without_the_proxy_binary_says_it_is_not_installed(self):
+        # never reach a real proxy, curl target or service manager
+        self.fake("curl", "#!/usr/bin/env bash\nexit 7\n")
         self.aw("install", "openai")
-        r = self.aw("test", "openai")
+        r = self.aw("test", "openai", env={"ACK_UNAME": "Darwin"})
         self.assertEqual(r.returncode, 1)
-        self.assertIn("could not reach 127.0.0.1:18765", r.stdout)
+        self.assertIn("test\tmissing\tclaude-code-proxy is not installed", r.stdout)
+        self.assertNotIn("could not reach", r.stdout)
+
+    def test_test_rejects_a_bad_timeout(self):
+        self.aw("install", "minimax")
+        for bad in ("abc", "0", "-3", "1.5"):
+            r = self.aw("test", "minimax", env={"MINIMAX_API_KEY": "k", "ACK_TEST_TIMEOUT": bad})
+            self.assertEqual(r.returncode, 2, bad)
+
+    def test_test_wants_ok_in_the_answer(self):
+        self.fake_claude("echo 'Hello there'")
+        self.aw("install", "minimax")
+        r = self.aw("test", "minimax", env={"MINIMAX_API_KEY": "k"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("test\tmissing\tunexpected answer: Hello there", r.stdout)
 
     def test_test_gives_up_after_the_timeout(self):
         self.fake_claude("exec sleep 30")
