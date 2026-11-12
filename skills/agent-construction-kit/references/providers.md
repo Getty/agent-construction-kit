@@ -28,14 +28,15 @@ session. Statuses: `ok`, `missing`, `warn`, `info`.
 |---|---|---|
 | `platform` | `ok` | `linux`, `macos` or `windows`, with details |
 | `platform` | `warn` | an unknown system; the kit supports Linux, macOS and Windows only |
-| `wrapper-dir` | `warn` | the folder for starters is not on PATH yet; `install` reports `path missing`, and `path-fix` fixes it |
+| `wrapper-dir` | `warn` | the folder for starters is not on PATH yet; `install` reports `path<TAB>missing`, and `path-fix` fixes it |
 | `repo` | `info`, `ok` | the current folder and its remotes; nothing to do |
 | `session-model` | `info` | Step 0 of the skill |
 | `claude`, `git` | `warn` | there, but it did not answer; run `ack-doctor` once more, and if it stays, tell the user |
 | `wrapper-dir`, `wrapper:list` | `warn` "could not ask ack-wrappers" | the kit's own files are damaged; offer to reinstall the kit as for exit 2 |
 | `marketplace:getty`, `plugin:<name>` | `warn` "could not ask claude" | `claude` did not answer in time; run `ack-doctor` once more, and if it stays, tell the user |
 | `plugin:<name>` | `warn` "disabled" | `claude plugin enable <name>`, after a yes |
-| `tool:claude-code-proxy` | `info` | needed only for OpenAI (Step 3 of the skill) |
+| `tool:claude-code-proxy` | `info` | not installed; needed only for OpenAI (Step 3 of the skill) |
+| `tool:claude-code-proxy` | `ok` | installed; "(not on PATH)" after its path is fine, the kit finds it there |
 | `tool:uvx` | `info` | needed only for MiniMax's extra tools (below) |
 | `tool:curl` | `warn` | the proxy check and the local-model search need curl; offer to install it with the system's package manager |
 | `tool:karr` | `info` | not used for machine setup |
@@ -55,6 +56,9 @@ error or unknown provider; 3 a foreign file is in the way, nothing changed.
   Windows a `cmd<TAB>...` line follows for the `.cmd` file next to it.
 - `backup<TAB><path><TAB><backup path>`: with `--replace`, the old file was kept there.
 - `path<TAB>missing<TAB><dir>`: that folder is not on PATH. Ask, then run `path-fix`.
+- `path<TAB>pending<TAB><dir>`: `path-fix` added the folder to the shell startup file
+  already; new terminal windows find the starters. Do not ask again; say it once at the
+  end.
 - Exit 3: `foreign<TAB><path>` (and `symlink<TAB>...` for a link), then a diff. Show it,
   ask, and repeat with `--replace` only after an explicit yes.
 
@@ -68,9 +72,12 @@ error or unknown provider; 3 a foreign file is in the way, nothing changed.
 - `path<TAB>exists<TAB><file><TAB><line>`: that file has a kit line for another folder
   and was left alone. Show the user the line and ask whether you may change the folder
   in it to the new one; then edit only that line.
-- `path<TAB>manual<TAB><dir>` (Windows), followed by a PowerShell line: ask, then run
-  that line yourself with `powershell -NoProfile -Command "<the line>"`. A new terminal
-  window is needed afterwards.
+- `path<TAB>manual<TAB><dir>` (Windows), followed by the line
+  `ack-wrappers: in PowerShell run: <command> -- then open a new terminal.` Ask, then run
+  only the text between `run: ` and ` -- ` yourself, as
+  `powershell -NoProfile -Command "<that text>"`. A new terminal window is needed
+  afterwards. Windows has no `pending`: later installs in this session still print
+  `path<TAB>missing`; once you ran the line, treat that as `pending`.
 
 `test` prints `test<TAB>ok<TAB><answer>` (exit 0) or `test<TAB>missing<TAB><reason>`
 (exit 1):
@@ -99,9 +106,10 @@ definition.
 
 `new-local` prints `conf<TAB>created<TAB><name><TAB><file>`. Exit 2: the name cannot be
 used (the message says why, e.g. it is a shipped provider's name); suggest another.
-Exit 3 with `foreign<TAB><file>`: a definition of that name exists already (the message
-says the kit did not make it, even when an earlier `new-local` did); ask whether to
-replace it (`--replace`, the old one is kept as `.bak`) or to pick another name. Options:
+Exit 3 with `foreign<TAB><file>`: a definition of that name exists already, from an
+earlier `new-local` ("exists already") or written by hand ("was not created by
+agent-construction-kit"); ask whether to replace it (`--replace`, the old one is kept as
+`.bak`) or to pick another name. Options:
 `--context N` sets the context window, `--thinking N` the thinking budget (default 0:
 without it Claude Code expects a thinking block in every answer), `--key-var VAR` makes
 the server need a key under that variable (then `key-edit` as usual).
@@ -110,7 +118,7 @@ the server need a key under that variable (then `key-edit` as usual).
 `local<TAB><url><TAB><model>` per model. No line: no server found. "curl is not
 installed" on stderr: it could not look.
 
-`ack-wrappers uninstall <name>` removes a starter the kit made (`wrapper<TAB>removed...`);
+`ack-wrappers uninstall <name>` removes a starter the kit made (`wrapper<TAB>removed<TAB>...`);
 for a foreign file it exits 3 and leaves it alone. `ack-wrappers dir` prints
 `dir<TAB>ok|missing<TAB><folder>`: where starters go, and whether that is on PATH.
 

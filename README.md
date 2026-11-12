@@ -9,6 +9,13 @@ or on OpenAI models through a ChatGPT subscription.
 
 Status: machine setup; team construction follows.
 
+## Before you start
+
+- [Claude Code](https://code.claude.com/docs/en/setup), installed and signed in.
+- git. On Windows, [Git for Windows](https://git-scm.com/downloads/win): the kit's
+  commands run in its bash. If git is missing on macOS or Linux, the setup helps you
+  install it.
+
 ## Install
 
 In Claude Code, type:
@@ -16,11 +23,17 @@ In Claude Code, type:
 ```
 /plugin marketplace add Getty/marketplace
 /plugin install agent-construction-kit@getty
+/reload-plugins
 ```
 
-Then say: **set up my machine for agent teams**. From there you only answer questions,
-one at a time, each with a recommendation. Nothing is installed or changed without your
-yes.
+`/reload-plugins` makes the new plugin available at once; restarting Claude Code does
+the same. Then say: **set up my machine for agent teams**.
+
+Claude asks one question at a time, each with a recommendation, and runs the commands
+itself. Nothing is installed or changed without your yes. A few things are yours to do:
+you paste each API key into a text editor that opens for it, you sign in to ChatGPT in
+your browser if you want OpenAI models, and on Linux you may have to install git in a
+terminal window, as that asks for your password.
 
 ## What you get
 
@@ -42,6 +55,9 @@ yes.
 | `minimax` | MiniMax (Anthropic-compatible API) | `MINIMAX_API_KEY` |
 | `ollama` | Ollama Cloud | `OLLAMA_CLOUD_API_KEY` |
 | `openai` | OpenAI through claude-code-proxy (ChatGPT subscription) | none, you sign in with ChatGPT |
+
+Each provider needs an account there and an API key, which is usually paid; `openai`
+needs a ChatGPT Plus or Pro subscription instead.
 
 Your keys stay in your environment or in a private key file that you fill in yourself,
 in your own editor. The kit never writes a key and never shows one.
@@ -75,7 +91,7 @@ in the plugin's `bin/` folder:
 ## Platforms
 
 Linux, macOS and Windows (with Git for Windows). The starters work from any shell; on
-Windows each one comes with a `.cmd` file. Claude Code and git must be installed.
+Windows each one comes with a `.cmd` file.
 
 ## License
 

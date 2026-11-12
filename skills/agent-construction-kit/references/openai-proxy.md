@@ -17,8 +17,7 @@ on, and stop here on a no.
 
 ## 2. Install it, after a yes
 
-Use the project's own way; `ack-doctor` shows `tool:claude-code-proxy` as `ok` once it
-is on PATH.
+Use the project's own way:
 
 - macOS or Linux with Homebrew (`brew` is on PATH):
   `brew install raine/claude-code-proxy/claude-code-proxy`
@@ -27,22 +26,34 @@ is on PATH.
 - Windows: give the user the releases page,
   https://github.com/raine/claude-code-proxy/releases, and ask them to download the
   Windows file of the latest release and tell you where it is. Put
-  `claude-code-proxy.exe` (unpacked, if it came as an archive) into the folder that
-  `ack-wrappers dir` prints; that folder must be on PATH (`dir<TAB>ok`), otherwise run
-  `ack-wrappers path-fix` first.
+  `claude-code-proxy.exe` (unpacked, if it came as an archive) into `~/.local/bin`
+  yourself (create the folder if needed): the kit looks there even when that folder is
+  not on PATH.
+
+Then run `ack-proxy status`. Its `binary` line shows where the program is; "(not on
+PATH)" after the path is fine, the kit finds it there. If `binary` is still `missing`,
+do not install again: find out where the installer put it (its output usually says;
+otherwise ask the user), and link it into `~/.local/bin`, where the kit always looks:
+`mkdir -p ~/.local/bin && ln -s "<that path>" ~/.local/bin/claude-code-proxy` (on
+Windows, copy the `.exe` there instead). Then run `ack-proxy status` again.
 
 ## 3. Sign in: the user types this
 
-The sign-in needs their browser, so the user types it into this Claude Code prompt
-themselves, `!` included:
+If the `auth` line of `ack-proxy status` is `missing`, the text after `run: ` is the
+sign-in command, with the program's full path when it is not on PATH; use it as it is.
+The sign-in needs the user's browser, so they type it into this Claude Code prompt
+themselves, with `! ` in front, for example:
 
 ```
 ! claude-code-proxy codex auth login
 ```
 
-A browser opens; they sign in with their ChatGPT account. On a machine without a
-browser they type `! claude-code-proxy codex auth device` instead and enter the code it
-shows on another device.
+A browser opens; they sign in with their ChatGPT account and tell you when it is done.
+On a machine without a browser, the sign-in with a code: the user runs it in a separate
+terminal window, not here, because the code must stay visible while the command waits.
+Give them the program's path from the `binary` line (on Windows in the form
+`cygpath -w <path>` prints) followed by `codex auth device`; they enter the code it
+shows on another device and tell you when it is done.
 
 ## 4. Check the proxy
 
@@ -50,36 +61,36 @@ shows on another device.
 
 | Line | Meaning |
 |---|---|
-| `binary<TAB>ok` / `missing` | claude-code-proxy is installed / not on PATH: step 2 |
+| `binary<TAB>ok` / `missing` | claude-code-proxy is installed (its path, maybe "(not on PATH)", which is fine) / not found: step 2 |
 | `auth<TAB>ok` / `missing` | signed in / not signed in: step 3 |
-| `service<TAB>ok` / `missing` / `info` | background service set up / not set up (step 6) / not available here, which is fine |
+| `service<TAB>ok` / `missing` | background service set up / not set up: step 6 |
+| `service<TAB>info` | "no user service manager here": fine, nothing to do. "port ..., but the provider uses ...": the service runs on an old port; run `ack-proxy service install` again |
 | `reachable<TAB>ok` / `missing` | the proxy answers / nothing answers yet, which is normal before the first start |
 
 `binary` and `auth` must be `ok` before you go on.
 
-## 5. Choose the models
+## 5. Check the models
 
-`ack-proxy models` prints one model per line that the proxy offers for a ChatGPT
-sign-in. Show the user the `gpt-` names as a short list. `ack-proxy check-slots` prints
-the current choice, one line per slot: `<SLOT>_MODEL<TAB>ok|unknown<TAB><model>`.
+The `openai` definition ships with a model for each tier of Claude Code: `OPUS_MODEL`
+(the main one, which a starter opens with), `SONNET_MODEL`, `HAIKU_MODEL`, `FABLE_MODEL`,
+and `SMALL_MODEL` for background tasks. `ack-proxy check-slots` checks each against the
+models the proxy offers and prints one line per slot:
+`<SLOT>_MODEL<TAB>ok|unknown<TAB><model>`.
 
-Claude Code thinks in tiers: `OPUS_MODEL` is the main model (and the one a starter opens
-with), `SONNET_MODEL` the middle one, `HAIKU_MODEL` the small, quick one, and
-`SMALL_MODEL` serves background tasks. `FABLE_MODEL` is the tier above Opus. Recommend:
-the largest model on Opus, the next ones down on Sonnet and Haiku, the Haiku model also
-on `SMALL_MODEL`, and on Fable the same model as Opus unless the list has one clearly a
-step above it. If every slot is `ok` and fits that, recommend keeping it.
+- Exit 0, every slot `ok`: keep the shipped models and tell the user they are set. Do not
+  rank models or suggest other ones unless the user asks.
+- Exit 1: replace only the `unknown` slots. Show the user the list `ack-proxy models`
+  prints, and for each unknown slot recommend the listed model whose name is closest to
+  the shipped one (same family, nearest version). Ask once for all of them, then set
+  each, with a readable name for Claude Code's model picker (`SMALL_MODEL` takes none):
 
-Ask once whether to set it like that. Then set every slot you change, each with a
-readable name for Claude Code's model picker:
+  ```bash
+  ack-wrappers set openai <SLOT>_MODEL=<model> <SLOT>_MODEL_NAME="<readable name>"
+  ```
 
-```bash
-ack-wrappers set openai OPUS_MODEL=<model> OPUS_MODEL_NAME="<readable name>" SONNET_MODEL=<model> SONNET_MODEL_NAME="<readable name>" HAIKU_MODEL=<model> HAIKU_MODEL_NAME="<readable name>" SMALL_MODEL=<model> FABLE_MODEL=<model> FABLE_MODEL_NAME="<readable name>"
-```
-
-`ack-proxy check-slots` must then exit 0. Exit 1: a slot holds a model the proxy does
-not list (`unknown`); set that slot to a listed one. Exit 5: claude-code-proxy is
-missing, not signed in, or its model list failed; back to steps 2 and 3.
+  Then `ack-proxy check-slots` again; it must exit 0.
+- Exit 5: claude-code-proxy is missing, not signed in, or its model list failed; back to
+  steps 2 and 3.
 
 ## 6. Background service (Linux only)
 

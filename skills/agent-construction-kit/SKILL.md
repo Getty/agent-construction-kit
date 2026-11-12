@@ -23,26 +23,23 @@ the kit. If the user asks for it, say so plainly instead of improvising one.
   never print a variable that may hold one. If they paste a key into the chat, do not
   use or repeat it; recommend replacing it at the provider, as it now sits in the chat.
 - At the end, one line per starter you created: the name to type and what it is for,
-  e.g. "`claude_with_minimax`: Claude Code on MiniMax, asks before each action."
+  e.g. "`claude_with_minimax`: Claude Code on MiniMax, asks before each action." If PATH
+  was changed, add once that the starters work from a new terminal window on.
 
 ## Running the commands
 
 The base directory of this skill is shown when it loads; the commands are in `../../bin/`
-from there. Call each by that full path with `bash` in front, which also works on Windows:
-
-```bash
-bash "<skill base dir>/../../bin/ack-doctor"
-```
-
-They print tab-separated lines; a non-zero exit is part of the answer, not a crash. Every
-result line and exit code, with its next step: [references/providers.md](references/providers.md).
-If `bash` itself is not found (Windows without Git for Windows), say exactly that, offer
-to run `winget install Git.Git`, and start over in a new Claude Code session afterwards.
+from there. Call each by that full path with `bash` in front, which also works on
+Windows: `bash "<skill base dir>/../../bin/ack-doctor"`. They print tab-separated lines;
+a non-zero exit is part of the answer, not a crash. Every result line and exit code,
+with its next step: [references/providers.md](references/providers.md). If `bash`
+itself is not found (Windows without Git for Windows), say exactly that, offer to run
+`winget install Git.Git`, and start over in a new Claude Code session afterwards.
 
 ## Step 0: the model of this session
 
-Run `ack-doctor` (it only reads). Line `session-model`: `default` means Anthropic,
-`<model> via <host>` another provider; your system prompt names the model you are.
+Run `ack-doctor` (it only reads). Line `session-model`: with `via <host>` another
+provider runs this session, without `via` Anthropic; your system prompt names the model.
 
 - Anthropic's Opus or Fable tier, or another provider's largest model: go on. Unsure
   which model runs: ask the user.
@@ -55,7 +52,7 @@ Run `ack-doctor` (it only reads). Line `session-model`: `default` means Anthropi
 ## Step 1: prerequisites
 
 Each of these lines with status `missing` gets its fix: offer it, run it after a yes,
-and offer the recommended ones each in its own message.
+and offer the recommended ones each in its own message (other statuses: the reference).
 
 | Line | Fix |
 |---|---|
@@ -63,13 +60,14 @@ and offer the recommended ones each in its own message.
 | `plugin:briefing` | `claude plugin install briefing@getty` |
 | `plugin:skilletor` | `claude plugin install skilletor@getty` |
 | `git` | macOS: `xcode-select --install`. Linux: the user runs `sudo apt install git` (or their system's equivalent) in a terminal window, as it asks for their password |
-| `claude` | not on PATH: Claude Code's installer, `curl -fsSL https://claude.ai/install.sh \| bash` (Windows: `powershell -Command "irm https://claude.ai/install.ps1 \| iex"`) |
+| `claude` | not on PATH: Claude Code's installer, below the table |
 | `plugin:superpowers` (recommended) | `claude plugin install superpowers@claude-plugins-official`: planning, test-first work, review |
 | `plugin:mattpocock-skills` (recommended) | `claude plugin install mattpocock-skills@claude-plugins-official`: skills for everyday coding |
-| `plugin:<name>` with `warn` "disabled" | `claude plugin enable <name>` |
 
-Re-run `ack-doctor` until no required line is `missing`. Tell the user new plugins work
-from the next Claude Code session on; the setup goes on now.
+Claude Code's installer: `curl -fsSL https://claude.ai/install.sh | bash`; on Windows
+`powershell -Command "irm https://claude.ai/install.ps1 | iex"`. Re-run `ack-doctor` until
+no required line is `missing`. New plugins work once the user types `/reload-plugins`, or
+in the next Claude Code session; the setup goes on now.
 
 ## Step 2: a starter per provider
 
@@ -81,19 +79,17 @@ ones the user has an account with; if none, recommend skipping, since their norm
 1. Ask how much it may do unasked. `ask`: asks before it changes files or runs commands
    (recommend this). `allow`: asks, but the user can switch the questions off during a
    session. `skip`: never asks; every action runs at once.
-2. `ack-wrappers install <provider> --permissions <mode>`. On `path missing <dir>` (a new
-   terminal would not find the starter): ask, run `ack-wrappers path-fix` (on Windows it
-   prints a PowerShell line instead, which you run yourself as the providers reference
-   says), and say a new terminal window is needed. On exit 3 (a `foreign` file, a diff):
-   show the diff, say what differs, ask whether to replace it (kept as `.bak-<date>`);
-   add `--replace` only after an explicit yes.
+2. `ack-wrappers install <provider> --permissions <mode>`. On `path<TAB>missing` (a new
+   terminal would not find the starter): ask, then run `ack-wrappers path-fix`. On
+   `path<TAB>pending`, or on Windows `missing` once you ran path-fix's line: done, do not
+   ask again. On exit 3 (a `foreign` file, a diff): show the diff, say what differs, ask
+   whether to replace it (kept as `.bak-<date>`); add `--replace` only after a clear yes.
 3. `ack-wrappers test <provider>`, with a command timeout of at least 200 seconds (it
    waits up to two minutes). It prints one line `test<TAB>ok|missing<TAB><reason>`.
    - `no key yet`: ask the user to get an API key on the provider's website, and not to
-     paste it here. Once they have it, run `ack-wrappers key-edit <provider>` (10-minute
-     timeout; on Windows it returns when Notepad closes). An editor shows a line ending
-     in `=`: they paste the key right after it, save, close and tell you; then test
-     again. If no editor could start, give them the printed path to open in any editor.
+     paste it here. Then run `ack-wrappers key-edit <provider>` (10-minute timeout; on
+     Windows it returns when Notepad closes): in the editor they paste the key right
+     after the `=`, save, close and tell you; then test again.
    - Any other reason: relay it in plain words and take the next step from
      [references/providers.md](references/providers.md); do not debug the provider.
    - `ok`: it works; in a new terminal window the user types the starter's name.
@@ -113,19 +109,12 @@ Always offer this. `ack-wrappers probe-local` prints `local<TAB><url><TAB><model
 model a server on this machine offers (a local Ollama too; provider `ollama` is the cloud).
 
 - Per model: ask whether they want a starter, suggesting a short name (lower case, first
-  a letter, not a name `list` shows). Ask for its context window, or take it from the
-  model's description; if neither gives a number, leave `--context` out rather than
-  guess. Ask permissions as in Step 2. Then run
-  `ack-wrappers new-local <name> --url <url> --model <model> --context <N>`,
+  a letter, not a name `list` shows), and for its context window unless the model's
+  description gives it (no number: leave `--context` out, never guess). Permissions as
+  in Step 2. Run `ack-wrappers new-local <name> --url <url> --model <model> --context <N>`,
   `ack-wrappers install <name> --permissions <mode>` and `ack-wrappers test <name>`.
 - Nothing found: ask whether a model server runs on another machine, then for its address
   (like `http://192.168.1.20:11434`), the model name, and whether it needs a key (then
   add `--key-var <NAME>_API_KEY` and use `key-edit`); go on the same way. Say the server
   must speak the Anthropic Messages API; a failing test usually means it does not.
 - Say: local models are meant for work in the finished team, not for setting up.
-
-## Platforms
-
-Starters work on Linux, macOS and Windows, from any shell (on Windows the kit puts a
-`.cmd` file next to each). Only Linux gets a background service for the OpenAI proxy;
-elsewhere the starter starts the proxy when it is needed.
