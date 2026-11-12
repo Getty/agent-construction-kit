@@ -329,6 +329,11 @@ class SkillTest(Sandbox):
         for target in re.findall(r"\]\(([^)\s]+)\)", read(README)):
             if re.match(r"[a-z]+:", target):
                 continue
+            if target.startswith("#"):          # an anchor: a heading of the README
+                anchors = [re.sub(r"[^a-z0-9 -]", "", h.lower()).replace(" ", "-")
+                           for h in re.findall(r"^#+ (.*)$", read(README), re.M)]
+                self.assertIn(target[1:], anchors)
+                continue
             self.assertTrue((ROOT / target).exists(), target)
 
 
