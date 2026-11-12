@@ -65,14 +65,14 @@ and offer the recommended ones each in its own message (other statuses: the refe
 Claude Code's installer: `curl -fsSL https://claude.ai/install.sh | bash`; on Windows
 `powershell -Command "irm https://claude.ai/install.ps1 | iex"`. Re-run `ack-doctor` until
 no required line is `missing`. New plugins work once the user types `/reload-plugins`, or
-in the next Claude Code session; the setup goes on now.
+in the next Claude Code session; the setup goes on now. `kit-data` `warn` (the starters
+run an old copy): `install` one starter a `wrapper:` line shows, with its permissions.
 
 ## Step 2: a starter per provider
 
-`ack-wrappers list` shows each provider and whether its starter exists (`danger` comes
-below; `openai` goes through Step 3). Name the providers in plain words and ask which
-ones the user has an account with; if none, recommend skipping, since their normal
-`claude` keeps working. For each one:
+`ack-wrappers list` shows each provider and whether its starter exists (`danger`: below;
+`openai`: Step 3). Name them in plain words and ask which ones the user has an account
+with; if none, recommend skipping, since their normal `claude` keeps working. For each one:
 
 1. Ask how much it may do unasked. `ask`: asks before it changes files or runs commands
    (recommend this). `allow`: asks, but the user can switch the questions off during a

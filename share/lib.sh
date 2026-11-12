@@ -28,6 +28,19 @@ ack_is_word() {
   [ "${#1}" -le 16 ]
 }
 
+# ack_share_sum DIR -> REPLY: one checksum over the names and contents of DIR's files
+# (dotfiles aside), the same with GNU and BSD tools; 1 when DIR cannot be read
+ack_share_sum() {
+  local out crc size
+  out="$(cd "$1" 2>/dev/null && find . -type f ! -name '.*' | LC_ALL=C sort |
+    while IFS= read -r f; do printf '%s ' "$f"; cksum < "$f"; done | cksum)" || return 1
+  read -r crc size _ <<EOT
+$out
+EOT
+  case "$crc$size" in ''|*[!0-9]*) return 1 ;; esac
+  REPLY="$crc $size"
+}
+
 # ack_strip_url URL -> REPLY: no credentials, no ?query, no #fragment. Everything
 # between :// and the LAST @ goes (a path with an @ is rarer than a secret, so
 # over-stripping is the safe side). scp-style git@host:path stays as it is.

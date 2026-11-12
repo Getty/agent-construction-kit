@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import unittest
 
@@ -264,17 +265,51 @@ class DoctorTest(Sandbox):
         r = self.doc(cwd=str(repo))
         self.assertIn("repo\tinfo\tno remote\n", r.stdout)
 
-    def test_stale_kit_data_is_warn(self):
+    def plugin_copy(self):
+        """A copy of the plugin's bin/ and share/ whose files a test may change."""
+        plugin = self.root / "plugin"
+        for d in ("bin", "share"):
+            shutil.copytree(str(ROOT / d), str(plugin / d))
+        return plugin
+
+    STALE = "kit-data\twarn\tthe starters' copy in %s is older than the plugin; the setup can refresh it\n"
+
+    def test_kit_data_is_warn_when_the_plugin_changed_after_install(self):
+        self.good()
+        plugin = self.plugin_copy()
+        aw, ad = str(plugin / "bin" / "ack-wrappers"), str(plugin / "bin" / "ack-doctor")
+        data = self.home / ".local" / "share" / "agent-construction-kit"
+        r = self.run_cmd("bash", aw, "install", "minimax", "--dir", str(self.fakebin))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.run_cmd("bash", ad)
+        self.assertIn("kit-data\tok\tup to date in %s\n" % self.shown(data), r.stdout)
+        conf = plugin / "share" / "providers" / "minimax.conf"
+        conf.write_text(conf.read_text() + "# a fixed model name\n")
+        r = self.run_cmd("bash", ad)
+        self.assertIn(self.STALE % self.shown(data), r.stdout)
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(self.run_cmd("bash", aw, "install", "minimax", "--dir", str(self.fakebin)).returncode, 0)
+        self.assertIn("kit-data\tok\t", self.run_cmd("bash", ad).stdout)
+
+    def test_kit_data_without_a_checksum_is_warn(self):
         self.good()
         r = self.run_cmd("bash", AW, "install", "minimax", "--dir", str(self.fakebin))
         self.assertEqual(r.returncode, 0, r.stderr)
         data = self.home / ".local" / "share" / "agent-construction-kit"
         self.assertIn("kit-data\tok\t", self.doc().stdout)
-        (data / "VERSION").write_text("0\n")
+        (data / ".ack-sum").unlink()
         r = self.doc()
-        self.assertIn("kit-data\twarn\t", r.stdout)
-        self.assertIn("run ack-wrappers install again", r.stdout)
+        self.assertIn(self.STALE % self.shown(data), r.stdout)
         self.assertEqual(r.returncode, 0)
+
+    def test_kit_data_checksum_ignores_file_modes_and_the_copy(self):
+        self.good()
+        plugin = self.plugin_copy()
+        aw, ad = str(plugin / "bin" / "ack-wrappers"), str(plugin / "bin" / "ack-doctor")
+        self.assertEqual(self.run_cmd("bash", aw, "install", "kimi", "--dir", str(self.fakebin)).returncode, 0)
+        (plugin / "share" / "VERSION").chmod(0o600)
+        (self.home / ".local" / "share" / "agent-construction-kit" / "VERSION").write_text("edited\n")
+        self.assertIn("kit-data\tok\t", self.run_cmd("bash", ad).stdout)
 
     def test_kit_data_not_installed_is_info_and_not_created(self):
         self.good()

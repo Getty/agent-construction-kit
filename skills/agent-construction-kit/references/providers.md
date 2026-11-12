@@ -41,7 +41,7 @@ session. Statuses: `ok`, `missing`, `warn`, `info`.
 | `tool:curl` | `warn` | the proxy check and the local-model search need curl; offer to install it with the system's package manager |
 | `tool:karr` | `info` | not used for machine setup |
 | `kit-data` | `info` | nothing installed yet; the first `install` creates it |
-| `kit-data` | `warn` | an older kit version is installed; run `install` again for one installed starter, with the permissions its `wrapper:` line shows |
+| `kit-data` | `warn` | the starters run an older copy of the kit's files than the plugin has (it updated since); take one `wrapper:<name>` line with status `ok` and run `install <name> --permissions <mode>` with the permissions it shows, which refreshes the copy for every starter (no such line: nothing runs the copy; leave it) |
 | `wrapper:<name>` | `ok` | a starter made by the kit, with its permissions |
 | `wrapper:<name>` | `info` | a file of that name the kit did not make (`foreign`) |
 

@@ -368,6 +368,9 @@ EOT
   done <<EOT
 $(cd "$SHARE" && find . -type f)
 EOT
+  # ack-doctor compares this with the plugin's share/ to tell that a refresh is due
+  rm -f "$DATA/.ack-sum"
+  if ack_share_sum "$SHARE"; then printf '%s\n' "$REPLY" > "$DATA/.ack-sum"; fi
   return 0
 }
 

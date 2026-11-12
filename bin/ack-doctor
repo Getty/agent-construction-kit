@@ -269,11 +269,17 @@ tool_line uvx "needed only for the MiniMax MCP server" info
 tool_line curl "not installed; the proxy check and the local-model probe need it" warn
 
 # ---------------------------------------------------------------- kit-data
+# install leaves a checksum of the plugin's share/ in the copy the starters run
 if [ -r "$ACK_DATA_DIR/VERSION" ]; then
-  IFS= read -r have < "$ACK_DATA_DIR/VERSION"; _ack_trim "$have"; have="$REPLY"
-  IFS= read -r want < "$SHARE/VERSION"; _ack_trim "$want"; want="$REPLY"
-  if [ "$have" = "$want" ]; then emit kit-data ok "version $have in $ACK_DATA_DIR"
-  else emit kit-data warn "installed version $have, shipped $want; run ack-wrappers install again"; fi
+  have=""
+  [ -r "$ACK_DATA_DIR/.ack-sum" ] && IFS= read -r have < "$ACK_DATA_DIR/.ack-sum"
+  if [ "$(cd "$ACK_DATA_DIR" && pwd -P)" = "$(cd "$SHARE" && pwd -P)" ]; then
+    emit kit-data ok "the plugin's own files in $ACK_DATA_DIR"
+  elif ack_share_sum "$SHARE" && [ "$have" = "$REPLY" ]; then
+    emit kit-data ok "up to date in $ACK_DATA_DIR"
+  else
+    emit kit-data warn "the starters' copy in $ACK_DATA_DIR is older than the plugin; the setup can refresh it"
+  fi
 else
   emit kit-data info "not installed in $ACK_DATA_DIR; ack-wrappers install creates it"
 fi
