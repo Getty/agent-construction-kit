@@ -139,6 +139,21 @@ class ProviderTest(Sandbox):
             self.assertTrue(keys.get("PREFIX"), p.name)
             self.assertTrue(lines[0].startswith("# ") and lines[1].startswith("# "), p.name)
 
+    def test_prefixes_are_unique_across_shipped_definitions(self):
+        prefixes = []
+        for p in sorted(PROVIDER_DIR.glob("*.conf")):
+            for line in p.read_text().splitlines():
+                if line.startswith("PREFIX="):
+                    prefixes.append(line[len("PREFIX="):].strip())
+        self.assertEqual(len(prefixes), len(list(PROVIDER_DIR.glob("*.conf"))))
+        self.assertEqual(len(prefixes), len(set(prefixes)), prefixes)
+
+    def test_header_does_not_pin_the_config_directory(self):
+        for p in PROVIDER_DIR.glob("*.conf"):
+            line2 = p.read_text().splitlines()[1]
+            self.assertIn("providers directory under the kit's config directory", line2, p.name)
+            self.assertIn("default ~/.config/agent-construction-kit/providers/", line2, p.name)
+
 
 if __name__ == "__main__":
     unittest.main()

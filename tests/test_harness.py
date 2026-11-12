@@ -21,11 +21,14 @@ class HarnessTest(Sandbox):
                  "ANTHROPIC_MODEL": "outer-model"}
         with mock.patch.dict(os.environ, outer):
             env = sandbox_env(self.home, self.fakebin)
+            setup_env = self.env  # what setUp built
             self.env = env  # the child gets the dict built while os.environ was patched
             r = self.run_cmd("bash", "-c", "env")
         for name in outer:
             self.assertNotIn(name, env)
             self.assertNotIn(name + "=", r.stdout)
+        # setUp itself built the sandbox environment from the clean outer one
+        self.assertEqual(setup_env, sandbox_env(self.home, self.fakebin))
 
     def test_fakebin_is_outside_home(self):
         self.assertNotIn(self.home, self.fakebin.parents)
