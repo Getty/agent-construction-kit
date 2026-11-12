@@ -16,6 +16,9 @@ def sandbox_env(home, fakebin):
         # Windows: the sandbox PATH is fakebin plus the host PATH (bash needs
         # its own directories), so isolation is weaker there, by necessity.
         env["PATH"] = "%s;%s" % (fakebin, os.environ["PATH"])
+        # The MSYS runtime globs and brace-expands arguments that come from a
+        # native program; "MODEL=${X}" would arrive as "MODEL=$X".
+        env["MSYS"] = "noglob"
         for k in ("SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "TEMP", "TMP"):
             if k in os.environ:
                 env[k] = os.environ[k]

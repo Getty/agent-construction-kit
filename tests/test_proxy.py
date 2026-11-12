@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from helpers import ROOT, Sandbox
@@ -181,6 +182,7 @@ class ProxyTest(Sandbox):
         self.assertNotIn("removed", r.stdout)
         self.assertTrue((self.home / UNIT).exists())
 
+    @unittest.skipIf(os.name == "nt", "systemd units exist on Linux only; the unit holds a native path")
     def test_service_install_escapes_percent(self):
         pct = self.root / "bin%d"
         pct.mkdir()
@@ -202,6 +204,7 @@ class ProxyTest(Sandbox):
             self.skipTest("no symlinks")
         self.assertEqual(self.ap("service", "install").returncode, 3)
 
+    @unittest.skipIf(os.name == "nt", "systemd units exist on Linux only; the unit holds a native path")
     def test_service_install_and_update_and_remove(self):
         r = self.ap("service", "install")
         self.assertEqual(r.returncode, 0, r.stderr)
