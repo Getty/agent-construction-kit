@@ -1,3 +1,18 @@
 Revision history for agent-construction-kit
 
 {{$NEXT}}
+    - Add claude-with, the launcher behind every starter: it loads a provider
+      definition, finds the key, sets the environment and starts Claude Code.
+      Definitions ship for MiniMax, Moonshot AI Kimi, Ollama Cloud, Fireworks
+      AI and OpenAI through claude-code-proxy.
+    - Add ack-wrappers, which creates, tests and removes the starters
+      (claude_with_<name>), opens the key file in an editor, changes provider
+      values and adds starters for local model servers.
+    - Add ack-proxy, which reports on the claude-code-proxy behind the openai
+      provider, lists its models, checks the model slots and sets up a user
+      service on Linux.
+    - Add ack-doctor, a read-only check of the machine: Claude Code, git, the
+      plugins agent teams build on, optional tools and the installed starters.
+    - Add the agent-construction-kit skill, which sets up a machine in plain
+      questions: prerequisites, a starter per provider, OpenAI through the
+      proxy, and local models.
