@@ -10,8 +10,8 @@
 #   ack-wrappers test <provider|danger> [--dir DIR]
 #   ack-wrappers probe-local
 #   ack-wrappers new-local <name> --url URL --model MODEL [--context N] [--key-var VAR] [--thinking N] [--replace]
-# Exit codes: 0 ok, 1 test found a problem, 2 usage error or unknown provider,
-# 3 a foreign file sits at the target (nothing changed).
+# Exit codes: 0 ok, 1 test found a problem or a file could not be written,
+# 2 usage error or unknown provider, 3 a foreign file sits at the target (nothing changed).
 # install prints a final "path" line when the target directory is not on PATH:
 # "path<TAB>missing<TAB>DIR" (run path-fix), or "path<TAB>pending<TAB>DIR" when
 # path-fix already added it to the shell profile (active in new terminals).

@@ -91,7 +91,30 @@ in the plugin's `bin/` folder:
 ## Platforms
 
 Linux, macOS and Windows (with Git for Windows). The starters work from any shell; on
-Windows each one comes with a `.cmd` file.
+Windows each one comes with a `.cmd` file. That file hands its arguments to cmd.exe,
+which acts on `&`, `|`, `^` and `%` in them, so from PowerShell or cmd put such an
+argument in quotes (`"a & b"`), or start the starter from Git Bash, which passes
+arguments unchanged.
+
+## Remove everything
+
+The commands sit in the plugin's `bin/` folder; Claude can run them for you.
+
+1. `ack-wrappers list` shows your starters; `ack-wrappers uninstall <name>` removes one
+   (on Windows with its `.cmd` file). A file the kit did not create stays.
+2. On Linux, if you set up the proxy's background service: `ack-proxy service remove`.
+3. Delete the kit's folders: `~/.local/share/agent-construction-kit` (the starters'
+   copy of the kit), `~/.local/state/agent-construction-kit` (the proxy log) and
+   `~/.config/agent-construction-kit` (your key files and your own providers; keep a
+   copy of what you still need). `ACK_DATA_DIR`, `ACK_STATE_DIR` and `ACK_CONFIG_DIR`,
+   or the `XDG_*_HOME` variables, move them elsewhere.
+4. Delete the line ending in `# agent-construction-kit` from your shell startup file
+   (`~/.bashrc`, `~/.zshrc`, `~/.bash_profile` or `~/.profile`). On Windows, remove the
+   starters' folder from your user `Path` in the environment variable settings.
+5. In Claude Code: `/plugin uninstall agent-construction-kit@getty`.
+
+claude-code-proxy, if you installed it, is a program of its own: remove it the way you
+installed it (with Homebrew: `brew uninstall claude-code-proxy`).
 
 ## License
 

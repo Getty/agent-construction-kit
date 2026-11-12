@@ -517,6 +517,7 @@ class WrappersTest(Sandbox):
         r = self.aw("--help")
         self.assertEqual(r.returncode, 0)
         self.assertIn("3 a foreign file sits at the target (nothing changed).", r.stdout)
+        self.assertIn("1 test found a problem or a file could not be written,", r.stdout)
         self.assertIn("path<TAB>pending<TAB>DIR", r.stdout)
 
     # ---- list ---------------------------------------------------------------
