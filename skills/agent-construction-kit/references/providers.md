@@ -55,6 +55,11 @@ error or unknown provider; 3 a foreign file is in the way, nothing changed.
 - `wrapper<TAB>installed|updated<TAB><name><TAB><path>`: the starter is in place. On
   Windows a `cmd<TAB>...` line follows for the `.cmd` file next to it.
 - `backup<TAB><path><TAB><backup path>`: with `--replace`, the old file was kept there.
+- `note<TAB>untested<TAB><name>`: this definition follows the provider's documentation,
+  but nobody has tried it with the kit yet. Tell the user exactly that: "I set it up
+  the way the provider describes it; it has not been tried with this kit, so it may
+  still need a change. Let us test it." If its test fails, go by
+  [other-services.md](other-services.md), "When the test fails".
 - `path<TAB>missing<TAB><dir>`: that folder is not on PATH. Ask, then run `path-fix`.
 - `path<TAB>pending<TAB><dir>`: `path-fix` added the folder to the shell startup file
   already; new terminal windows find the starters. Do not ask again; say it once at the
@@ -187,6 +192,8 @@ Layers, the later one wins:
 | `minimax` | `ACK_MINIMAX` | `MINIMAX_API_KEY` |
 | `novita` | `ACK_NOVITA` | `NOVITA_API_KEY` |
 | `ollama` | `ACK_OLLAMA` | `OLLAMA_CLOUD_API_KEY` |
+| `openrouter` | `ACK_OPENROUTER` | `OPENROUTER_API_KEY` |
+| `qwen` | `ACK_QWEN` | `DASHSCOPE_API_KEY` |
 | `openai` | `ACK_OPENAI` | none (`KEY_REQUIRED=0`, ChatGPT sign-in through the proxy) |
 | `synthetic` | `ACK_SYNTHETIC` | `SYNTHETIC_API_KEY` |
 | `zai` | `ACK_ZAI` | `ZAI_API_KEY` |
@@ -194,7 +201,9 @@ Layers, the later one wins:
 Control keys: `DESCRIPTION`, `PREFIX`, `KEY_VAR`, `KEY_FILE` (default
 `$ACK_CONFIG_DIR/<name>.env`; a leading `~/` is the home directory), `KEY_FILE_VAR`
 (default `KEY_VAR`), `KEY_REQUIRED` (default `1`), `AUTH_TOKEN` (fixed word sent when no
-key is needed, like `local`; never a key), `PREFLIGHT` (`proxy` or empty),
+key is needed, like `local`; never a key), `API_KEY_EMPTY` (`1`: also send an empty
+`ANTHROPIC_API_KEY`, which some gateways ask for), `UNTESTED` (`1`: `install` prints the
+`note` line above; delete the line from a definition once it works), `PREFLIGHT` (`proxy` or empty),
 `PROXY_PORT`, `BARE`, `MCP_CONFIG` (an MCP file name next to the definition).
 
 `claude-with --provider <name> --print-env` prints what a starter would export and run,

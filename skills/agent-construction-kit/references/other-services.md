@@ -73,8 +73,9 @@ services' settings at random.
 
 Each has an Anthropic-compatible endpoint according to its own docs. Models are the
 ones those docs named when this was written; read the page for the current ones.
-DeepSeek, Z.ai, Synthetic, Novita and Hugging Face ship as ready definitions
-(`deepseek`, `zai`, `synthetic`, `novita`, `huggingface`): for them `install` is enough,
+DeepSeek, Z.ai, Synthetic, Novita, Hugging Face, OpenRouter and Alibaba's Coding Plan
+ship as ready definitions (`deepseek`, `zai`, `synthetic`, `novita`, `huggingface`,
+`openrouter`, `qwen`): for them `install` is enough,
 and the page matters only when the test names an unknown model
 (`ack-wrappers set <name> MODEL=<id>`). Fireworks, Kimi, MiniMax and Ollama Cloud ship too.
 
@@ -92,9 +93,10 @@ and the page matters only when the test names an unknown model
 
 Notes:
 
-- OpenRouter and Vercel ask for `ANTHROPIC_API_KEY` set to an empty value; the starter
-  unsets it instead. That was not tried with them: if the test fails on the key, say so.
-- Alibaba: a key belongs to one plan; with the URL of another plan it is rejected.
+- OpenRouter and Vercel ask for `ANTHROPIC_API_KEY` set to an empty value: after
+  `new-provider`, run `ack-wrappers set <name> API_KEY_EMPTY=1` (shipped `openrouter` has it).
+- Alibaba: a key belongs to one plan; with the URL of another plan it is rejected. For
+  another plan than the shipped one: `ack-wrappers set qwen BASE_URL=<the plan's URL>`.
 - AKI (aki.io) documents `https://aki.io/anthropic`; not tried.
 - Together AI has the endpoint (`https://api.together.ai`) but documents no Claude Code
   setup for it; xAI calls its Anthropic-compatible route deprecated. Recommend neither.

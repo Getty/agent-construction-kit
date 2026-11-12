@@ -13,6 +13,8 @@
 #     a definition for any service or server with an Anthropic-compatible API; without --key-var it needs no key
 # Exit codes: 0 ok, 1 test found a problem or a file could not be written,
 # 2 usage error or unknown provider, 3 a foreign file sits at the target (nothing changed).
+# install prints "note<TAB>untested<TAB>NAME" for a definition written from the provider's
+# documentation that nobody has tried with the kit yet.
 # install prints a final "path" line when the target directory is not on PATH:
 # "path<TAB>missing<TAB>DIR" (run path-fix), or "path<TAB>pending<TAB>DIR" when
 # path-fix already added it to the shell profile (active in new terminals).
@@ -40,8 +42,8 @@ ack_paths
 MARK="agent-construction-kit wrapper v1"
 PROMPT="Reply with the single word OK"
 TAB=$'\t'
-TMP="" CHILD=""
-trap '[ -n "$TMP" ] && rm -rf "$TMP"' EXIT
+TMP="" CHILD="" LOCK=""
+trap '[ -n "$TMP" ] && rm -rf "$TMP"; [ -n "$LOCK" ] && rmdir "$LOCK" 2>/dev/null' EXIT
 # a signal (a caller's timeout, Ctrl-C) also stops the claude that test started
 _on_signal() {
   [ -n "$CHILD" ] && kill "$CHILD" 2>/dev/null
@@ -369,6 +371,18 @@ _check_data() {
     fi
   fi
 }
+# _lock_data: one install at a time per data directory. Two at once would see each
+# other's half-made directory. A lock older than a minute is a crashed run's; take it.
+_lock_data() {
+  local l="${DATA%/}.lock" n=0
+  mkdir -p "${l%/*}" 2>/dev/null
+  until mkdir "$l" 2>/dev/null; do
+    n=$((n + 1))
+    if [ "$n" -ge "${ACK_LOCK_WAIT:-60}" ]; then rmdir "$l" 2>/dev/null; n=0; fi
+    sleep 1
+  done
+  LOCK="$l"
+}
 # copy share/ to the data dir; drop providers/*.conf and *.mcp.json that no longer ship
 _sync_share() {
   local f rel first
@@ -420,7 +434,7 @@ cmd_install() {
   _need_names 1; name="${ARGS[0]}"; _valid_name "$name"
   _select "$name"
   _target_dir; dir="$TARGET"; file="$dir/claude_with_$name"; cmdf="$file.cmd"
-  _data_abs; _check_data
+  _data_abs; _check_data; _lock_data; _check_data   # again under the lock: another install may have just made it
   if _is_windows; then
     _bash_windows || { echo "ack-wrappers: cannot determine the path of this bash (cygpath failed)." >&2; echo "ack-wrappers: run it from Git Bash." >&2; exit 1; }
     bashw="$REPLY"
@@ -457,6 +471,10 @@ cmd_install() {
   if ! _dir_on_path "$dir"; then
     if _path_pending "$dir"; then printf 'path\tpending\t%s\n' "$dir"
     else printf 'path\tmissing\t%s\n' "$dir"; fi
+  fi
+  if [ "$name" != danger ] && [ "$ACK_C_UNTESTED" = 1 ]; then
+    printf 'note\tuntested\t%s\n' "$name"
+    echo "ack-wrappers: $name is set up the way its provider documents it, but nobody has tried it with this kit yet; it may still need a change." >&2
   fi
   return 0
 }

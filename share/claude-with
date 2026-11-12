@@ -156,6 +156,7 @@ if [ "$print_env" = 1 ]; then
       else printf 'export ANTHROPIC_AUTH_TOKEN=***\n'; fi
       [ "$mcp_key" = 1 ] && printf 'export %s=***\n' "$keyvar"
     fi
+    [ -n "$provider" ] && [ "$ACK_C_API_KEY_EMPTY" = 1 ] && printf 'export ANTHROPIC_API_KEY=\n'
   } | LC_ALL=C sort
   printf 'exec %q' "$claude_bin"
   for a in ${claude_args[@]+"${claude_args[@]}"}; do printf ' %q' "$a"; done
@@ -176,5 +177,7 @@ EOT
   fi
   [ -n "$token" ] && export ANTHROPIC_AUTH_TOKEN="$token"
   [ "$mcp_key" = 1 ] && export "$keyvar=$token"
+  # some gateways ask for an empty key, so that a stored Anthropic login is not sent
+  [ "$ACK_C_API_KEY_EMPTY" = 1 ] && export ANTHROPIC_API_KEY=""
 fi
 exec "$claude_bin" ${claude_args[@]+"${claude_args[@]}"}

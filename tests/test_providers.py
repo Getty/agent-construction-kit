@@ -66,6 +66,15 @@ class ProviderTest(Sandbox):
             "MINIMAX_API_KEY": "***",  # the MCP server env gets the key under KEY_VAR
         }))
 
+    def test_openrouter_sends_an_empty_api_key(self):
+        e = self.exports("openrouter", {"OPENROUTER_API_KEY": "k", "ANTHROPIC_API_KEY": "sk-ant-outer"})
+        self.assertEqual(e["ANTHROPIC_API_KEY"], "")
+        self.assertEqual(e["ANTHROPIC_AUTH_TOKEN"], "***")
+        self.assertEqual(e["ANTHROPIC_BASE_URL"], "https://openrouter.ai/api")
+        self.assertNotIn("ANTHROPIC_API_KEY", self.exports("minimax", {"MINIMAX_API_KEY": "k"}))
+        for k in ("UNTESTED", "API_KEY_EMPTY"):
+            self.assertFalse([n for n in e if k in n], k + " must not be exported")
+
     def test_kimi_exports_exactly(self):
         m = "kimi-k3[1m]"
         self.assertEqual(self.exports("kimi", {"MOONSHOT_API_KEY": "k"}), {
@@ -201,7 +210,7 @@ class ProviderTest(Sandbox):
     def test_every_shipped_definition_has_description_and_prefix(self):
         names = sorted(p.stem for p in PROVIDER_DIR.glob("*.conf"))
         self.assertEqual(names, ["deepseek", "fireworks", "huggingface", "kimi", "minimax", "novita",
-                                 "ollama", "openai", "synthetic", "zai"])
+                                 "ollama", "openai", "openrouter", "qwen", "synthetic", "zai"])
         for p in PROVIDER_DIR.glob("*.conf"):
             lines = p.read_text().splitlines()
             keys = dict(l.split("=", 1) for l in lines if l and not l.startswith("#"))

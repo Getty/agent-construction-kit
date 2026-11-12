@@ -128,8 +128,14 @@ Ready-made definitions ship for these:
 | `novita` | Novita AI | `NOVITA_API_KEY` |
 | `ollama` | Ollama Cloud | `OLLAMA_CLOUD_API_KEY` |
 | `openai` | OpenAI through claude-code-proxy (ChatGPT or Codex subscription) | none, you sign in with ChatGPT |
+| `openrouter` | OpenRouter (one key, many vendors) | `OPENROUTER_API_KEY` |
+| `qwen` | Alibaba Qwen (Coding Plan, international) | `DASHSCOPE_API_KEY` |
 | `synthetic` | Synthetic (open models, flat subscription) | `SYNTHETIC_API_KEY` |
 | `zai` | Z.ai GLM | `ZAI_API_KEY` |
+
+`deepseek`, `novita`, `openrouter`, `qwen`, `synthetic` and `zai` are set up the way
+their providers document it, but have not been tried with the kit yet (no account at
+hand); the setup tells you so, and they may still need a change. Reports are welcome.
 
 Each provider needs an account there and an API key, which is usually paid; `openai`
 needs a ChatGPT Plus or Pro subscription instead.
@@ -139,7 +145,7 @@ in your own editor. The kit never writes a key and never shows one.
 
 These are examples of one pattern, not the limit. Any service or model server with an
 Anthropic-compatible API gets a starter the same way: tell the agent which one you use
-(Qwen, OpenRouter, a company gateway, LM Studio, llama.cpp, vLLM, ...), and it reads
+(a company gateway, Vercel AI Gateway, LM Studio, llama.cpp, vLLM, ...), and it reads
 that service's documentation and creates `claude_with_<name>` for it. Services that
 only speak the OpenAI API (Groq, Cerebras, Mistral, Gemini, ...) need a translating
 proxy such as LiteLLM or [Knarr](https://github.com/Getty/langertha-knarr) in front;
@@ -249,7 +255,9 @@ This too is the next version; the machine setup of today already runs on Windows
 
 ## Example: a homelab
 
-You do not need to know which team you want. One sentence about what you have and what
+> Also the next version; this is the experience the kit is built toward.
+
+You do not need to know which team you want, and you do not need to be an IT person. One sentence about what you have and what
 you like to do is enough, and the kit proposes a structure:
 
 > **You:** I have a homelab and want to develop things.
@@ -268,6 +276,18 @@ Say something else, and the structure changes with it:
 | "I have a homelab and like to experiment with network hardware." | `admin` hub, `homelab` team, `networker` team for switches, routers and VLANs |
 | "... and I want to know how safe it all is." | the same, plus a `security` team that only reads and reports |
 | "I just have this one project." | one project team, no hub |
+
+At the end the kit tells you how to use what it built, in plain words:
+
+> **Claude:** From now on, start Claude in the `admin` folder. It knows all your teams
+> and hands each job to the right one; you do not have to remember which is which.
+>
+> Start Claude in `developer` directly only when you want to talk something through
+> with the developer alone. It then knows its own project and nothing about the rest:
+> not the homelab team, not what the admin has planned. It may find out by digging, but
+> never reliably. When in doubt, start in `admin`.
+
+It writes the same two sentences into each repository, so you can look them up.
 
 The `homelab` team could look like this:
 

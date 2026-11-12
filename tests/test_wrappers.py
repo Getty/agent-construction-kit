@@ -837,6 +837,34 @@ class WrappersTest(Sandbox):
         self.assertTrue(r.stdout.startswith("test\tok\t"), r.stdout)
         self.assertIn("OK", r.stdout)
 
+    def test_installs_at_the_same_time_all_succeed(self):
+        from concurrent.futures import ThreadPoolExecutor
+        names = ["minimax", "kimi", "fireworks", "ollama", "huggingface", "zai"]
+        for i in range(4):          # without the lock about one round in three collides
+            data = self.home / ("data%d" % i)
+            env = {"ACK_DATA_DIR": str(data)}
+            with ThreadPoolExecutor(len(names)) as pool:
+                results = list(pool.map(lambda n: self.aw("install", n, env=env), names))
+            for n, r in zip(names, results):
+                self.assertEqual(r.returncode, 0, n + ": " + r.stderr)
+            self.assertTrue((data / "claude-with").is_file())
+            self.assertFalse(os.path.exists(str(data) + ".lock"), "the lock stayed behind")
+
+    def test_a_stale_lock_does_not_block_install_forever(self):
+        data = self.home / ".local/share/agent-construction-kit"
+        os.makedirs(str(data) + ".lock")
+        r = self.aw("install", "minimax", env={"ACK_LOCK_WAIT": "2"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(str(data) + ".lock"))
+
+    def test_install_says_when_a_definition_is_untested(self):
+        r = self.aw("install", "openrouter")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("note\tuntested\topenrouter\n", r.stdout)
+        self.assertIn("nobody has tried it", r.stderr)
+        r = self.aw("install", "minimax")
+        self.assertNotIn("untested", r.stdout + r.stderr)
+
     def test_test_classifies_failures_and_never_echoes_the_key(self):
         self.aw("install", "minimax")
         cases = (
