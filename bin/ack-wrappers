@@ -1,0 +1,545 @@
+#!/usr/bin/env bash
+# ack-wrappers: install and manage the claude_with_<provider> wrappers.
+#   ack-wrappers list [--dir DIR]
+#   ack-wrappers install <provider|danger> [--permissions ask|allow|skip] [--dir DIR] [--replace]
+#   ack-wrappers uninstall <provider|danger> [--dir DIR]
+#   ack-wrappers path-fix [--dir DIR]
+#   ack-wrappers key-template <provider>      ack-wrappers key-edit <provider>
+#   ack-wrappers set <provider> KEY=VALUE...
+#   ack-wrappers test <provider|danger> [--dir DIR]
+# Exit codes: 0 ok, 1 test found a problem, 2 usage error or unknown provider,
+# 3 a foreign file sits at the target (nothing changed).
+
+# Git for Windows may hand over a backslash path (bash 'D:\x\ack-wrappers').
+_slashes() { case "$OSTYPE" in msys*|cygwin*) REPLY="${1//\\//}" ;; *) REPLY="$1" ;; esac; }
+_slashes "${BASH_SOURCE[0]}"; _self="$REPLY"
+while [ -L "$_self" ]; do
+  _slashes "$(readlink "$_self")"; _t="$REPLY"
+  case "$_t" in
+    /*) _self="$_t" ;;
+    *) case "$_self" in */*) _self="${_self%/*}/$_t" ;; *) _self="./$_t" ;; esac ;;
+  esac
+done
+case "$_self" in */*) _dir="${_self%/*}" ;; *) _dir="." ;; esac
+if ! SHARE="$(cd "$_dir/../share" 2>/dev/null && pwd)"; then
+  echo "ack-wrappers: cannot find the share directory next to bin/." >&2
+  echo "ack-wrappers: reinstall agent-construction-kit." >&2
+  exit 2
+fi
+# shellcheck source=../share/lib.sh
+. "$SHARE/lib.sh" || exit 2
+ack_paths
+
+MARK="agent-construction-kit wrapper v1"
+PROMPT="Reply with the single word OK"
+TAB=$'\t'
+TMP=""
+trap '[ -n "$TMP" ] && rm -rf "$TMP"' EXIT
+
+# ---------------------------------------------------------------- helpers
+
+usage_err() {
+  echo "ack-wrappers: $1" >&2
+  echo "ack-wrappers: usage: ack-wrappers list|install|uninstall|path-fix|key-template|key-edit|set|test (see the header of $0)." >&2
+  exit 2
+}
+_is_windows() { case "$OSTYPE" in msys*|cygwin*) return 0 ;; esac; return 1; }
+# _posix PATH -> REPLY in the form bash understands (C:\x -> /c/x on Windows)
+_posix() {
+  REPLY="$1"
+  if _is_windows; then
+    case "$REPLY" in [A-Za-z]:*) REPLY="$(cygpath -u "$REPLY")" ;; esac
+    _slashes "$REPLY"
+  fi
+}
+# _absdir DIR -> REPLY (logical absolute path of an existing directory)
+_absdir() { REPLY="$(cd "$1" 2>/dev/null && pwd)"; }
+# _abspath PATH -> REPLY (also for directories that do not exist yet)
+_abspath() {
+  local p="$1"
+  while [ "${p%/}" != "$p" ] && [ -n "${p%/}" ]; do p="${p%/}"; done
+  if [ -d "$p" ]; then _absdir "$p"
+  else
+    case "$p" in /*|[A-Za-z]:*) REPLY="$p" ;; *) REPLY="$PWD/$p" ;; esac
+  fi
+}
+# _norm DIR -> REPLY: form for comparing PATH entries
+_norm() {
+  local d="$1" p
+  while [ "${d%/}" != "$d" ] && [ -n "${d%/}" ]; do d="${d%/}"; done
+  if [ -d "$d" ] && p="$(cd "$d" 2>/dev/null && pwd -P)"; then d="$p"; fi
+  if _is_windows; then d="$(printf '%s' "$d" | tr 'A-Z' 'a-z')"; fi
+  REPLY="$d"
+}
+_dir_on_path() {
+  local want e paths="$PATH"
+  _norm "$1"; want="$REPLY"
+  local IFS=:
+  for e in $paths; do
+    [ -n "$e" ] || continue
+    _norm "$e"
+    [ "$REPLY" = "$want" ] && return 0
+  done
+  return 1
+}
+# _dq STRING -> REPLY escaped for use inside double quotes
+_dq() { REPLY="$(printf '%s' "$1" | sed -e 's/[\\"$`]/\\&/g')"; }
+
+ALLOWED=""
+_parse() {
+  OPT_PERM="" OPT_DIR="" OPT_REPLACE=0 ARGS=()
+  local opt val
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --) shift; while [ $# -gt 0 ]; do ARGS+=("$1"); shift; done; break ;;
+      --*)
+        opt="${1%%=*}"
+        case " $ALLOWED " in *" $opt "*) ;; *) usage_err "unknown option '$opt' for this subcommand." ;; esac
+        if [ "$opt" = --replace ]; then OPT_REPLACE=1; shift; continue; fi
+        case "$1" in
+          *=*) val="${1#*=}"; shift ;;
+          *) [ $# -ge 2 ] || usage_err "$opt needs a value."; val="$2"; shift 2 ;;
+        esac
+        [ -n "$val" ] || usage_err "$opt needs a non-empty value."
+        if [ "$opt" = --dir ]; then OPT_DIR="$val"; else OPT_PERM="$val"; fi ;;
+      *) ARGS+=("$1"); shift ;;
+    esac
+  done
+}
+_need_names() { # COUNT_MIN
+  [ "${#ARGS[@]}" -ge "$1" ] || usage_err "missing argument (a provider name)."
+}
+_valid_name() {
+  case "$1" in ''|*[!a-z0-9_-]*|-*) usage_err "'$1' is not a valid provider name (a-z, 0-9, - and _)." ;; esac
+}
+# _select NAME -> loads the provider (or danger); sets PERM, PROV, DESC
+_select() {
+  local name="$1"
+  if [ "$name" = danger ]; then
+    case "$OPT_PERM" in ''|skip) PERM=skip ;; *) usage_err "danger only takes --permissions skip." ;; esac
+    PROV=none; DESC="Claude Code with every permission prompt skipped, no other provider"
+    return 0
+  fi
+  ack_provider_load "$name" "$SHARE" || exit 2
+  PERM="${OPT_PERM:-ask}"; PROV="$name"; DESC="$ACK_C_DESCRIPTION"
+  case "$PERM" in ask|allow|skip) ;; *) usage_err "'$PERM' is not a permission mode (ask, allow or skip)." ;; esac
+}
+
+# directory of the first claude_with_* (not .bak/.cmd) found on PATH
+_first_wrapper_dir() {
+  local d f n paths="$PATH"
+  local IFS=:
+  for d in $paths; do
+    [ -n "$d" ] && [ -d "$d" ] || continue
+    for f in "$d"/claude_with_*; do
+      { [ -e "$f" ] || [ -L "$f" ]; } || continue
+      n="${f##*/}"; case "$n" in *.*) continue ;; esac
+      _absdir "$d"; return 0
+    done
+  done
+  return 1
+}
+_scan_path_for() { # FILENAME
+  local d paths="$PATH"
+  local IFS=:
+  for d in $paths; do
+    [ -n "$d" ] && [ -d "$d" ] || continue
+    if [ -e "$d/$1" ] || [ -L "$d/$1" ]; then _absdir "$d"; return 0; fi
+  done
+  return 1
+}
+# _target_dir -> TARGET: --dir, dir of the first claude_with_* on PATH, dir of claude
+# under $HOME (writable), else $HOME/.local/bin. Creates nothing.
+_target_dir() {
+  local claude cdir h1 h2
+  if [ -n "$OPT_DIR" ]; then _posix "$OPT_DIR"; _abspath "$REPLY"; TARGET="$REPLY"; return 0; fi
+  if _first_wrapper_dir; then TARGET="$REPLY"; return 0; fi
+  if claude="$(ack_find_claude)"; then
+    case "$claude" in */*) cdir="${claude%/*}" ;; *) cdir="" ;; esac
+    if [ -n "$cdir" ] && [ -d "$cdir" ] && [ -w "$cdir" ]; then
+      _absdir "$cdir"; cdir="$REPLY"
+      h1="${HOME%/}"; h2="$(cd "$HOME" 2>/dev/null && pwd -P)"
+      case "$cdir" in "$h1"/*) TARGET="$cdir"; return 0 ;; esac
+      case "$(cd "$cdir" && pwd -P)" in "$h2"/*) TARGET="$cdir"; return 0 ;; esac
+    fi
+  fi
+  TARGET="$HOME/.local/bin"
+}
+# where an existing wrapper NAME lives: --dir, else PATH, else the default target
+_find_wrapper_dir() {
+  if [ -z "$OPT_DIR" ] && _scan_path_for "claude_with_$1"; then TARGET="$REPLY"; return 0; fi
+  _target_dir
+}
+_data_abs() { # -> DATA (absolute, bash form)
+  _posix "$ACK_DATA_DIR"; _abspath "$REPLY"; DATA="$REPLY"
+}
+
+# _state FILE -> STATE absent|installed|foreign, STATE_PERM
+_state() {
+  local f="$1" l1 l2
+  STATE_PERM="-"
+  if [ -L "$f" ]; then STATE=foreign; return 0; fi
+  if [ ! -e "$f" ]; then STATE=absent; return 0; fi
+  if [ ! -f "$f" ]; then STATE=foreign; return 0; fi
+  { IFS= read -r l1; IFS= read -r l2; } < "$f"
+  l2="${l2//$'\r'/}"
+  case "$l2" in
+    "# $MARK"*|"rem $MARK"*)
+      STATE=installed
+      STATE_PERM="${l2#*permissions=}"; STATE_PERM="${STATE_PERM%% *}" ;;
+    *) STATE=foreign ;;
+  esac
+}
+
+_wrapper_text() { # name perm -> stdout
+  local name="$1" perm="$2" prov="--provider $1 " mprov="$1"
+  if [ "$name" = danger ]; then prov=""; mprov=none; fi
+  _dq "$DATA"
+  printf '#!/usr/bin/env bash\n# %s provider=%s permissions=%s\n' "$MARK" "$mprov" "$perm"
+  printf 'exec "%s/claude-with" %s--permissions %s -- "$@"\n' "$REPLY" "$prov" "$perm"
+}
+_bash_windows() { # -> REPLY absolute Windows path of the running bash
+  local w
+  w="$(cygpath -w "$(type -P bash)")" || return 1
+  case "$w" in
+    *\\usr\\bin\\bash.exe)  # prefer Git's launcher, it sets up the PATH for scripts
+      if [ -f "$(cygpath -u "${w%usr\\bin\\bash.exe}bin\\bash.exe")" ]; then w="${w%usr\\bin\\bash.exe}bin\\bash.exe"; fi ;;
+  esac
+  REPLY="$w"
+}
+_cmd_text() { # name perm bash_windows -> stdout (CRLF)
+  local mprov="$1"; [ "$1" = danger ] && mprov=none
+  printf '@"%s" "%%~dp0claude_with_%s" %%*\r\n' "$3" "$1"
+  printf 'rem %s provider=%s permissions=%s\r\n' "$MARK" "$mprov" "$2"
+}
+
+# _show_foreign PATH NEWFILE: what is in the way, as a diff
+_show_foreign() {
+  local p="$1" new="$2"
+  printf 'foreign%s%s\n' "$TAB" "$p"
+  [ -L "$p" ] && printf 'symlink%s%s%s%s\n' "$TAB" "$p" "$TAB" "$(readlink "$p")"
+  [ -f "$p" ] || return 0
+  if type diff >/dev/null 2>&1; then
+    diff -u -L "$p (existing)" -L "$p (new)" "$p" "$new"
+  else
+    printf -- '--- %s (existing)\n' "$p"; cat "$p"; printf -- '--- %s (new)\n' "$p"; cat "$new"
+  fi
+  return 0
+}
+_foreign_msg() {
+  echo "ack-wrappers: $1 was not created by agent-construction-kit, so it was left alone." >&2
+  echo "ack-wrappers: $2" >&2
+}
+_backup() { # PATH -> moves it to PATH.bak-YYYY-MM-DD[-N]
+  local p="$1" b n=1
+  b="$p.bak-$(date +%Y-%m-%d)"
+  while [ -e "$b" ] || [ -L "$b" ]; do n=$((n + 1)); b="$p.bak-$(date +%Y-%m-%d)-$n"; done
+  mv "$p" "$b" || return 1
+  printf 'backup%s%s%s%s\n' "$TAB" "$p" "$TAB" "$b"
+}
+
+# copy share/ to the data dir; drop providers that no longer ship
+_sync_share() {
+  local f rel first
+  mkdir -p "$DATA" || { echo "ack-wrappers: cannot create $DATA." >&2; echo "ack-wrappers: check its permissions or set ACK_DATA_DIR." >&2; exit 1; }
+  [ "$(cd "$SHARE" && pwd -P)" = "$(cd "$DATA" && pwd -P)" ] && return 0
+  if [ -d "$DATA/providers" ]; then
+    for f in "$DATA"/providers/*; do
+      [ -f "$f" ] && [ ! -e "$SHARE/providers/${f##*/}" ] && rm -f "$f"
+    done
+  fi
+  cp -R "$SHARE"/. "$DATA"/ || { echo "ack-wrappers: copying the shared files to $DATA failed." >&2; echo "ack-wrappers: check free space and permissions there." >&2; exit 1; }
+  while IFS= read -r rel; do
+    f="$DATA/${rel#./}"; first=""
+    IFS= read -r first < "$f"
+    case "$first" in '#!'*) chmod 755 "$f" ;; *) chmod 644 "$f" ;; esac
+  done <<EOT
+$(cd "$SHARE" && find . -type f)
+EOT
+  find "$DATA" -type d -exec chmod 755 {} + 2>/dev/null
+  return 0
+}
+
+# ------------------------------------------------------------ subcommands
+
+cmd_list() {
+  local n file st
+  ALLOWED="--dir"; _parse "$@"
+  for n in $(ack_provider_names "$SHARE") danger; do
+    DESC="(definition error)"
+    if [ "$n" = danger ]; then OPT_PERM=""; _select danger
+    else ack_provider_load "$n" "$SHARE" >/dev/null 2>&1 && DESC="$ACK_C_DESCRIPTION"; fi
+    _find_wrapper_dir "$n"; file="$TARGET/claude_with_$n"
+    _state "$file"; st="$STATE"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$n" "$st" "$STATE_PERM" "$file" "$DESC"
+  done
+}
+
+cmd_install() {
+  local p src name dir file cmdf bashw="" rc=0 st kind
+  ALLOWED="--permissions --dir --replace"; _parse "$@"
+  _need_names 1; name="${ARGS[0]}"; _valid_name "$name"
+  _select "$name"
+  _target_dir; dir="$TARGET"; file="$dir/claude_with_$name"; cmdf="$file.cmd"
+  _data_abs
+  if _is_windows; then
+    _bash_windows || { echo "ack-wrappers: cannot determine the path of this bash (cygpath failed)." >&2; echo "ack-wrappers: run it from Git Bash." >&2; exit 1; }
+    bashw="$REPLY"
+  fi
+  TMP="$(mktemp -d)"
+  _wrapper_text "$name" "$PERM" > "$TMP/new"
+  _cmd_text "$name" "$PERM" "$bashw" > "$TMP/new.cmd"
+  if [ "$OPT_REPLACE" = 0 ]; then
+    _state "$file"; [ "$STATE" = foreign ] && { _show_foreign "$file" "$TMP/new"; rc=3; }
+    if _is_windows; then
+      _state "$cmdf"; [ "$STATE" = foreign ] && { _show_foreign "$cmdf" "$TMP/new.cmd"; rc=3; }
+    fi
+    if [ "$rc" = 3 ]; then
+      _foreign_msg "A file at the target" "Compare the diff above, then re-run with --replace to keep a .bak copy and install over it, or pick another --dir."
+      exit 3
+    fi
+  fi
+  mkdir -p "$dir" || { echo "ack-wrappers: cannot create $dir." >&2; echo "ack-wrappers: pass --dir with a writable directory." >&2; exit 1; }
+  _absdir "$dir"; dir="$REPLY"; file="$dir/claude_with_$name"; cmdf="$file.cmd"
+  _sync_share
+  for kind in wrapper cmd; do
+    if [ "$kind" = wrapper ]; then p="$file"; src="$TMP/new"
+    else _is_windows || continue; p="$cmdf"; src="$TMP/new.cmd"; fi
+    _state "$p"; st="installed"
+    case "$STATE" in
+      foreign) _backup "$p" || exit 1 ;;
+      installed) st="updated" ;;
+    esac
+    cat "$src" > "$p" || { echo "ack-wrappers: cannot write $p." >&2; echo "ack-wrappers: check the permissions of $dir." >&2; exit 1; }
+    [ "$kind" = wrapper ] && chmod 755 "$p"
+    printf '%s\t%s\t%s\t%s\n' "$kind" "$st" "$name" "$p"
+  done
+  _dir_on_path "$dir" || printf 'path\tmissing\t%s\n' "$dir"
+  return 0
+}
+
+cmd_uninstall() {
+  local name file cmdf rc=0 p
+  ALLOWED="--dir"; _parse "$@"
+  _need_names 1; name="${ARGS[0]}"; _valid_name "$name"
+  _find_wrapper_dir "$name"; file="$TARGET/claude_with_$name"; cmdf="$file.cmd"
+  for p in "$file" "$cmdf"; do
+    _state "$p"
+    [ "$STATE" = foreign ] && { printf 'foreign%s%s\n' "$TAB" "$p"; rc=3; }
+  done
+  if [ "$rc" = 3 ]; then
+    _foreign_msg "A file at the target" "Remove it by hand if it is really yours to delete."
+    exit 3
+  fi
+  for p in "$file" "$cmdf"; do
+    _state "$p"
+    case "$STATE" in
+      installed) rm -f "$p" && printf '%s\t%s\t%s\t%s\n' wrapper removed "$name" "$p" ;;
+      absent) [ "$p" = "$file" ] && printf '%s\t%s\t%s\t%s\n' wrapper absent "$name" "$p" ;;
+    esac
+  done
+  return 0
+}
+
+cmd_path_fix() {
+  local dir files f line shown
+  ALLOWED="--dir"; _parse "$@"
+  _target_dir; dir="$TARGET"
+  if _dir_on_path "$dir"; then printf 'path\tok\t%s\n' "$dir"; return 0; fi
+  if _is_windows; then
+    shown="$(cygpath -w "$dir")"
+    printf 'path\tmanual\t%s\n' "$shown"
+    echo "ack-wrappers: Windows keeps PATH in the user environment, which this script does not change."
+    echo "ack-wrappers: in PowerShell run: [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path','User') + ';$shown', 'User') -- then open a new terminal."
+    return 0
+  fi
+  case "$HOME" in /*) ;; *) usage_err "HOME is not set to an absolute path." ;; esac
+  case "${SHELL##*/}" in zsh) files="$HOME/.zshrc" ;; *) files="$HOME/.bashrc" ;; esac
+  case "$OSTYPE" in darwin*) [ -f "$HOME/.bash_profile" ] && files="$files"$'\n'"$HOME/.bash_profile" ;; esac
+  case "$dir" in "${HOME%/}"/*) _dq "${dir#"${HOME%/}"/}"; line="export PATH=\"\$HOME/$REPLY:\$PATH\" # agent-construction-kit" ;;
+    *) _dq "$dir"; line="export PATH=\"$REPLY:\$PATH\" # agent-construction-kit" ;; esac
+  while IFS= read -r f; do
+    if [ -f "$f" ] && grep -Fxq -- "$line" "$f"; then printf 'path\tunchanged\t%s\n' "$f"; continue; fi
+    if [ -f "$f" ] && [ -n "$(tail -c1 "$f")" ]; then printf '\n' >> "$f"; fi
+    printf '%s\n' "$line" >> "$f" || { echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: add the line yourself: $line" >&2; exit 1; }
+    printf 'path\tfixed\t%s\n' "$f"
+  done <<EOT
+$files
+EOT
+  return 0
+}
+
+# _key_template NAME -> KEYFILE (creates the file with mode 600 if missing)
+_key_template() {
+  local var f
+  _valid_name "$1"
+  ack_provider_load "$1" "$SHARE" || exit 2
+  var="$ACK_C_KEY_FILE_VAR"; f="$ACK_C_KEY_FILE"
+  if [ "$ACK_C_KEY_REQUIRED" = 0 ] || [ -z "$var" ]; then
+    echo "ack-wrappers: provider '$1' needs no key file." >&2
+    echo "ack-wrappers: run 'ack-wrappers test $1' to check that it works." >&2
+    exit 2
+  fi
+  if [ ! -e "$f" ]; then
+    mkdir -p "${f%/*}" || { echo "ack-wrappers: cannot create the folder of $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
+    ( umask 077; printf '%s=\n' "$var" > "$f" ) || { echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
+    chmod 600 "$f" 2>/dev/null
+  fi
+  KEYFILE="$f"
+}
+cmd_key_template() {
+  ALLOWED=""; _parse "$@"; _need_names 1
+  _key_template "${ARGS[0]}"; printf '%s\n' "$KEYFILE"
+}
+_open_editor() { # FILE -> 0 when an editor ran
+  local f="$1" e
+  if _is_windows; then
+    type -P notepad >/dev/null 2>&1 && notepad "$(cygpath -w "$f")"
+  else
+    case "$OSTYPE" in
+      darwin*) type -P open >/dev/null 2>&1 && open -t "$f" ;;
+      *) e="${EDITOR:-}"
+         if [ -n "$e" ]; then set -- $e; type -P "$1" >/dev/null 2>&1 && "$@" "$f"
+         else type -P xdg-open >/dev/null 2>&1 && xdg-open "$f"; fi ;;
+    esac
+  fi
+}
+cmd_key_edit() {
+  ALLOWED=""; _parse "$@"; _need_names 1
+  _key_template "${ARGS[0]}"; printf '%s\n' "$KEYFILE"
+  _open_editor "$KEYFILE" >/dev/null 2>&1 </dev/null || {
+    echo "ack-wrappers: no editor could be started." >&2
+    echo "ack-wrappers: open $KEYFILE yourself and put the key after the '='." >&2; }
+  return 0
+}
+
+# _conf_put FILE KEY VALUE: replace the key in place (drop repeats) or append it
+_conf_put() {
+  local f="$1" k="$2" v="$3" tmp="$1.tmp.$$" line t key done=0
+  : > "$tmp" || return 1
+  if [ -f "$f" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      _ack_trim "$line"; t="$REPLY"; key=""
+      case "$t" in *=*) case "$t" in '#'*) ;; *) _ack_trim "${t%%=*}"; key="$REPLY" ;; esac ;; esac
+      if [ "$key" = "$k" ]; then
+        [ "$done" = 0 ] && printf '%s=%s\n' "$k" "$v" >> "$tmp"
+        done=1
+      else printf '%s\n' "$line" >> "$tmp"; fi
+    done < "$f"
+  fi
+  [ "$done" = 1 ] || printf '%s=%s\n' "$k" "$v" >> "$tmp"
+  mv "$tmp" "$f"
+}
+cmd_set() {
+  local name f prev kv k v keyvar
+  ALLOWED=""; _parse "$@"; _need_names 2; name="${ARGS[0]}"; _valid_name "$name"
+  ack_provider_load "$name" "$SHARE" || exit 2
+  keyvar="$ACK_C_KEY_VAR"
+  for kv in "${ARGS[@]:1}"; do
+    case "$kv" in *=*) ;; *) usage_err "'$kv' is not KEY=VALUE." ;; esac
+    k="${kv%%=*}"; v="${kv#*=}"
+    case "$k" in ''|*[!A-Z_]*) usage_err "'$k' is not a definition key (only A-Z and _)." ;; esac
+    case "$k" in
+      *API_KEY*|*SECRET*|"$keyvar")
+        echo "ack-wrappers: $k looks like an API key, and keys never go into a definition." >&2
+        echo "ack-wrappers: run 'ack-wrappers key-edit $name' and put the key into the key file." >&2
+        exit 2 ;;
+    esac
+    case "$v" in *[[:space:]]'#'*) usage_err "the value of $k contains ' #', which would start a comment." ;; esac
+  done
+  f="$ACK_CONFIG_DIR/providers/$name.conf"; prev="$f.prev.$$"
+  mkdir -p "${f%/*}" || { echo "ack-wrappers: cannot create ${f%/*}." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
+  if [ -f "$f" ]; then cp "$f" "$prev"; else prev=""; fi
+  for kv in "${ARGS[@]:1}"; do
+    _ack_trim "${kv#*=}"
+    _conf_put "$f" "${kv%%=*}" "$REPLY" || { echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
+    printf 'set%s%s%s%s\n' "$TAB" "${kv%%=*}" "$TAB" "$REPLY"
+  done
+  if ! ack_provider_load "$name" "$SHARE"; then
+    if [ -n "$prev" ]; then mv "$prev" "$f"; else rm -f "$f"; fi
+    echo "ack-wrappers: those values break the definition of '$name', so nothing was changed." >&2
+    echo "ack-wrappers: check the \${KEY} references in the values." >&2
+    exit 2
+  fi
+  [ -n "$prev" ] && rm -f "$prev"
+  return 0
+}
+
+# _host_of -> REPLY: host[:port] of the loaded provider's BASE_URL
+_host_of() {
+  local u="$ACK_C_BASE_URL"
+  u="${u#*://}"; u="${u%%/*}"; u="${u##*@}"
+  REPLY="${u:-the provider}"
+}
+cmd_test() {
+  local wst name file out rc=0 t=0 limit pid line s kv reason="" ans
+  ALLOWED="--dir"; _parse "$@"
+  _need_names 1; name="${ARGS[0]}"; _valid_name "$name"
+  OPT_PERM=""; _select "$name"
+  _find_wrapper_dir "$name"; file="$TARGET/claude_with_$name"
+  _state "$file"
+  if [ "$STATE" != installed ]; then
+    printf 'test%smissing%sno wrapper installed at %s — run: ack-wrappers install %s\n' "$TAB" "$TAB" "$file" "$name"
+    exit 1
+  fi
+  TMP="$(mktemp -d)"; out="$TMP/out"
+  limit=$(( ${ACK_TEST_TIMEOUT:-120} * 5 ))
+  bash "$file" -p "$PROMPT" > "$out" 2>&1 < /dev/null &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$t" -ge "$limit" ]; then kill "$pid" 2>/dev/null; rc=124; break; fi
+    sleep 0.2; t=$((t + 1))
+  done
+  wait "$pid" 2>/dev/null; wst=$?
+  [ "$rc" = 124 ] || rc=$wst
+  _host_of; ans="$REPLY"
+  line=""
+  while IFS= read -r l || [ -n "$l" ]; do
+    _ack_trim "$l"; [ -n "$REPLY" ] && { line="$REPLY"; break; }
+  done < "$out"
+  # never echo a key, even if a server error quotes one back
+  if [ "$name" != danger ]; then
+    kv="$ACK_C_KEY_VAR"; s=""
+    case "$kv" in ''|[0-9]*|*[!A-Za-z0-9_]*) ;; *) s="${!kv}" ;; esac
+    [ -n "$s" ] && line="${line//"$s"/***}"
+    s="$(ack_key_read "$ACK_C_KEY_FILE" "$ACK_C_KEY_FILE_VAR" 2>/dev/null)"
+    [ -n "$s" ] && line="${line//"$s"/***}"
+  fi
+  line="${line//$TAB/ }"
+  [ "${#line}" -gt 80 ] && line="${line:0:77}..."
+  case "$rc" in
+    124) reason="could not reach $ans (no answer after ${ACK_TEST_TIMEOUT:-120}s)" ;;
+    3) reason="no key yet — add it to $ACK_C_KEY_FILE" ;;
+    4) reason="claude is not installed — install Claude Code, or set ACK_CLAUDE_BIN" ;;
+    5) if grep -Eiq 'sign(ed)? ?in|log(ged)? ?in|logged' "$out"; then reason="the proxy is not signed in"
+       else reason="could not reach $ans"; fi ;;
+    *) if [ "$rc" != 0 ] || grep -q 'API Error' "$out"; then
+         if grep -Eiq '(^|[^0-9])40[13]([^0-9]|$)|invalid.*(api.?key|x-api-key)|authentication|unauthori' "$out"; then
+           reason="the provider rejected the key"
+         elif grep -Eiq 'ECONNREFUSED|ENOTFOUND|ETIMEDOUT|connect|resolve|time.?out|network' "$out"; then
+           reason="could not reach $ans"
+         else reason="${line:-claude exited with status $rc and no output}"; fi
+       fi ;;
+  esac
+  if [ -n "$reason" ]; then printf 'test%smissing%s%s\n' "$TAB" "$TAB" "$reason"; exit 1; fi
+  printf 'test%sok%s%s\n' "$TAB" "$TAB" "$line"
+}
+
+main() {
+  [ $# -gt 0 ] || usage_err "missing subcommand."
+  local sub="$1"
+  shift
+  case "$sub" in
+    list) cmd_list "$@" ;;
+    install) cmd_install "$@" ;;
+    uninstall) cmd_uninstall "$@" ;;
+    path-fix) cmd_path_fix "$@" ;;
+    key-template) cmd_key_template "$@" ;;
+    key-edit) cmd_key_edit "$@" ;;
+    set) cmd_set "$@" ;;
+    test) cmd_test "$@" ;;
+    -h|--help|help) sed -n '2,11p' "${BASH_SOURCE[0]}" | sed -e 's/^# \{0,1\}//'; exit 0 ;;
+    *) usage_err "unknown subcommand '$sub'." ;;
+  esac
+}
+main "$@"
