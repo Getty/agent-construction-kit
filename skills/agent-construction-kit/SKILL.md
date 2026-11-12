@@ -68,24 +68,26 @@ no required line is `missing`. New plugins work once the user types `/reload-plu
 in the next Claude Code session; the setup goes on now. `kit-data` `warn` (the starters
 run an old copy): `install` one starter a `wrapper:` line shows, with its permissions.
 
-## Step 2: a starter per provider
+## Step 2: starters for other services
 
-`ack-wrappers list` shows each provider and whether its starter exists (`danger`: below;
-`openai`: Step 3). Name them in plain words and ask which ones the user has an account
-with, and whether they use another model service: the list is only what ships, and any
-service gets a starter by [references/other-services.md](references/other-services.md).
-If none, recommend skipping, since their normal `claude` keeps working. For each one:
+Ask openly, not from a list: "Besides Claude, do you want to use other model services for
+your agents (a ChatGPT or Codex subscription, an API service like DeepSeek or Kimi) or
+models on your own hardware?" No: go to the end; their normal `claude` keeps working. A
+ChatGPT or Codex subscription is Step 3, own hardware Step 4. A service `ack-wrappers list`
+shows is ready; any other: [references/other-services.md](references/other-services.md).
 
-1. Ask how much it may do unasked. `ask`: asks before it changes files or runs commands
-   (recommend this). `allow`: asks, but the user can switch the questions off during a
-   session. `skip`: never asks; every action runs at once.
-2. `ack-wrappers install <provider> --permissions <mode>`. On `path<TAB>missing` (a new
+Then ask once, for all starters: may they act unasked? `ask`: each asks before it changes
+files or runs commands (recommend this). `allow`: asks, but the user can switch the
+questions off during a session. `skip`: never asks, every action runs at once; it is theirs
+to choose. The answer is `<mode>` everywhere below. Per service:
+
+1. `ack-wrappers install <provider> --permissions <mode>`. On `path<TAB>missing` (a new
    terminal would not find the starter): ask, then run `ack-wrappers path-fix`. On
    `path<TAB>pending`, or `missing` once you did path-fix's `manual` step: done, do not
    ask again. On exit 3 (`foreign`): a file of that name exists that this kit did not
    create. Say so; never open or paste it (it may hold a key). Ask whether to replace it
    (a backup is kept as `.bak-<date>`); add `--replace` only after a clear yes.
-3. `ack-wrappers test <provider>`, with a command timeout of at least 200 seconds (it
+2. `ack-wrappers test <provider>`, with a command timeout of at least 200 seconds (it
    waits up to two minutes). It prints one line `test<TAB>ok|missing<TAB><reason>`.
    - `no key yet`: ask the user to get an API key on the provider's website, not to paste
      it here. Then run `ack-wrappers key-edit <provider>` (10-minute timeout; on Windows
@@ -95,11 +97,10 @@ If none, recommend skipping, since their normal `claude` keeps working. For each
      [references/providers.md](references/providers.md); do not debug the provider.
    - `ok`: it works; in a new terminal window the user types the starter's name.
 
-`claude_with_danger` is Claude Code as usual with every permission question skipped
-(started inside a starter's session, it keeps that provider). Offer it once, saying
-exactly that; recommend it only for a machine used for nothing but agents. If wanted:
-`ack-wrappers install danger`, then `ack-wrappers test danger`. MiniMax with `tool:uvx`
-not `ok`: see "MiniMax and uvx" in the providers reference.
+`claude_with_danger` is Claude itself with every permission question skipped (started inside
+a starter's session, it keeps that provider). Offer it once, in those words. If wanted:
+`ack-wrappers install danger`, then `ack-wrappers test danger`. MiniMax with `tool:uvx` not
+`ok`: see "MiniMax and uvx" in the providers reference.
 
 ## Step 3: OpenAI with a ChatGPT subscription
 
@@ -107,14 +108,13 @@ If the user wants OpenAI models, follow [references/openai-proxy.md](references/
 
 ## Step 4: local models
 
-Always offer this. `ack-wrappers probe-local` prints `local<TAB><url><TAB><model>` per
-model a server on this machine offers (a local Ollama too; provider `ollama` is the cloud).
+Say first: local models are for work in the finished team, not for setting up. `ack-wrappers
+probe-local` prints `local<TAB><url><TAB><model>` per model found (a local Ollama too).
 
 - Per model: ask whether they want a starter, suggesting a short name (lower case, first
   a letter, not a name `list` shows), and for its context window unless the model's
-  description gives it (no number: leave `--context` out, never guess). Permissions as
-  in Step 2. Run `ack-wrappers new-provider <name> --url <url> --model <model> --context <N>`,
+  description gives it (no number: leave `--context` out, never guess). Mode as in
+  Step 2. Run `ack-wrappers new-provider <name> --url <url> --model <model> --context <N>`,
   `ack-wrappers install <name> --permissions <mode>` and `ack-wrappers test <name>`.
 - Nothing found: ask for a model server on another machine (address, model name) and go on
   the same way; a key or a failing test: [references/other-services.md](references/other-services.md).
-- Say: local models are meant for work in the finished team, not for setting up.

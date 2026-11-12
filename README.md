@@ -69,31 +69,33 @@ A session goes roughly like this:
 >
 > **You:** yes
 >
-> **Claude:** Both are installed. Next: do you have an account with one of these model
-> services: Fireworks, Kimi, MiniMax, Ollama Cloud? Or with another one? Any service
-> gets its own starter. If none, we skip this; your normal `claude` keeps working.
+> **Claude:** Both are installed. Besides Claude, do you want to use other model
+> services for your agents: a ChatGPT or Codex subscription, an API service like DeepSeek
+> or Kimi, or models on your own hardware?
 >
-> **You:** Kimi, and I use DeepSeek too.
+> **You:** I have ChatGPT Plus, a DeepSeek account, and Ollama runs on my PC.
 >
-> **Claude:** Kimi first. Should its starter ask you before it changes files or runs
-> commands? I recommend yes.
+> **Claude:** Then you get three starters. One question for all of them: should they ask
+> you before they change files or run commands? I recommend yes. You can also have them
+> never ask; then every action runs at once.
 >
-> **You:** yes
+> **You:** ask
 >
-> **Claude:** `claude_with_kimi` is in place, but it has no key yet. Please create an API
-> key on Kimi's website. Do not paste it here: I am opening a text file for it; put the
-> key after the `=`, save, close, and tell me.
+> **Claude:** `claude_with_deepseek` is in place, but it has no key yet. Please create an
+> API key on DeepSeek's website. Do not paste it here: I am opening a text file for it;
+> put the key after the `=`, save, close, and tell me.
 >
 > **You:** done
 >
-> **Claude:** Kimi answered. Now DeepSeek: I read its documentation for the address and
-> the model names ...
+> **Claude:** DeepSeek answered. Now ChatGPT: this needs a small helper program that
+> signs in with your subscription. May I install it? ...
 
 At the end you get one line per starter:
 
 ```
-claude_with_kimi       Claude Code on Kimi, asks before each action
 claude_with_deepseek   Claude Code on DeepSeek, asks before each action
+claude_with_openai     Claude Code on OpenAI models, through your ChatGPT subscription
+claude_with_gemma      Claude Code on the Gemma model on this PC
 ```
 
 Nothing is installed or changed without your yes. A few things are yours to do: you
@@ -114,13 +116,20 @@ terminal window, as that asks for your password.
 
 ## Providers
 
+Ready-made definitions ship for these:
+
 | Name | What it is | Key variable |
 |---|---|---|
+| `deepseek` | DeepSeek | `DEEPSEEK_API_KEY` |
 | `fireworks` | Fireworks AI | `FIREWORKS_API_KEY` |
+| `huggingface` | Hugging Face Inference Providers | `HF_TOKEN` |
 | `kimi` | Moonshot AI Kimi | `MOONSHOT_API_KEY` |
 | `minimax` | MiniMax (Anthropic-compatible API) | `MINIMAX_API_KEY` |
+| `novita` | Novita AI | `NOVITA_API_KEY` |
 | `ollama` | Ollama Cloud | `OLLAMA_CLOUD_API_KEY` |
-| `openai` | OpenAI through claude-code-proxy (ChatGPT subscription) | none, you sign in with ChatGPT |
+| `openai` | OpenAI through claude-code-proxy (ChatGPT or Codex subscription) | none, you sign in with ChatGPT |
+| `synthetic` | Synthetic (open models, flat subscription) | `SYNTHETIC_API_KEY` |
+| `zai` | Z.ai GLM | `ZAI_API_KEY` |
 
 Each provider needs an account there and an API key, which is usually paid; `openai`
 needs a ChatGPT Plus or Pro subscription instead.
@@ -128,10 +137,13 @@ needs a ChatGPT Plus or Pro subscription instead.
 Your keys stay in your environment or in a private key file that you fill in yourself,
 in your own editor. The kit never writes a key and never shows one.
 
-These five are examples of one pattern, not the limit. Any service or model server
-with an Anthropic-compatible API gets a starter the same way: tell the agent which one
-you use (DeepSeek, Z.ai, Qwen, a gateway, LM Studio, llama.cpp, ...), and it reads that
-service's documentation and creates `claude_with_<name>` for it.
+These are examples of one pattern, not the limit. Any service or model server with an
+Anthropic-compatible API gets a starter the same way: tell the agent which one you use
+(Qwen, OpenRouter, a company gateway, LM Studio, llama.cpp, vLLM, ...), and it reads
+that service's documentation and creates `claude_with_<name>` for it. Services that
+only speak the OpenAI API (Groq, Cerebras, Mistral, Gemini, ...) need a translating
+proxy such as LiteLLM or [Knarr](https://github.com/Getty/langertha-knarr) in front;
+the agent tells you so.
 
 ## Example: a team for a software project
 
@@ -234,6 +246,48 @@ The rules matter more here than in a code project:
   match the statements.
 
 This too is the next version; the machine setup of today already runs on Windows.
+
+## Example: a homelab
+
+You do not need to know which team you want. One sentence about what you have and what
+you like to do is enough, and the kit proposes a structure:
+
+> **You:** I have a homelab and want to develop things.
+>
+> **Claude:** Then I suggest three repositories, not one. An **admin** hub that you talk
+> to and that steers the other two. A **homelab** team that looks after the network and
+> the machines. A **developer** team for what you build. The hub keeps the overview and
+> starts a session in the right place; each team knows only its own subject. Does that
+> match how you work?
+
+Say something else, and the structure changes with it:
+
+| You say | The kit proposes |
+|---|---|
+| "I have a homelab and want to develop things." | `admin` hub, `homelab` team, `developer` team |
+| "I have a homelab and like to experiment with network hardware." | `admin` hub, `homelab` team, `networker` team for switches, routers and VLANs |
+| "... and I want to know how safe it all is." | the same, plus a `security` team that only reads and reports |
+| "I just have this one project." | one project team, no hub |
+
+The `homelab` team could look like this:
+
+| Agent | Job |
+|---|---|
+| `homelab-scout` | reads configurations and states of the machines, changes nothing |
+| `homelab-operator` | changes a machine: packages, services, containers |
+| `homelab-networker` | addresses, DNS, VLANs, firewall rules |
+| `homelab-checker` | checks after every change that the services still answer, cannot write |
+| `homelab-scribe` | keeps the inventory and the notes on what was changed and why |
+
+Everything such a team knows about your network lives in a git repository, so every
+change has a history. The kit always creates one, and it asks where the copy goes:
+
+> **Claude:** These repositories exist only on this PC so far. If the disk dies, the
+> history is gone. Do you have a git server or an account at GitHub or Codeberg? If not,
+> I can keep a second copy on another disk, for example your NAS or a USB drive, and the
+> teams push there. I recommend that.
+
+A second disk is a full remote: `git push` works the same, and no account is needed.
 
 ## Roadmap
 

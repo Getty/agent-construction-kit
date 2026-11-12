@@ -802,6 +802,8 @@ cmd_test() {
     *) if [ "$rc" != 0 ] || grep -q 'API Error' "$out"; then
          if grep -Eiq '(^|[^0-9])40[13]([^0-9]|$)|invalid.*(api.?key|x-api-key)|authentication|unauthori' "$out"; then
            reason="the provider rejected the key"
+         elif grep -Eiq '(^|[^0-9])402([^0-9]|$)|insufficient.?(balance|credit|fund|quota)|payment.?required|billing' "$out"; then
+           reason="the account has no credit"
          elif grep -Eiq 'ECONNREFUSED|ENOTFOUND|ETIMEDOUT|connect|resolve|time.?out|network' "$out"; then
            reason="could not reach $ans"
          else reason="${line:-claude exited with status $rc and no output}"; fi

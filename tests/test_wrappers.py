@@ -841,6 +841,8 @@ class WrappersTest(Sandbox):
         self.aw("install", "minimax")
         cases = (
             ("echo 'API Error: 401 invalid x-api-key sk-live-1'", "the provider rejected the key"),
+            ("echo '[claude-code:unrecognized_model] {}'; echo 'API Error: 402 Insufficient Balance'",
+             "the account has no credit"),
             ("echo 'connect ECONNREFUSED 1.2.3.4:443'", "could not reach api.minimax.io"),
             ("echo 'something odd happened'", "something odd happened"),
         )

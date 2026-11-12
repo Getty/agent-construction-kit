@@ -200,7 +200,8 @@ class ProviderTest(Sandbox):
 
     def test_every_shipped_definition_has_description_and_prefix(self):
         names = sorted(p.stem for p in PROVIDER_DIR.glob("*.conf"))
-        self.assertEqual(names, ["fireworks", "kimi", "minimax", "ollama", "openai"])
+        self.assertEqual(names, ["deepseek", "fireworks", "huggingface", "kimi", "minimax", "novita",
+                                 "ollama", "openai", "synthetic", "zai"])
         for p in PROVIDER_DIR.glob("*.conf"):
             lines = p.read_text().splitlines()
             keys = dict(l.split("=", 1) for l in lines if l and not l.startswith("#"))

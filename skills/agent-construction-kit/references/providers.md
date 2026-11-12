@@ -98,6 +98,7 @@ any long piece of the key in a reason shows as `***`:
 |---|---|
 | `no wrapper installed at` | the starter is not there yet; run `install` for it yourself |
 | `no key yet` | the key is missing; `key-edit` as in Step 2 of the skill |
+| `the account has no credit` | the key works, but the account at the provider has no balance or no active plan; they top it up there, then test again |
 | `the provider rejected the key` | the key is wrong, expired or without credit; ask them to check it on the provider's website, then `key-edit` again to replace it |
 | `could not reach` | no connection; ask whether the internet works, and for a model server whether it runs and the address is right |
 | `claude is not installed` | the `claude` command is not found; Step 1 of the skill, line `claude` |
@@ -179,11 +180,16 @@ Layers, the later one wins:
 
 | Provider | PREFIX | KEY_VAR |
 |---|---|---|
+| `deepseek` | `ACK_DEEPSEEK` | `DEEPSEEK_API_KEY` |
 | `fireworks` | `ACK_FIREWORKS` | `FIREWORKS_API_KEY` |
+| `huggingface` | `ACK_HUGGINGFACE` | `HF_TOKEN` |
 | `kimi` | `ACK_MOONSHOT` | `MOONSHOT_API_KEY` |
 | `minimax` | `ACK_MINIMAX` | `MINIMAX_API_KEY` |
+| `novita` | `ACK_NOVITA` | `NOVITA_API_KEY` |
 | `ollama` | `ACK_OLLAMA` | `OLLAMA_CLOUD_API_KEY` |
 | `openai` | `ACK_OPENAI` | none (`KEY_REQUIRED=0`, ChatGPT sign-in through the proxy) |
+| `synthetic` | `ACK_SYNTHETIC` | `SYNTHETIC_API_KEY` |
+| `zai` | `ACK_ZAI` | `ZAI_API_KEY` |
 
 Control keys: `DESCRIPTION`, `PREFIX`, `KEY_VAR`, `KEY_FILE` (default
 `$ACK_CONFIG_DIR/<name>.env`; a leading `~/` is the home directory), `KEY_FILE_VAR`
