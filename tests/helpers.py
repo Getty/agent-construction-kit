@@ -1,4 +1,5 @@
 import os
+import re
 import pathlib
 import shutil
 import subprocess
@@ -16,9 +17,6 @@ def sandbox_env(home, fakebin):
         # Windows: the sandbox PATH is fakebin plus the host PATH (bash needs
         # its own directories), so isolation is weaker there, by necessity.
         env["PATH"] = "%s;%s" % (fakebin, os.environ["PATH"])
-        # The MSYS runtime globs and brace-expands arguments that come from a
-        # native program; "MODEL=${X}" would arrive as "MODEL=$X".
-        env["MSYS"] = "noglob"
         for k in ("SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "TEMP", "TMP"):
             if k in os.environ:
                 env[k] = os.environ[k]
@@ -43,11 +41,27 @@ class Sandbox(unittest.TestCase):
         full = dict(self.env)
         full.update(env or {})
         argv = self._launchable(argv, full["PATH"])
+        if os.name == "nt":
+            argv = self._quoted(argv)
         try:
             return subprocess.run(argv, env=full, input=input, text=True,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except OSError as e:
             return subprocess.CompletedProcess(argv, 127, "", str(e))
+
+    @staticmethod
+    def _quoted(argv):
+        """One Windows command line with every argument in double quotes.
+
+        The MSYS runtime globs and brace-expands unquoted arguments that come
+        from a native program ("MODEL=${X}" would arrive as "MODEL=$X"), and
+        Python only quotes arguments that contain whitespace.
+        """
+        def q(a):
+            a = re.sub(r'(\\*)"', lambda m: m.group(1) * 2 + '\\"', a)
+            a = re.sub(r'(\\+)$', lambda m: m.group(1) * 2, a)
+            return '"%s"' % a
+        return " ".join(q(a) for a in argv)
 
     @staticmethod
     def _launchable(argv, path):
