@@ -487,13 +487,17 @@ ack_proxy_ensure() {
     echo "ack: install it (see the skill's references/openai-proxy.md), then try again." >&2
     return 5
   fi
-  mkdir -p "$ACK_STATE_DIR" || return 5
+  # only the user reads the state directory and the log; the proxy gets no key
+  # of the session it is started from
+  if [ ! -d "$ACK_STATE_DIR" ]; then ( umask 077; mkdir -p "$ACK_STATE_DIR" ) || return 5; fi
   log="$ACK_STATE_DIR/proxy.log"
   if [ -f "$log" ]; then
+    chmod 600 "$log" 2>/dev/null
     sz="$(wc -c < "$log")"; sz="${sz//[[:space:]]/}"
     if [ "${sz:-0}" -gt 1048576 ]; then : > "$log"; fi
   fi
-  nohup "$bin" serve --no-monitor --port "$port" >>"$log" 2>&1 </dev/null &
+  ( umask 077; unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
+    exec nohup "$bin" serve --no-monitor --port "$port" >>"$log" 2>&1 </dev/null ) &
   pid=$!
   if _ack_proxy_wait "$port" "$pid"; then return 0; fi
   ack_run_bounded 20 "$bin" codex auth status

@@ -112,6 +112,21 @@ class ProxyTest(Sandbox):
         log = self.home / ".local/state/agent-construction-kit/proxy.log"
         self.assertIn("serve ran", log.read_text())
 
+    def test_the_proxy_gets_no_key_and_a_private_log(self):
+        self.fake("claude-code-proxy", FAKE_PROXY.replace('serve) ', 'serve) env > "$HOME/serve-env"; '))
+        r = self.cw("--provider", "openai", "--", "x",
+                    env={"ANTHROPIC_API_KEY": "sk-ant-INHERITED", "ANTHROPIC_AUTH_TOKEN": "t-INHERITED"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("INHERITED", (self.home / "serve-env").read_text())
+        if os.name != "nt":
+            state = self.home / ".local/state/agent-construction-kit"
+            self.assertEqual(os.stat(str(state)).st_mode & 0o777, 0o700)
+            self.assertEqual(os.stat(str(state / "proxy.log")).st_mode & 0o777, 0o600)
+            (state / "proxy.log").chmod(0o664)
+            (self.home / "proxy-started").unlink()
+            self.assertEqual(self.cw("--provider", "openai", "--", "x").returncode, 0)
+            self.assertEqual(os.stat(str(state / "proxy.log")).st_mode & 0o777, 0o600)
+
     def test_big_log_is_started_afresh(self):
         log = self.write(".local/state/agent-construction-kit/proxy.log", "x" * 1100000)
         self.cw("--provider", "openai", "--", "x")

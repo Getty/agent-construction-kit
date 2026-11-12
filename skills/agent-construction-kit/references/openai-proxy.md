@@ -116,7 +116,8 @@ Ask about permissions as in the skill's Step 2, then
 The first test starts the proxy, which takes a few seconds. For `test` reasons that
 name the proxy, see the providers reference; the proxy writes its log to
 `proxy.log` in the kit's state directory (`ACK_STATE_DIR`, default
-`~/.local/state/agent-construction-kit`).
+`~/.local/state/agent-construction-kit`), readable only by the user. A proxy the
+starter starts gets no `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` of the session.
 
 If another program already uses port 18765, pick a free one with
 `ack-wrappers set openai PROXY_PORT=<port>` (on Linux, then `ack-proxy service install`
