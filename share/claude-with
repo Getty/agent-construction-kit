@@ -3,9 +3,11 @@
 #   claude-with [--provider NAME] [--permissions ask|allow|skip] [--print-env] [--] [claude args...]
 # Exit codes: 2 usage/definition error, 3 key missing, 4 no claude, 5 proxy unreachable.
 
-_self="${BASH_SOURCE[0]}"
+# Git for Windows may hand over a backslash path (bash 'D:\x\claude-with').
+_slashes() { case "$OSTYPE" in msys*|cygwin*) REPLY="${1//\\//}" ;; *) REPLY="$1" ;; esac; }
+_slashes "${BASH_SOURCE[0]}"; _self="$REPLY"
 while [ -L "$_self" ]; do
-  _t="$(readlink "$_self")"
+  _slashes "$(readlink "$_self")"; _t="$REPLY"
   case "$_t" in
     /*) _self="$_t" ;;
     *) case "$_self" in */*) _self="${_self%/*}/$_t" ;; *) _self="./$_t" ;; esac ;;
