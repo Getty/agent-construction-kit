@@ -393,14 +393,20 @@ ack_proxy_reachable() {
 
 # ack_run_bounded SECS CMD [ARGS...]: run CMD for at most SECS seconds (no timeout
 # binary needed). Sets ACK_BOUNDED_OUT (stdout), ACK_BOUNDED_ERR (first stderr line);
-# returns the exit status, 124 on timeout.
+# returns the exit status, 124 on timeout. Resets the INT, TERM and HUP traps.
 ack_run_bounded() {
-  local secs="$1" d pid i=0 t0 rc
+  local secs="$1" d pid i=0 t0 rc stop
   shift
   ACK_BOUNDED_OUT="" ACK_BOUNDED_ERR=""
   d="$(mktemp -d)" || return 1
   "$@" >"$d/out" 2>"$d/err" </dev/null &
   pid=$!
+  # a signal stops the child and drops its output, then ends the caller like the
+  # signal would; the traps are reset when the call is over
+  printf -v stop 'kill %s 2>/dev/null; rm -rf %q' "$pid" "$d"
+  trap "$stop; exit 130" INT
+  trap "$stop; exit 143" TERM
+  trap "$stop; exit 129" HUP
   # Wall clock, not a count of sleeps: where a fork is slow, 0.1 s takes far longer.
   t0=$SECONDS
   while kill -0 "$pid" 2>/dev/null && [ $((SECONDS - t0)) -lt "$secs" ]; do
@@ -423,6 +429,7 @@ ack_run_bounded() {
   IFS= read -r ACK_BOUNDED_ERR < "$d/err" 2>/dev/null
   ACK_BOUNDED_ERR="${ACK_BOUNDED_ERR//$'\r'/}"
   rm -rf "$d"
+  trap - INT TERM HUP
   return "$rc"
 }
 

@@ -157,6 +157,16 @@ class DoctorTest(Sandbox):
         self.assertIn("plugin:briefing\twarn\tcould not ask claude", r.stdout)
         self.assertEqual(r.returncode, 0)
 
+    def test_a_signal_during_a_bounded_call_stops_the_child_and_leaves_nothing(self):
+        if os.name == "nt":
+            self.skipTest("POSIX signals")
+        self.fake("claude", "#!/usr/bin/env bash\n"
+                  '[ "$*" = "--version" ] && { echo $$ > "$HOME/claude.pid"; exec sleep 30; }\nexit 0\n')
+        rc, alive, left = self.terminate_while_child_runs(["bash", AD], self.home / "claude.pid")
+        self.assertEqual(rc, 143)
+        self.assertFalse(alive, "claude --version still runs")
+        self.assertEqual(left, [])
+
     def test_compact_json_with_swapped_field_order(self):
         self.plugins("briefing@getty", "skilletor@getty", "superpowers@x", compact=True)
         self.marketplaces("getty")

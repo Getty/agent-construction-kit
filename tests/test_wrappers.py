@@ -697,6 +697,22 @@ class WrappersTest(Sandbox):
         self.assertIn("no key yet", r.stdout)
         self.assertIn("minimax.env", r.stdout)
 
+    def test_test_stopped_by_a_signal_stops_claude_and_leaves_nothing(self):
+        if NT:
+            self.skipTest("POSIX signals")
+        import signal
+        pidfile = self.home / "claude.pid"
+        self.fake_claude('echo $$ > "$HOME/claude.pid"; exec sleep 30')
+        self.aw("install", "minimax")
+        for sig, code in ((signal.SIGTERM, 143), (signal.SIGINT, 130), (signal.SIGHUP, 129)):
+            if pidfile.exists():
+                pidfile.unlink()
+            rc, alive, left = self.terminate_while_child_runs(
+                ["bash", AW, "test", "minimax"], pidfile, env={"MINIMAX_API_KEY": "k"}, sig=sig)
+            self.assertEqual(rc, code, sig)
+            self.assertFalse(alive, "claude still runs after %s" % sig)
+            self.assertEqual(left, [], sig)
+
     def test_test_ok_with_fake_claude(self):
         self.fake_claude("echo OK")
         self.aw("install", "minimax")

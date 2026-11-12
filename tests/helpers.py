@@ -97,6 +97,43 @@ class Sandbox(unittest.TestCase):
             return str(p)
         return "/tmp/%s/%s" % (self.root.name, p.relative_to(self.root).as_posix())
 
+    def terminate_while_child_runs(self, argv, pidfile, env=None, sig=None):
+        """Start argv, wait until a child wrote its pid to pidfile, send sig (default
+        SIGTERM) to argv's process; return (exit code, child pid, temp dir entries).
+        TMPDIR is a fresh folder, so what the run leaves behind is easy to see."""
+        import signal
+        import time
+        tmp = self.root / "tmpdir"
+        tmp.mkdir(exist_ok=True)
+        full = dict(self.env, TMPDIR=str(tmp))
+        full.update(env or {})
+        argv = self._launchable(argv, full["PATH"])
+        p = subprocess.Popen(argv, env=full, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             stdin=subprocess.DEVNULL)
+        self.addCleanup(lambda: p.poll() is None and p.kill())
+        end = time.time() + 20
+        while not (pidfile.exists() and pidfile.read_text().strip()) and time.time() < end:
+            time.sleep(0.05)
+        child = int(pidfile.read_text().strip())
+
+        def reap():
+            try:
+                os.kill(child, signal.SIGKILL)
+            except OSError:
+                pass
+        self.addCleanup(reap)
+        p.send_signal(sig or signal.SIGTERM)
+        p.communicate(timeout=20)
+        end = time.time() + 5
+        alive = True
+        while alive and time.time() < end:
+            try:
+                os.kill(child, 0)
+                time.sleep(0.05)
+            except OSError:
+                alive = False
+        return p.returncode, alive, sorted(x.name for x in tmp.iterdir())
+
     def fake(self, name, script):
         p = self.fakebin / name
         with open(str(p), "w", newline="") as f:

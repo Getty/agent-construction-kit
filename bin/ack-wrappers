@@ -39,8 +39,17 @@ ack_paths
 MARK="agent-construction-kit wrapper v1"
 PROMPT="Reply with the single word OK"
 TAB=$'\t'
-TMP=""
+TMP="" CHILD=""
 trap '[ -n "$TMP" ] && rm -rf "$TMP"' EXIT
+# a signal (a caller's timeout, Ctrl-C) also stops the claude that test started
+_on_signal() {
+  [ -n "$CHILD" ] && kill "$CHILD" 2>/dev/null
+  [ -n "$TMP" ] && rm -rf "$TMP"
+  TMP=""; exit "$1"
+}
+trap '_on_signal 130' INT
+trap '_on_signal 143' TERM
+trap '_on_signal 129' HUP
 
 # ---------------------------------------------------------------- helpers
 
@@ -689,12 +698,12 @@ cmd_test() {
   TMP="$(mktemp -d)"; out="$TMP/out"
   limit=$(( ${ACK_TEST_TIMEOUT:-120} * 5 ))
   "$BASH" "$file" -p "$PROMPT" > "$out" 2>&1 < /dev/null &
-  pid=$!
+  pid=$!; CHILD="$pid"
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$t" -ge "$limit" ]; then kill "$pid" 2>/dev/null; rc=124; break; fi
     sleep 0.2; t=$((t + 1))
   done
-  wait "$pid" 2>/dev/null; wst=$?
+  wait "$pid" 2>/dev/null; wst=$?; CHILD=""
   [ "$rc" = 124 ] || rc=$wst
   _host_of; ans="$REPLY"
   line=""
