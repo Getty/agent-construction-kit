@@ -20,11 +20,11 @@ _ack_trim() {
 }
 ack_trim() { _ack_trim "$1"; printf '%s' "$REPLY"; }
 
-# ack_is_word VALUE: one short word of letters and -, like "local" or "proxy" (an
-# AUTH_TOKEN that is no secret); anything else may be a key and is never shown
+# ack_is_word VALUE: one short word of small letters, like "local" or "proxy" (an
+# AUTH_TOKEN that is no secret); anything else may be a key and is never shown.
+# No capitals, digits or dashes: a short key such as sk-ABC-DEF must not pass.
 ack_is_word() {
-  case "$1" in [A-Za-z]*) ;; *) return 1 ;; esac
-  case "$1" in *[!A-Za-z-]*) return 1 ;; esac
+  case "$1" in ''|*[!abcdefghijklmnopqrstuvwxyz]*) return 1 ;; esac
   [ "${#1}" -le 16 ]
 }
 

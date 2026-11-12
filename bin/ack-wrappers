@@ -540,7 +540,7 @@ cmd_path_fix() {
     echo "ack-wrappers: add the line above to the startup file of $PROFILE_SHELL (in its own syntax if it has another), then open a new terminal." >&2
     return 0
   fi
-  if [ -f "$f" ] && have="$(grep -F -- '# agent-construction-kit' "$f")" && [ -n "$have" ]; then
+  if [ -f "$f" ] && have="$(grep -E -- '^export PATH=.*# agent-construction-kit$' "$f")" && [ -n "$have" ]; then
     have="${have%%$'\n'*}"
     if [ "$have" = "$line" ]; then printf 'path\tunchanged\t%s\n' "$f"
     else printf 'path\texists\t%s\t%s\n' "$f" "$have"; fi
@@ -646,7 +646,7 @@ cmd_set() {
         exit 2 ;;
     esac
     if [ "$k" = AUTH_TOKEN ] && [ -n "$v" ] && ! ack_is_word "$v"; then
-      echo "ack-wrappers: AUTH_TOKEN takes only a short word such as local or proxy (letters and -, at most 16), and keys never go into a definition." >&2
+      echo "ack-wrappers: AUTH_TOKEN takes only a short word such as local or proxy (small letters only, at most 16), and keys never go into a definition." >&2
       echo "ack-wrappers: put a key into the key file with 'ack-wrappers key-edit $name'; for a local model without one, run new-local again with --key-var and --replace." >&2
       exit 2
     fi

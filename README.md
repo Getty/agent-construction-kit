@@ -94,7 +94,7 @@ Linux, macOS and Windows (with Git for Windows). The starters work from any shel
 Windows each one comes with a `.cmd` file. That file hands its arguments to cmd.exe,
 which acts on `&`, `|`, `^` and `%` in them, so from PowerShell or cmd put such an
 argument in quotes (`"a & b"`), or start the starter from Git Bash, which passes
-arguments unchanged.
+arguments unchanged. Quotes do not protect `%NAME%`; for a text with `%` use Git Bash.
 
 ## Remove everything
 
@@ -109,7 +109,8 @@ The commands sit in the plugin's `bin/` folder; Claude can run them for you.
    copy of what you still need). `ACK_DATA_DIR`, `ACK_STATE_DIR` and `ACK_CONFIG_DIR`,
    or the `XDG_*_HOME` variables, move them elsewhere.
 4. Delete the line ending in `# agent-construction-kit` from your shell startup file
-   (`~/.bashrc`, `~/.zshrc`, `~/.bash_profile` or `~/.profile`). On Windows, remove the
+   (`~/.bashrc`, `~/.zshrc`, `~/.bash_profile`, `~/.bash_login` or `~/.profile`), or the
+   line you added yourself if the setup asked you to. On Windows, remove the
    starters' folder from your user `Path` in the environment variable settings.
 5. In Claude Code: `/plugin uninstall agent-construction-kit@getty`.
 

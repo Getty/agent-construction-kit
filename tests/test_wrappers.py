@@ -699,9 +699,18 @@ class WrappersTest(Sandbox):
         r = self.aw("set", "mine", "HOST=h2")
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_path_fix_shows_only_its_own_path_line(self):
+        if NT:
+            self.skipTest("no startup file on Windows")
+        self.aw("install", "minimax")
+        rc = self.home / ".bashrc"
+        rc.write_text("export MINIMAX_API_KEY=S3CRET # agent-construction-kit\n")
+        r = self.aw("path-fix", env={"SHELL": "/bin/bash", "OSTYPE": "linux-gnu"})
+        self.assertNotIn("S3CRET", r.stdout + r.stderr)
+
     def test_set_refuses_an_auth_token_that_is_not_a_short_word(self):
         conf = self.home / CONF / "providers/fireworks.conf"
-        for v in ("sk-REALKEY-9BBB", "abc123", "x" * 17, "-dash", "a b"):
+        for v in ("sk-REALKEY-9BBB", "sk-REALKEY-BBB", "Proxy", "my-token", "abc123", "x" * 17, "-dash", "a b"):
             r = self.aw("set", "fireworks", "AUTH_TOKEN=" + v, "KEY_REQUIRED=0")
             self.assertEqual(r.returncode, 2, v)
             self.assertEqual(r.stdout, "", v)
@@ -709,7 +718,7 @@ class WrappersTest(Sandbox):
             self.assertIn("key-edit fireworks", r.stderr)
             self.assertIn("--key-var", r.stderr)
             self.assertFalse(conf.exists(), v)
-        for v in ("local", "Proxy", "my-token", "x" * 16):
+        for v in ("local", "proxy", "x" * 16):
             r = self.aw("set", "fireworks", "AUTH_TOKEN=" + v)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(r.stdout, "set\tAUTH_TOKEN\t%s\n" % v)
