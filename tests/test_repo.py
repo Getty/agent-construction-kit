@@ -199,6 +199,105 @@ class RepoTest(Sandbox):
         self.ar("inspect", str(d))
         self.assertEqual(os.listdir(str(d)), [])
 
+    def test_inspect_board_file(self):
+        d = self.repo()
+        self.put(d, "BOARD.md", "# board\n")
+        r = self.ar("inspect", str(d))
+        self.assertIn(["team", "board", "file"], self.lines(r))
+        self.git(d, "update-ref", "refs/karr/tasks/1", "HEAD")
+        r = self.ar("inspect", str(d))
+        self.assertIn(["team", "board", "karr"], self.lines(r))
+
+    # ---- accounts ----------------------------------------------------------
+
+    def accounts(self, env=None):
+        r = self.ar("inspect", str(self.work), env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r, sorted(self.fact(r, "account"))
+
+    def test_account_none_found(self):
+        r, acc = self.accounts()
+        self.assertEqual(acc, [])
+
+    def test_account_gh_name_without_token(self):
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        self.write(".config/gh/hosts.yml",
+                   "github.com:\n    oauth_token: ghp_SECRET123\n    user: octo\n"
+                   "    git_protocol: https\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [["account", "github", "gh", "octo"]])
+        self.assertNotIn("SECRET123", r.stdout + r.stderr)
+
+    def test_account_gh_config_dir_override(self):
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        cfg = self.root / "ghcfg"
+        cfg.mkdir()
+        (cfg / "hosts.yml").write_text("github.com:\n    user: viaenv\n")
+        r, acc = self.accounts(env={"GH_CONFIG_DIR": str(cfg)})
+        self.assertEqual(acc, [["account", "github", "gh", "viaenv"]])
+
+    def test_account_gh_without_hosts_file_gives_no_gh_line(self):
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [])
+
+    def test_account_hosts_file_without_the_tool_is_ignored(self):
+        self.write(".config/gh/hosts.yml", "github.com:\n    user: octo\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [])
+
+    def test_account_other_host_in_hosts_file_is_not_github(self):
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        self.write(".config/gh/hosts.yml", "ghe.example.org:\n    user: corp\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [])
+
+    def test_account_glab_name(self):
+        self.fake("glab", "#!/usr/bin/env bash\nexit 99\n")
+        self.write(".config/glab-cli/config.yml",
+                   "git_protocol: ssh\nhosts:\n    gitlab.com:\n        token: glpat-SECRET456\n"
+                   "        user: lab\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [["account", "gitlab", "glab", "lab"]])
+        self.assertNotIn("SECRET456", r.stdout + r.stderr)
+
+    def test_account_ssh_config_and_known_hosts(self):
+        self.write(".ssh/config", "Host codeberg.org\n  User git\nHost *\n  IdentityFile ~/.ssh/k\n")
+        self.write(".ssh/known_hosts",
+                   "gitlab.com,1.2.3.4 ssh-ed25519 AAAAKEY\n|1|hash|hash ssh-ed25519 AAAAGITHUB\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [["account", "codeberg", "ssh", ""], ["account", "gitlab", "ssh", ""]])
+        self.assertNotIn("AAAA", r.stdout + r.stderr)
+
+    def test_account_ssh_hostname_alias(self):
+        self.write(".ssh/config", "Host gh\n  HostName github.com\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [["account", "github", "ssh", ""]])
+
+    def test_account_gh_wins_over_ssh(self):
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        self.write(".config/gh/hosts.yml", "github.com:\n    user: octo\n")
+        self.write(".ssh/known_hosts", "github.com ssh-ed25519 AAAA\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [["account", "github", "gh", "octo"]])
+
+    def test_account_gitconfig(self):
+        cfg = self.root / "gitconfig"
+        cfg.write_text('[url "git@github.com:"]\n\tinsteadOf = gh:\n'
+                       '[credential "https://codeberg.org"]\n\thelper = store\n'
+                       '[url "https://u:TOKEN789@gitlab.com/"]\n\tinsteadOf = gl:\n')
+        r, acc = self.accounts()
+        self.assertEqual(acc, [["account", "codeberg", "gitconfig", ""],
+                               ["account", "github", "gitconfig", ""],
+                               ["account", "gitlab", "gitconfig", ""]])
+        self.assertNotIn("TOKEN789", r.stdout + r.stderr)
+
+    def test_account_ssh_wins_over_gitconfig(self):
+        (self.root / "gitconfig").write_text('[url "git@github.com:"]\n\tinsteadOf = gh:\n')
+        self.write(".ssh/known_hosts", "github.com ssh-ed25519 AAAA\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [["account", "github", "ssh", ""]])
+
     # ---- init --------------------------------------------------------------
 
     def test_init_creates_repo_on_main_and_gitignore(self):

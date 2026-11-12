@@ -10,7 +10,15 @@
 #                                                KIND = github|codeberg|gitlab|forge|disk|other
 #   signal<TAB>KIND<TAB>FILE                     KIND = perl|node|python|go|rust|make|ci
 #   tests<TAB>DIR<TAB>N<TAB>nested|flat          N files; nested = tests in subdirectories
-#   team<TAB>agents|rules|skills<TAB>N   team<TAB>skilletor<TAB>yes|no   team<TAB>board<TAB>karr|none
+#   team<TAB>agents|rules|skills<TAB>N   team<TAB>skilletor<TAB>yes|no
+#   team<TAB>board<TAB>karr|file|none            karr = refs/karr/* exist, file = BOARD.md at the top
+#   account<TAB>SERVICE<TAB>SOURCE<TAB>NAME      per hosting service found on this machine (not per
+#                                                repo); SERVICE = github|gitlab|codeberg;
+#                                                SOURCE = gh|glab (tool on PATH with a login, NAME is
+#                                                the user), else ssh (host in ~/.ssh/config or
+#                                                known_hosts), else gitconfig (global url.*/credential.*
+#                                                names the host); NAME is empty for ssh and gitconfig.
+#                                                Read only, offline, never a token or key.
 #   sibling<TAB>DIR                              a neighbour with git and the same name prefix
 #   prefix<TAB>NAME                              the name in kebab-case, without p5-/node-/py-
 # inspect only reads. init runs "git init" on branch main and writes a .gitignore when
@@ -165,8 +173,9 @@ EOT
   done
   [ -e "$base/go.mod" ] && printf 'signal%sgo%sgo.mod\n' "$TAB" "$TAB"
   [ -e "$base/Cargo.toml" ] && printf 'signal%srust%sCargo.toml\n' "$TAB" "$TAB"
-  for f in Makefile GNUmakefile makefile; do
-    [ -e "$base/$f" ] && printf 'signal%smake%s%s\n' "$TAB" "$TAB" "$f"
+  # one line only: on a case-insensitive disk (macOS, Windows) Makefile also answers to makefile
+  for f in Makefile GNUmakefile; do
+    [ -e "$base/$f" ] && { printf 'signal%smake%s%s\n' "$TAB" "$TAB" "$f"; break; }
   done
   for f in .gitlab-ci.yml .woodpecker.yml; do
     [ -e "$base/$f" ] && printf 'signal%sci%s%s\n' "$TAB" "$TAB" "$f"
@@ -206,6 +215,8 @@ EOT
   fi
   if [ -n "$top" ] && [ -n "$(git -C "$top" for-each-ref --count=1 refs/karr 2>/dev/null)" ]; then
     printf 'team%sboard%skarr\n' "$TAB" "$TAB"
+  elif [ -f "$base/BOARD.md" ]; then
+    printf 'team%sboard%sfile\n' "$TAB" "$TAB"
   else
     printf 'team%sboard%snone\n' "$TAB" "$TAB"
   fi
@@ -224,6 +235,72 @@ EOT
     done
   fi
   printf 'prefix%s%s\n' "$TAB" "$n"
+  _accounts
+}
+
+# _yaml_user FILE HOST -> REPLY: the "user:" value inside HOST's block of a gh/glab
+# hosts file. Only that one value is ever extracted from the file.
+_yaml_user() {
+  [ -f "$1" ] || return 1
+  REPLY="$(awk -v host="$2" '
+    { sub(/\r$/, ""); match($0, /^[ \t]*/); ind = RLENGTH; t = substr($0, ind + 1) }
+    t == "" { next }
+    inb && ind <= hind { inb = 0 }
+    !inb && t == host ":" { inb = 1; hind = ind; next }
+    inb && t ~ /^user:/ {
+      v = substr(t, 6); gsub(/^[ \t"\x27]+|[ \t"\x27]+$/, "", v); print v; exit
+    }' "$1" 2>/dev/null)"
+  [ -n "$REPLY" ]
+}
+
+# _ssh_knows HOST: HOST appears in ~/.ssh/config (Host/HostName) or un-hashed in known_hosts
+_ssh_knows() {
+  local h="$1"
+  if [ -f "$HOME/.ssh/config" ] && awk -v h="$h" '
+      { sub(/\r$/, ""); k = tolower($1) }
+      (k == "host" || k == "hostname") { for (i = 2; i <= NF; i++) if (tolower($i) == h) f = 1 }
+      END { exit !f }' "$HOME/.ssh/config" 2>/dev/null; then
+    return 0
+  fi
+  [ -f "$HOME/.ssh/known_hosts" ] && awk -v h="$h" '
+      { sub(/\r$/, "") }
+      substr($1, 1, 1) == "|" { next }
+      { n = split(tolower($1), a, ",")
+        for (i = 1; i <= n; i++) if (a[i] == h || index(a[i], "[" h "]:") == 1) f = 1 }
+      END { exit !f }' "$HOME/.ssh/known_hosts" 2>/dev/null
+}
+
+# _accounts: one "account" line per hosting service; the first source that matches wins
+_accounts() {
+  local svc host src name cfg gitcfg
+  gitcfg="$(git config --global --get-regexp '^url\.|^credential\.' 2>/dev/null)"
+  for svc in github gitlab codeberg; do
+    src="" name=""
+    case "$svc" in
+      github) host=github.com
+        if command -v gh >/dev/null 2>&1; then
+          for cfg in "${GH_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/gh}/hosts.yml" \
+                     "${APPDATA:+$APPDATA/GitHub CLI/hosts.yml}"; do
+            [ -n "$cfg" ] && _yaml_user "$cfg" github.com && { src=gh; name="$REPLY"; break; }
+          done
+        fi ;;
+      gitlab) host=gitlab.com
+        if command -v glab >/dev/null 2>&1 &&
+           _yaml_user "${XDG_CONFIG_HOME:-$HOME/.config}/glab-cli/config.yml" gitlab.com; then
+          src=glab; name="$REPLY"
+        fi ;;
+      codeberg) host=codeberg.org ;;
+    esac
+    if [ -z "$src" ]; then
+      if _ssh_knows "$host"; then
+        src=ssh
+      else
+        case "$gitcfg" in *"$host"*) src=gitconfig ;; esac
+      fi
+    fi
+    [ -n "$src" ] && printf 'account%s%s%s%s%s%s\n' "$TAB" "$svc" "$TAB" "$src" "$TAB" "$name"
+  done
+  return 0
 }
 
 # ---------------------------------------------------------------- init
