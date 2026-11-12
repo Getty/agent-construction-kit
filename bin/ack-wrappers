@@ -7,6 +7,8 @@
 #   ack-wrappers key-template <provider>      ack-wrappers key-edit <provider>
 #   ack-wrappers set <provider> KEY=VALUE...
 #   ack-wrappers test <provider|danger> [--dir DIR]
+#   ack-wrappers probe-local
+#   ack-wrappers new-local <name> --url URL --model MODEL [--context N] [--key-var VAR] [--thinking N] [--replace]
 # Exit codes: 0 ok, 1 test found a problem, 2 usage error or unknown provider,
 # 3 a foreign file sits at the target (nothing changed).
 
@@ -40,7 +42,7 @@ trap '[ -n "$TMP" ] && rm -rf "$TMP"' EXIT
 
 usage_err() {
   echo "ack-wrappers: $1" >&2
-  echo "ack-wrappers: usage: ack-wrappers list|install|uninstall|path-fix|key-template|key-edit|set|test (see the header of $0)." >&2
+  echo "ack-wrappers: usage: ack-wrappers list|install|uninstall|path-fix|key-template|key-edit|set|test|probe-local|new-local (see the header of $0)." >&2
   exit 2
 }
 _is_windows() { case "$OSTYPE" in msys*|cygwin*) return 0 ;; esac; return 1; }
@@ -85,9 +87,14 @@ _dir_on_path() {
 # _dq STRING -> REPLY escaped for use inside double quotes
 _dq() { REPLY="$(printf '%s' "$1" | sed -e 's/[\\"$`]/\\&/g')"; }
 
+# _check_hash KEY VALUE: the loader cuts a line at whitespace followed by '#'
+_check_hash() {
+  case "$2" in *[[:space:]]'#'*) usage_err "the value of $1 contains whitespace followed by '#', where the loader cuts the line." ;; esac
+}
+
 ALLOWED=""
 _parse() {
-  OPT_PERM="" OPT_DIR="" OPT_REPLACE=0 ARGS=()
+  OPT_PERM="" OPT_DIR="" OPT_REPLACE=0 OPT_URL="" OPT_MODEL="" OPT_CONTEXT="" OPT_THINKING="" OPT_KEYVAR="" ARGS=()
   local opt val
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -101,7 +108,15 @@ _parse() {
           *) [ $# -ge 2 ] || usage_err "$opt needs a value."; val="$2"; shift 2 ;;
         esac
         [ -n "$val" ] || usage_err "$opt needs a non-empty value."
-        if [ "$opt" = --dir ]; then OPT_DIR="$val"; else OPT_PERM="$val"; fi ;;
+        case "$opt" in
+          --dir) OPT_DIR="$val" ;;
+          --url) OPT_URL="$val" ;;
+          --model) OPT_MODEL="$val" ;;
+          --context) OPT_CONTEXT="$val" ;;
+          --thinking) OPT_THINKING="$val" ;;
+          --key-var) OPT_KEYVAR="$val" ;;
+          *) OPT_PERM="$val" ;;
+        esac ;;
       *) ARGS+=("$1"); shift ;;
     esac
   done
@@ -273,14 +288,14 @@ _check_data() {
     fi
   fi
 }
-# copy share/ to the data dir; drop providers/*.conf that no longer ship
+# copy share/ to the data dir; drop providers/*.conf and *.mcp.json that no longer ship
 _sync_share() {
   local f rel first
   mkdir -p "$DATA" || { echo "ack-wrappers: cannot create $DATA." >&2; echo "ack-wrappers: check its permissions or set ACK_DATA_DIR." >&2; exit 1; }
   [ "$(cd "$SHARE" && pwd -P)" = "$(cd "$DATA" && pwd -P)" ] && return 0
   printf 'agent-construction-kit data directory; the kit overwrites its files here\n' > "$DATA/.ack-data"
   if [ -d "$DATA/providers" ]; then
-    for f in "$DATA"/providers/*.conf; do
+    for f in "$DATA"/providers/*.conf "$DATA"/providers/*.mcp.json; do
       [ -f "$f" ] && [ ! -e "$SHARE/providers/${f##*/}" ] && rm -f "$f"
     done
   fi
@@ -502,7 +517,7 @@ cmd_set() {
         echo "ack-wrappers: run 'ack-wrappers key-edit $name' and put the key into the key file." >&2
         exit 2 ;;
     esac
-    case "$v" in *[[:space:]]'#'*) usage_err "the value of $k contains whitespace followed by '#', where the loader cuts the line." ;; esac
+    _check_hash "$k" "$v"
     ks+=("$k"); vs+=("$v")
   done
   f="$ACK_CONFIG_DIR/providers/$name.conf"; work="$f.new.$$"; prev="$f.prev.$$"
@@ -596,6 +611,128 @@ cmd_test() {
   printf 'test%sok%s%s\n' "$TAB" "$TAB" "$line"
 }
 
+# ----------------------------------------------------------- local models
+
+# _prefix_of NAME -> REPLY: PREFIX of the definition NAME (shipped, then user layer)
+_prefix_of() {
+  REPLY="$(
+    ACK_KEYS="" ACK_R_PREFIX=""
+    [ -f "$SHARE/providers/$1.conf" ] && _ack_read_def "$SHARE/providers/$1.conf" >/dev/null 2>&1
+    [ -f "$ACK_CONFIG_DIR/providers/$1.conf" ] && _ack_read_def "$ACK_CONFIG_DIR/providers/$1.conf" >/dev/null 2>&1
+    printf '%s' "$ACK_R_PREFIX"
+  )"
+}
+
+cmd_probe_local() {
+  local port url body id seen ids
+  ALLOWED=""; _parse "$@"
+  [ "${#ARGS[@]}" = 0 ] || usage_err "probe-local takes no arguments."
+  if [ -z "$(type -P curl 2>/dev/null)" ]; then
+    echo "ack-wrappers: curl is not installed, so local servers cannot be probed; install curl and try again." >&2
+    return 0
+  fi
+  for port in 11434 1234 8000 8080; do
+    url="http://127.0.0.1:$port"
+    body="$(curl -s --noproxy '*' --max-time 2 "$url/v1/models" 2>/dev/null)" || continue
+    ids="$(printf '%s\n' "$body" | grep -o '"id" *: *"[^"]*"')" || continue
+    seen=$'\n'
+    while IFS= read -r id || [ -n "$id" ]; do
+      id="${id#*:}"; _ack_trim "$id"; id="$REPLY"
+      id="${id#\"}"; id="${id%\"}"
+      [ -n "$id" ] || continue
+      case "$seen" in *$'\n'"$id"$'\n'*) continue ;; esac
+      seen="$seen$id"$'\n'
+      printf 'local%s%s%s%s\n' "$TAB" "$url" "$TAB" "$id"
+    done <<EOT
+$ids
+EOT
+  done
+  return 0
+}
+
+cmd_new_local() {
+  local name pfx f n other bak
+  ALLOWED="--url --model --context --thinking --key-var --replace"; _parse "$@"
+  _need_names 1; name="${ARGS[0]}"
+  [ "${#ARGS[@]}" = 1 ] || usage_err "new-local takes exactly one name."
+  case "$name" in
+    [a-z]*) case "$name" in *[!a-z0-9_-]*) name="" ;; esac ;;
+    *) name="" ;;
+  esac
+  [ -n "$name" ] || usage_err "'${ARGS[0]}' is not a valid provider name (start with a-z, then a-z, 0-9, - and _)."
+  [ "$name" != danger ] || usage_err "'danger' is a reserved name; pick another."
+  [ -n "$OPT_URL" ] || usage_err "new-local needs --url (try 'ack-wrappers probe-local' to find one)."
+  [ -n "$OPT_MODEL" ] || usage_err "new-local needs --model (try 'ack-wrappers probe-local' to find one)."
+  case "$OPT_URL" in http://*|https://*) ;; *) usage_err "--url must start with http:// or https://." ;; esac
+  case "$OPT_URL" in *[[:space:]]*) usage_err "--url must not contain whitespace." ;; esac
+  case "$OPT_MODEL" in *$'\n'*|*$'\r'*) usage_err "--model must be a single line." ;; esac
+  _ack_trim "$OPT_MODEL"; OPT_MODEL="$REPLY"
+  [ -n "$OPT_MODEL" ] || usage_err "--model must not be empty."
+  _check_hash --model "$OPT_MODEL"
+  case "$OPT_URL$OPT_MODEL" in *'${'*) usage_err "--url and --model must not contain a \${...} reference." ;; esac
+  for n in context thinking; do
+    case "$n" in context) other="$OPT_CONTEXT" ;; *) other="$OPT_THINKING" ;; esac
+    case "$other" in
+      '') ;;
+      0) ;;
+      0*|*[!0-9]*) usage_err "--$n must be a whole number without a leading zero." ;;
+    esac
+  done
+  if [ -n "$OPT_KEYVAR" ]; then
+    case "$OPT_KEYVAR" in
+      [A-Z]*) case "$OPT_KEYVAR" in *[!A-Z0-9_]*) usage_err "--key-var must be upper case letters, digits and _, starting with a letter." ;; esac ;;
+      *) usage_err "--key-var must be upper case letters, digits and _, starting with a letter." ;;
+    esac
+  fi
+  if [ -e "$SHARE/providers/$name.conf" ]; then
+    echo "ack-wrappers: '$name' is the name of a shipped provider and would hide it." >&2
+    echo "ack-wrappers: pick another name; 'ack-wrappers set $name KEY=VALUE' changes the shipped one." >&2
+    exit 2
+  fi
+  pfx="$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')"
+  for other in $(ack_provider_names "$SHARE"); do
+    [ "$other" = "$name" ] && continue
+    _prefix_of "$other"
+    if [ "$REPLY" = "$pfx" ]; then
+      echo "ack-wrappers: '$name' would get the PREFIX $pfx, which provider '$other' already uses." >&2
+      echo "ack-wrappers: pick a name that differs in more than - and _." >&2
+      exit 2
+    fi
+  done
+  f="$ACK_CONFIG_DIR/providers/$name.conf"
+  if [ -e "$f" ] || [ -L "$f" ]; then
+    if [ "$OPT_REPLACE" = 0 ]; then
+      printf 'foreign%s%s\n' "$TAB" "$f"
+      _foreign_msg "$f" "Re-run with --replace to keep a .bak copy and write the new definition, or pick another name."
+      exit 3
+    fi
+  fi
+  mkdir -p "${f%/*}" || { echo "ack-wrappers: cannot create ${f%/*}." >&2; echo "ack-wrappers: check its permissions." >&2; exit 1; }
+  TMP="$(mktemp -d)"
+  {
+    printf '# Local model served at %s.\n' "$OPT_URL"
+    printf '# Written by "ack-wrappers new-local"; edit freely, or change single values with "ack-wrappers set %s KEY=VALUE".\n' "$name"
+    printf 'DESCRIPTION=Local model %s at %s\n' "$OPT_MODEL" "$OPT_URL"
+    printf 'PREFIX=%s\n' "$pfx"
+    printf 'BASE_URL=%s\n' "$OPT_URL"
+    printf 'MODEL=%s\n' "$OPT_MODEL"
+    for n in OPUS SONNET HAIKU SMALL; do printf '%s_MODEL=${MODEL}\n' "$n"; done
+    printf 'CO_AUTHORED_BY=${MODEL}\n'
+    printf 'UNKNOWN_MODEL_WINDOW=1\nDISABLE_NONESSENTIAL_TRAFFIC=1\nDISABLE_EXPERIMENTAL_BETAS=1\nTOOL_SEARCH=false\n'
+    # 0 matters: without it claude expects a thinking block in every answer
+    printf 'MAX_THINKING_TOKENS=%s\n' "${OPT_THINKING:-0}"
+    if [ -n "$OPT_CONTEXT" ]; then
+      printf 'CONTEXT_WINDOW=%s\nMAX_CONTEXT_TOKENS=%s\nAUTOCOMPACT_PCT=70\n' "$OPT_CONTEXT" "$OPT_CONTEXT"
+    fi
+    if [ -n "$OPT_KEYVAR" ]; then printf 'KEY_VAR=%s\n' "$OPT_KEYVAR"
+    else printf 'KEY_REQUIRED=0\nAUTH_TOKEN=local\n'; fi
+  } > "$TMP/new"
+  if [ -e "$f" ] || [ -L "$f" ]; then _backup "$f" || exit 1; fi
+  cat "$TMP/new" > "$f" || { echo "ack-wrappers: cannot write $f." >&2; echo "ack-wrappers: check the permissions of ${f%/*}." >&2; exit 1; }
+  printf 'conf%screated%s%s%s%s\n' "$TAB" "$TAB" "$name" "$TAB" "$f"
+  return 0
+}
+
 main() {
   [ $# -gt 0 ] || usage_err "missing subcommand."
   local sub="$1"
@@ -609,7 +746,9 @@ main() {
     key-edit) cmd_key_edit "$@" ;;
     set) cmd_set "$@" ;;
     test) cmd_test "$@" ;;
-    -h|--help|help) sed -n '2,11p' "${BASH_SOURCE[0]}" | sed -e 's/^# \{0,1\}//'; exit 0 ;;
+    probe-local) cmd_probe_local "$@" ;;
+    new-local) cmd_new_local "$@" ;;
+    -h|--help|help) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed -e 's/^# \{0,1\}//'; exit 0 ;;
     *) usage_err "unknown subcommand '$sub'." ;;
   esac
 }

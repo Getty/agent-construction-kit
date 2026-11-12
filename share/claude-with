@@ -62,13 +62,15 @@ esac
 
 ack_paths
 exports=""      # NAME=VALUE lines, newline separated
-token="" token_from_auth=0 bare=0
+token="" token_from_auth=0 bare=0 mcp=""
 
 if [ -n "$provider" ]; then
   ack_provider_load "$provider" "$ACK_SHARE_DIR" || exit 2
   _ack_build_exports
   exports="$ACK_EXPORTS"
   [ "$ACK_C_BARE" = 1 ] && bare=1
+  ack_mcp_path || exit 2
+  mcp="$REPLY"
 
   keyvar="$ACK_C_KEY_VAR"
   case "$keyvar" in
@@ -125,7 +127,11 @@ else
     skip) claude_args+=(--dangerously-skip-permissions) ;;
   esac
 fi
+[ -n "$mcp" ] && claude_args+=(--mcp-config "$mcp")
 [ $# -gt 0 ] && claude_args+=("$@")
+# the MCP file refers to the key as ${KEY_VAR}; claude hands it on to the server
+mcp_key=0
+[ -n "$mcp" ] && [ "$token_from_auth" = 0 ] && [ -n "$token" ] && [ "$keyvar_ok" = 1 ] && mcp_key=1
 
 if ! claude_bin="$(ack_find_claude)"; then
   if [ "$print_env" = 1 ]; then
@@ -144,6 +150,7 @@ if [ "$print_env" = 1 ]; then
     if [ -n "$provider" ] && [ -n "$token" ]; then
       if [ "$token_from_auth" = 1 ]; then printf 'export ANTHROPIC_AUTH_TOKEN=%s\n' "$token"
       else printf 'export ANTHROPIC_AUTH_TOKEN=***\n'; fi
+      [ "$mcp_key" = 1 ] && printf 'export %s=***\n' "$keyvar"
     fi
   } | LC_ALL=C sort
   printf 'exec %q' "$claude_bin"
@@ -163,5 +170,6 @@ $exports
 EOT
   fi
   [ -n "$token" ] && export ANTHROPIC_AUTH_TOKEN="$token"
+  [ "$mcp_key" = 1 ] && export "$keyvar=$token"
 fi
 exec "$claude_bin" ${claude_args[@]+"${claude_args[@]}"}

@@ -33,7 +33,8 @@ class WrappersTest(Sandbox):
         if not NT:
             self.assertTrue(os.access(str(w), os.X_OK))
         r = self.run_cmd(str(w), "-p", "hi", env={"MINIMAX_API_KEY": "k"})
-        self.assertIn("ARGV:\n--dangerously-skip-permissions\n-p\nhi\n", r.stdout)
+        self.assertIn("ARGV:\n--dangerously-skip-permissions\n--mcp-config\n", r.stdout)
+        self.assertIn("minimax.mcp.json\n-p\nhi\n", r.stdout)
         self.assertIn("ANTHROPIC_MODEL=MiniMax-M3.1-Flash", r.stdout)
 
     def test_wrapper_text_and_default_permissions_is_ask(self):
@@ -44,7 +45,8 @@ class WrappersTest(Sandbox):
         self.assertTrue(lines[2].startswith('exec "'))
         self.assertTrue(lines[2].endswith('/claude-with" --provider minimax --permissions ask -- "$@"'))
         r = self.run_cmd(str(self.wrapper("minimax")), "-p", "hi", env={"MINIMAX_API_KEY": "k"})
-        self.assertIn("ARGV:\n-p\nhi\n", r.stdout)
+        self.assertIn("ARGV:\n--mcp-config\n", r.stdout)
+        self.assertIn("minimax.mcp.json\n-p\nhi\n", r.stdout)
 
     def test_install_copies_share_and_drops_stale_providers(self):
         data = self.home / ".local/share/agent-construction-kit"

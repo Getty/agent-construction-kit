@@ -3,7 +3,7 @@
 
 # Keys a definition may carry besides its own; used to accept env overrides
 # (<PREFIX>_<KEY>) for keys the definition does not mention.
-ACK_KNOWN_KEYS="DESCRIPTION KEY_VAR KEY_FILE KEY_FILE_VAR KEY_REQUIRED AUTH_TOKEN PREFLIGHT PROXY_PORT BARE BASE_URL MODEL OPUS_MODEL SONNET_MODEL HAIKU_MODEL FABLE_MODEL OPUS_MODEL_NAME SONNET_MODEL_NAME HAIKU_MODEL_NAME FABLE_MODEL_NAME SMALL_MODEL SUBAGENT_MODEL CO_AUTHORED_BY API_TIMEOUT_MS CONTEXT_WINDOW MAX_CONTEXT_TOKENS AUTOCOMPACT_PCT MAX_OUTPUT_TOKENS MAX_THINKING_TOKENS EFFORT_LEVEL MAX_TOOL_CHAR_BUDGET TOOL_SEARCH DISABLE_NONESSENTIAL_TRAFFIC DISABLE_EXPERIMENTAL_BETAS UNKNOWN_MODEL_WINDOW"
+ACK_KNOWN_KEYS="DESCRIPTION KEY_VAR KEY_FILE KEY_FILE_VAR KEY_REQUIRED AUTH_TOKEN PREFLIGHT PROXY_PORT BARE MCP_CONFIG BASE_URL MODEL OPUS_MODEL SONNET_MODEL HAIKU_MODEL FABLE_MODEL OPUS_MODEL_NAME SONNET_MODEL_NAME HAIKU_MODEL_NAME FABLE_MODEL_NAME SMALL_MODEL SUBAGENT_MODEL CO_AUTHORED_BY API_TIMEOUT_MS CONTEXT_WINDOW MAX_CONTEXT_TOKENS AUTOCOMPACT_PCT MAX_OUTPUT_TOKENS MAX_THINKING_TOKENS EFFORT_LEVEL MAX_TOOL_CHAR_BUDGET TOOL_SEARCH DISABLE_NONESSENTIAL_TRAFFIC DISABLE_EXPERIMENTAL_BETAS UNKNOWN_MODEL_WINDOW"
 
 ack_paths() {
   ACK_DATA_DIR="${ACK_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/agent-construction-kit}"
@@ -70,8 +70,10 @@ _ack_build_exports() {
 ack_exports() { _ack_build_exports; printf '%s' "$ACK_EXPORTS"; }
 
 # Parses one definition file into ACK_R_<KEY> (later calls override earlier ones).
+# ACK_FILE_KEYS lists the keys this one file set.
 _ack_read_def() {
   local file="$1" line key val n=0
+  ACK_FILE_KEYS=""
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n + 1))
     _ack_trim "$line"; line="$REPLY"
@@ -93,6 +95,7 @@ _ack_read_def() {
         return 2 ;;
     esac
     case " $ACK_KEYS " in *" $key "*) ;; *) ACK_KEYS="$ACK_KEYS $key" ;; esac
+    ACK_FILE_KEYS="$ACK_FILE_KEYS $key"
     printf -v "ACK_R_$key" '%s' "$val"
   done < "$file"
   return 0
@@ -159,10 +162,14 @@ ack_provider_load() {
   # forget a previously loaded provider
   for k in $ACK_KEYS; do unset "ACK_R_$k" "ACK_C_$k" "ACK_S_$k"; done
   ACK_KEYS=""
+  ACK_MCP_DIR="$base/providers"
   shipped="$base/providers/$name.conf"
   user="$ACK_CONFIG_DIR/providers/$name.conf"
   if [ -f "$shipped" ]; then found=1; _ack_read_def "$shipped" || return 2; fi
-  if [ -f "$user" ]; then found=1; _ack_read_def "$user" || return 2; fi
+  if [ -f "$user" ]; then
+    found=1; _ack_read_def "$user" || return 2
+    case "$ACK_FILE_KEYS " in *" MCP_CONFIG "*) ACK_MCP_DIR="$ACK_CONFIG_DIR/providers" ;; esac
+  fi
   if [ "$found" = 0 ]; then
     echo "ack: no provider named '$name' (looked for $shipped and $user)." >&2
     echo "ack: choose one of: $(ack_provider_names "$base" | tr '\n' ' ')" >&2
@@ -182,6 +189,7 @@ ack_provider_load() {
     if [ -n "${!envn+x}" ]; then
       case " $ACK_KEYS " in *" $k "*) ;; *) ACK_KEYS="$ACK_KEYS $k" ;; esac
       printf -v "ACK_R_$k" '%s' "${!envn}"
+      [ "$k" = MCP_CONFIG ] && ACK_MCP_DIR="$ACK_CONFIG_DIR/providers"
     fi
   done
   for k in $ACK_KEYS; do _ack_resolve "$k" || return 2; done
@@ -194,6 +202,28 @@ ack_provider_load() {
   done
   ACK_PROVIDER="$name"
   return 0
+}
+
+# ack_mcp_path -> REPLY: absolute path of the loaded provider's MCP file, found next to
+# the definition that sets MCP_CONFIG (user overlay or environment: the user providers
+# directory; otherwise the shipped one). REPLY is empty when MCP_CONFIG is unset.
+# Returns 2 (message on stderr) for a name with a path in it or a missing file.
+ack_mcp_path() {
+  local m="$ACK_C_MCP_CONFIG"
+  REPLY=""
+  [ -n "$m" ] || return 0
+  case "$m" in
+    */*|*\\*|*..*)
+      echo "ack: MCP_CONFIG '$m' is not a plain file name (no / and no ..)." >&2
+      echo "ack: put the file next to the definition and give only its name." >&2
+      return 2 ;;
+  esac
+  if [ ! -f "$ACK_MCP_DIR/$m" ]; then
+    echo "ack: the MCP file '$ACK_MCP_DIR/$m' does not exist." >&2
+    echo "ack: create it there, or fix MCP_CONFIG in the definition." >&2
+    return 2
+  fi
+  REPLY="$ACK_MCP_DIR/$m"
 }
 
 # ack_provider_names BASEDIR

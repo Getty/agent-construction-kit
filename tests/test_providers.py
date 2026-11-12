@@ -49,6 +49,7 @@ class ProviderTest(Sandbox):
         self.assertEqual(self.exports("minimax", {"MINIMAX_API_KEY": "k"}), flat(m, {
             "ANTHROPIC_BASE_URL": "https://api.minimax.io/anthropic",
             "CO_AUTHORED_BY": m + " <model@minimax.io>",
+            "MINIMAX_API_KEY": "***",  # the MCP server env gets the key under KEY_VAR
         }))
 
     def test_kimi_exports_exactly(self):
