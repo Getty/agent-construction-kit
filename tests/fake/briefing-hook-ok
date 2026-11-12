@@ -1,0 +1,6 @@
+#!/bin/sh
+# Stand-in for the briefing plugin's PreToolUse hook: answers like a successful briefing,
+# the original input inside a longer prompt. ACK_FAKE_HOOK_LOG, if set, receives the input.
+in="$(cat)"
+[ -z "$ACK_FAKE_HOOK_LOG" ] || printf '%s\n' "$in" > "$ACK_FAKE_HOOK_LOG"
+printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":{"prompt":"# Skills you were briefed with\\n\\nfake briefing text\\n\\n# Original task\\n\\n%s"}}}' "$in"

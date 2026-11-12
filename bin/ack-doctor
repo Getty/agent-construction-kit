@@ -52,64 +52,6 @@ url_host() {
   REPLY="$h"
 }
 
-# json_objects TEXT -> PLUGIN_OBJS: one line per top-level object of a JSON array,
-# holding only that object's depth-1 members (nested objects and arrays collapse
-# to ~, whitespace outside strings is dropped), written as ,"k":v,"k":v, so a
-# member is matched as ,"id":"x@ or ,"enabled":true, . Strings (with backslash
-# escapes) never confuse the scan. The text is cut into short segments at every
-# comma (a comma inside a string is put back), and each segment is scanned token
-# by token with parameter expansion: fast on a 150 KB list, no tool per character.
-json_objects() {
-  local seg pre c rest first=1 sk="" instr=0 depth=0
-  local special=']"{}[ '$TAB   # the brace must not sit inside ${...%%[..]*}
-  PLUGIN_OBJS=""
-  while IFS= read -r seg; do
-    if [ "$first" = 1 ]; then first=0
-    elif [ "$depth" = 2 ]; then sk="$sk,"; fi
-    while [ -n "$seg" ]; do
-      if [ "$instr" = 1 ]; then
-        pre="${seg%%[\"\\]*}"
-        if [ "$pre" = "$seg" ]; then
-          [ "$depth" = 2 ] && sk="$sk$seg"
-          seg=""
-        else
-          c="${seg:${#pre}:1}"; rest="${seg:$((${#pre} + 1))}"
-          if [ "$c" = '"' ]; then
-            instr=0; [ "$depth" = 2 ] && sk="$sk$pre$c"
-            seg="$rest"
-          else
-            [ "$depth" = 2 ] && sk="$sk$pre$c${rest:0:1}"
-            seg="${rest:1}"
-          fi
-        fi
-        continue
-      fi
-      seg="${seg#"${seg%%[![:space:]]*}"}"
-      [ -n "$seg" ] || break
-      pre="${seg%%[$special]*}"
-      if [ -n "$pre" ]; then
-        [ "$depth" = 2 ] && sk="$sk$pre"
-        seg="${seg:${#pre}}"
-        continue
-      fi
-      c="${seg:0:1}"; seg="${seg:1}"
-      case "$c" in
-        '"') instr=1; [ "$depth" = 2 ] && sk="$sk$c" ;;
-        '{'|'[')
-          depth=$((depth + 1))
-          if [ "$depth" = 2 ]; then sk=","
-          elif [ "$depth" = 3 ]; then sk="$sk~"; fi ;;
-        '}'|']')
-          [ "$depth" = 2 ] && PLUGIN_OBJS="$PLUGIN_OBJS$sk,"$'\n'
-          [ "$depth" -gt 0 ] && depth=$((depth - 1)) ;;
-      esac
-    done
-  done <<EOT
-$(printf '%s' "$1" | tr -d '\r\n' | tr ',' '\n')
-EOT
-  return 0
-}
-
 # plugin_state NAME -> PSTATE: enabled | disabled | absent (from PLUGIN_OBJS).
 # A plugin counts as enabled if any entry (one per scope) is enabled.
 plugin_state() {

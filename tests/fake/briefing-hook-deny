@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stand-in for the briefing hook refusing a spawn: a declared skill does not resolve.
+cat > /dev/null
+printf '{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "briefing: cannot resolve skill \\"harbor-gone\\" for harbor-worker"}}'

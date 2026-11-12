@@ -1,0 +1,3 @@
+#!/bin/sh
+# Stand-in for the briefing hook when the agent declares nothing: no output at all.
+cat > /dev/null

@@ -515,3 +515,137 @@ ack_proxy_ensure() {
   echo "ack: read the log at $log." >&2
   return 5
 }
+
+# json_objects TEXT -> PLUGIN_OBJS: one line per top-level object of a JSON array,
+# holding only that object's depth-1 members (nested objects and arrays collapse
+# to ~, whitespace outside strings is dropped), written as ,"k":v,"k":v, so a
+# member is matched as ,"id":"x@ or ,"enabled":true, . Strings (with backslash
+# escapes) never confuse the scan. The text is cut into short segments at every
+# comma (a comma inside a string is put back), and each segment is scanned token
+# by token with parameter expansion: fast on a 150 KB list, no tool per character.
+json_objects() {
+  local seg pre c rest first=1 sk="" instr=0 depth=0
+  local TAB=$'\t'
+  local special=']"{}[ '$TAB   # the brace must not sit inside ${...%%[..]*}
+  PLUGIN_OBJS=""
+  while IFS= read -r seg; do
+    if [ "$first" = 1 ]; then first=0
+    elif [ "$depth" = 2 ]; then sk="$sk,"; fi
+    while [ -n "$seg" ]; do
+      if [ "$instr" = 1 ]; then
+        pre="${seg%%[\"\\]*}"
+        if [ "$pre" = "$seg" ]; then
+          [ "$depth" = 2 ] && sk="$sk$seg"
+          seg=""
+        else
+          c="${seg:${#pre}:1}"; rest="${seg:$((${#pre} + 1))}"
+          if [ "$c" = '"' ]; then
+            instr=0; [ "$depth" = 2 ] && sk="$sk$pre$c"
+            seg="$rest"
+          else
+            [ "$depth" = 2 ] && sk="$sk$pre$c${rest:0:1}"
+            seg="${rest:1}"
+          fi
+        fi
+        continue
+      fi
+      seg="${seg#"${seg%%[![:space:]]*}"}"
+      [ -n "$seg" ] || break
+      pre="${seg%%[$special]*}"
+      if [ -n "$pre" ]; then
+        [ "$depth" = 2 ] && sk="$sk$pre"
+        seg="${seg:${#pre}}"
+        continue
+      fi
+      c="${seg:0:1}"; seg="${seg:1}"
+      case "$c" in
+        '"') instr=1; [ "$depth" = 2 ] && sk="$sk$c" ;;
+        '{'|'[')
+          depth=$((depth + 1))
+          if [ "$depth" = 2 ]; then sk=","
+          elif [ "$depth" = 3 ]; then sk="$sk~"; fi ;;
+        '}'|']')
+          [ "$depth" = 2 ] && PLUGIN_OBJS="$PLUGIN_OBJS$sk,"$'\n'
+          [ "$depth" -gt 0 ] && depth=$((depth - 1)) ;;
+      esac
+    done
+  done <<EOT
+$(printf '%s' "$1" | tr -d '\r\n' | tr ',' '\n')
+EOT
+  return 0
+}
+
+# _json_skip_ws TEXT POS -> REPLY: POS moved past white space
+_json_skip_ws() {
+  local t="$1" j="$2"
+  while [ "$j" -lt "${#t}" ]; do
+    case "${t:$j:1}" in [[:space:]]) j=$((j + 1)) ;; *) break ;; esac
+  done
+  REPLY="$j"
+}
+
+# _json_string_end TEXT POS -> REPLY: the position after the string whose opening quote
+# sits at POS
+_json_string_end() {
+  local t="$1" j=$(($2 + 1)) c
+  while [ "$j" -lt "${#t}" ]; do
+    c="${t:$j:1}"
+    if [ "$c" = '\' ]; then j=$((j + 2)); continue; fi
+    j=$((j + 1))
+    [ "$c" = '"' ] && break
+  done
+  REPLY="$j"
+}
+
+# json_member TEXT KEY -> REPLY: the raw value of the top-level member KEY of a JSON
+# object (a string keeps its quotes, an object or array is the whole {...} or [...]),
+# empty when there is none. Hand it to json_objects as "[$REPLY]" to list an object's
+# members. Character scan, meant for small files such as settings.json.
+json_member() {
+  local t="$1" key="$2" n i=0 c depth=0 k j s v
+  REPLY=""
+  t="${t//$'\r'/}"
+  n=${#t}
+  while [ "$i" -lt "$n" ]; do
+    c="${t:$i:1}"
+    case "$c" in
+      '{'|'[') depth=$((depth + 1)) ;;
+      '}'|']') depth=$((depth - 1)) ;;
+      '"')
+        _json_string_end "$t" "$i"; j="$REPLY"
+        k="${t:$((i + 1)):$((j - i - 2))}"
+        i=$((j - 1))
+        if [ "$depth" = 1 ] && [ "$k" = "$key" ]; then
+          _json_skip_ws "$t" "$j"; j="$REPLY"
+          if [ "${t:$j:1}" = ':' ]; then
+            _json_skip_ws "$t" $((j + 1)); j="$REPLY"; s="$j"
+            case "${t:$j:1}" in
+              '"') _json_string_end "$t" "$j"; j="$REPLY" ;;
+              '{'|'[')
+                v=0
+                while [ "$j" -lt "$n" ]; do
+                  c="${t:$j:1}"
+                  case "$c" in
+                    '"') _json_string_end "$t" "$j"; j=$((REPLY - 1)) ;;
+                    '{'|'[') v=$((v + 1)) ;;
+                    '}'|']') v=$((v - 1)) ;;
+                  esac
+                  j=$((j + 1))
+                  [ "$v" = 0 ] && break
+                done ;;
+              *)
+                while [ "$j" -lt "$n" ]; do
+                  case "${t:$j:1}" in ,|'}'|']'|[[:space:]]) break ;; esac
+                  j=$((j + 1))
+                done ;;
+            esac
+            REPLY="${t:$s:$((j - s))}"
+            return 0
+          fi
+        fi ;;
+    esac
+    i=$((i + 1))
+  done
+  REPLY=""
+  return 0
+}

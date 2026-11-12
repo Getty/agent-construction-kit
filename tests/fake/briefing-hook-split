@@ -1,0 +1,10 @@
+#!/bin/sh
+# Stand-in for the current briefing hook: PreToolUse leaves the call alone (no output),
+# SubagentStart answers with the skills as additionalContext. ACK_FAKE_HOOK_LOG, if set,
+# receives every input, one per line.
+in="$(cat)"
+[ -z "$ACK_FAKE_HOOK_LOG" ] || printf '%s\n' "$in" >> "$ACK_FAKE_HOOK_LOG"
+case "$in" in
+  *'"hook_event_name":"SubagentStart"'*)
+    printf '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"fake briefing text"}}' ;;
+esac
