@@ -11,14 +11,14 @@ ack_paths() {
   ACK_STATE_DIR="${ACK_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-construction-kit}"
 }
 
-# ack_trim STRING -> prints STRING without surrounding whitespace and CR
-ack_trim() {
-  local v="$1"
-  v="${v//$'\r'/}"
-  v="${v#"${v%%[![:space:]]*}"}"
-  v="${v%"${v##*[![:space:]]}"}"
-  printf '%s' "$v"
+# _ack_trim STRING -> REPLY (no fork); ack_trim prints it.
+_ack_trim() {
+  REPLY="$1"
+  REPLY="${REPLY//$'\r'/}"
+  REPLY="${REPLY#"${REPLY%%[![:space:]]*}"}"
+  REPLY="${REPLY%"${REPLY##*[![:space:]]}"}"
 }
+ack_trim() { _ack_trim "$1"; printf '%s' "$REPLY"; }
 
 # ack_conf KEY -> resolved value of the loaded provider, empty if unset
 ack_conf() {
@@ -27,48 +27,54 @@ ack_conf() {
 }
 
 # Maps a definition key to the variable it exports; fails for control keys.
-ack_export_name() {
+_ack_export_name() {
   case "$1" in
-    BASE_URL) echo ANTHROPIC_BASE_URL ;;
-    MODEL) echo ANTHROPIC_MODEL ;;
-    OPUS_MODEL|SONNET_MODEL|HAIKU_MODEL|FABLE_MODEL) echo "ANTHROPIC_DEFAULT_$1" ;;
-    OPUS_MODEL_NAME|SONNET_MODEL_NAME|HAIKU_MODEL_NAME|FABLE_MODEL_NAME) echo "ANTHROPIC_DEFAULT_$1" ;;
-    SMALL_MODEL) echo ANTHROPIC_SMALL_FAST_MODEL ;;
-    SUBAGENT_MODEL) echo CLAUDE_CODE_SUBAGENT_MODEL ;;
-    CO_AUTHORED_BY) echo CO_AUTHORED_BY ;;
-    API_TIMEOUT_MS) echo API_TIMEOUT_MS ;;
-    CONTEXT_WINDOW) echo CLAUDE_CODE_AUTO_COMPACT_WINDOW ;;
-    MAX_CONTEXT_TOKENS) echo CLAUDE_CODE_MAX_CONTEXT_TOKENS ;;
-    AUTOCOMPACT_PCT) echo CLAUDE_AUTOCOMPACT_PCT_OVERRIDE ;;
-    MAX_OUTPUT_TOKENS) echo CLAUDE_CODE_MAX_OUTPUT_TOKENS ;;
-    MAX_THINKING_TOKENS) echo MAX_THINKING_TOKENS ;;
-    EFFORT_LEVEL) echo CLAUDE_CODE_EFFORT_LEVEL ;;
-    MAX_TOOL_CHAR_BUDGET) echo SLASH_COMMAND_TOOL_CHAR_BUDGET ;;
-    TOOL_SEARCH) echo ENABLE_TOOL_SEARCH ;;
-    DISABLE_NONESSENTIAL_TRAFFIC) echo CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC ;;
-    DISABLE_EXPERIMENTAL_BETAS) echo CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS ;;
-    UNKNOWN_MODEL_WINDOW) echo CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT ;;
+    BASE_URL) REPLY=ANTHROPIC_BASE_URL ;;
+    MODEL) REPLY="ANTHROPIC_MODEL" ;;
+    OPUS_MODEL|SONNET_MODEL|HAIKU_MODEL|FABLE_MODEL) REPLY="ANTHROPIC_DEFAULT_$1" ;;
+    OPUS_MODEL_NAME|SONNET_MODEL_NAME|HAIKU_MODEL_NAME|FABLE_MODEL_NAME) REPLY="ANTHROPIC_DEFAULT_$1" ;;
+    SMALL_MODEL) REPLY="ANTHROPIC_SMALL_FAST_MODEL" ;;
+    SUBAGENT_MODEL) REPLY="CLAUDE_CODE_SUBAGENT_MODEL" ;;
+    CO_AUTHORED_BY) REPLY="CO_AUTHORED_BY" ;;
+    API_TIMEOUT_MS) REPLY="API_TIMEOUT_MS" ;;
+    CONTEXT_WINDOW) REPLY="CLAUDE_CODE_AUTO_COMPACT_WINDOW" ;;
+    MAX_CONTEXT_TOKENS) REPLY="CLAUDE_CODE_MAX_CONTEXT_TOKENS" ;;
+    AUTOCOMPACT_PCT) REPLY="CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" ;;
+    MAX_OUTPUT_TOKENS) REPLY="CLAUDE_CODE_MAX_OUTPUT_TOKENS" ;;
+    MAX_THINKING_TOKENS) REPLY="MAX_THINKING_TOKENS" ;;
+    EFFORT_LEVEL) REPLY="CLAUDE_CODE_EFFORT_LEVEL" ;;
+    MAX_TOOL_CHAR_BUDGET) REPLY="SLASH_COMMAND_TOOL_CHAR_BUDGET" ;;
+    TOOL_SEARCH) REPLY="ENABLE_TOOL_SEARCH" ;;
+    DISABLE_NONESSENTIAL_TRAFFIC) REPLY="CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" ;;
+    DISABLE_EXPERIMENTAL_BETAS) REPLY="CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS" ;;
+    UNKNOWN_MODEL_WINDOW) REPLY="CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT" ;;
     *) return 1 ;;
   esac
 }
 
-# ack_exports -> prints NAME=VALUE for every set exportable key of the loaded provider
-ack_exports() {
-  local k name v
+ack_export_name() { _ack_export_name "$1" && printf '%s\n' "$REPLY"; }
+
+# _ack_build_exports -> ACK_EXPORTS: NAME=VALUE lines for every set exportable key (no fork)
+_ack_build_exports() {
+  local k v
+  ACK_EXPORTS=""
   for k in $ACK_KEYS; do
-    name="$(ack_export_name "$k")" || continue
-    v="$(ack_conf "$k")"
-    [ -n "$v" ] && printf '%s=%s\n' "$name" "$v"
+    _ack_export_name "$k" || continue
+    v="ACK_C_$k"; v="${!v}"
+    [ -n "$v" ] && ACK_EXPORTS="$ACK_EXPORTS$REPLY=$v"$'\n'
   done
   return 0
 }
+
+# ack_exports -> prints NAME=VALUE for every set exportable key of the loaded provider
+ack_exports() { _ack_build_exports; printf '%s' "$ACK_EXPORTS"; }
 
 # Parses one definition file into ACK_R_<KEY> (later calls override earlier ones).
 _ack_read_def() {
   local file="$1" line key val n=0
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n + 1))
-    line="$(ack_trim "$line")"
+    _ack_trim "$line"; line="$REPLY"
     case "$line" in ''|'#'*) continue ;; esac
     case "$line" in
       *=*) ;;
@@ -76,10 +82,10 @@ _ack_read_def() {
          echo "ack: fix or remove that line in the definition." >&2
          return 2 ;;
     esac
-    key="$(ack_trim "${line%%=*}")"
+    _ack_trim "${line%%=*}"; key="$REPLY"
     val="${line#*=}"
     val="${val%%[[:space:]]#*}"
-    val="$(ack_trim "$val")"
+    _ack_trim "$val"; val="$REPLY"
     case "$key" in
       ''|*[!A-Z_]*)
         echo "ack: '$key' in '$file' is not a valid key name (only A-Z and _)." >&2
@@ -180,9 +186,9 @@ ack_provider_load() {
   done
   for k in $ACK_KEYS; do _ack_resolve "$k" || return 2; done
   # defaults
-  [ -n "$(ack_conf KEY_FILE_VAR)" ] || printf -v ACK_C_KEY_FILE_VAR '%s' "$(ack_conf KEY_VAR)"
-  [ -n "$(ack_conf KEY_FILE)" ] || printf -v ACK_C_KEY_FILE '%s' "$ACK_CONFIG_DIR/$name.env"
-  [ -n "$(ack_conf KEY_REQUIRED)" ] || printf -v ACK_C_KEY_REQUIRED '%s' 1
+  [ -n "$ACK_C_KEY_FILE_VAR" ] || ACK_C_KEY_FILE_VAR="$ACK_C_KEY_VAR"
+  [ -n "$ACK_C_KEY_FILE" ] || ACK_C_KEY_FILE="$ACK_CONFIG_DIR/$name.env"
+  [ -n "$ACK_C_KEY_REQUIRED" ] || ACK_C_KEY_REQUIRED=1
   for k in KEY_FILE_VAR KEY_FILE KEY_REQUIRED; do
     case " $ACK_KEYS " in *" $k "*) ;; *) ACK_KEYS="$ACK_KEYS $k" ;; esac
   done
@@ -203,17 +209,19 @@ ack_provider_names() {
 
 # ack_key_read FILE VAR -> prints the value of VAR in FILE (last assignment wins)
 ack_key_read() {
-  local file="$1" var="$2" line v found=1 out=""
+  local file="$1" var="$2" line v found=1 out="" first=1 bom=$'\xef\xbb\xbf'
   [ -f "$file" ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
-    line="$(ack_trim "$line")"
-    case "$line" in 'export'[[:space:]]*) line="$(ack_trim "${line#export}")" ;; esac
+    if [ "$first" = 1 ]; then line="${line#"$bom"}"; first=0; fi
+    _ack_trim "$line"; line="$REPLY"
+    case "$line" in 'export'[[:space:]]*) _ack_trim "${line#export}"; line="$REPLY" ;; esac
     case "$line" in
       "$var"=*)
-        v="$(ack_trim "${line#*=}")"
+        _ack_trim "${line#*=}"; v="$REPLY"
         case "$v" in
-          \"*\") v="${v#\"}"; v="${v%\"}" ;;
-          \'*\') v="${v#\'}"; v="${v%\'}" ;;
+          \"*) v="${v#\"}"; case "$v" in *\"*) v="${v%%\"*}" ;; esac ;;
+          \'*) v="${v#\'}"; case "$v" in *\'*) v="${v%%\'*}" ;; esac ;;
+          *) v="${v%%[[:space:]]#*}"; _ack_trim "$v"; v="$REPLY" ;;
         esac
         out="$v"; found=0 ;;
     esac

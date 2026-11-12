@@ -41,9 +41,105 @@ class LauncherTest(Sandbox):
     def test_permission_modes(self):
         for mode, flag in (("ask", None), ("allow", "--allow-dangerously-skip-permissions"),
                            ("skip", "--dangerously-skip-permissions")):
-            r = self.cw("--permissions", mode, "--", "x")
-            args = r.stdout.split("ARGV:\n")[1].splitlines()[:2]
-            self.assertEqual(args, [flag, "x"] if flag else ["x"])
+            r = self.cw("--permissions", mode, "--", "x", "y z")
+            args = r.stdout.split("ARGV:\n")[1].splitlines()
+            self.assertEqual(args, ([flag] if flag else []) + ["x", "y z"])
+
+    def test_equals_forms(self):
+        r = self.cw("--provider=demo", "--permissions=skip", "--", "x",
+                    env={"DEMO_API_KEY": "k"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.split("ARGV:\n")[1].splitlines()[:2],
+                         ["--dangerously-skip-permissions", "x"])
+        self.assertIn("ANTHROPIC_AUTH_TOKEN=k", r.stdout)
+
+    def test_look_alike_options_are_exit_2(self):
+        for args in (("--provider-demo",), ("--providers", "demo"), ("--permissions-skip",),
+                     ("--provider=",), ("--provider", ""), ("--permissions=maybe",)):
+            r = self.cw(*args)
+            self.assertEqual(r.returncode, 2, args)
+            self.assertNotIn("ARGV:", r.stdout)
+            self.assertIn("claude-with", r.stderr)
+
+    def test_claude_args_pass_through_without_separator(self):
+        r = self.cw("-p", "hi there")
+        self.assertEqual(r.stdout.split("ARGV:\n")[1].splitlines()[:2], ["-p", "hi there"])
+        r = self.cw("--provider", "demo", "-p", "hi", env={"DEMO_API_KEY": "k"})
+        self.assertEqual(r.stdout.split("ARGV:\n")[1].splitlines()[:2], ["-p", "hi"])
+        self.assertIn("ANTHROPIC_BASE_URL=", r.stdout)
+
+    def test_print_env_without_key_is_a_dry_run(self):
+        r = self.cw("--provider", "demo", "--print-env")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("export ANTHROPIC_AUTH_TOKEN=***", r.stdout)
+        self.assertIn("DEMO_API_KEY", r.stderr)
+        self.assertIn("demo.env", r.stderr)
+
+    def test_print_env_without_claude_still_prints(self):
+        (self.fakebin / "claude").unlink()
+        r = self.cw("--provider", "demo", "--print-env", env={"DEMO_API_KEY": "k"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("\nexec claude", "\n" + r.stdout)
+        self.assertIn("warning", r.stderr)
+
+    def test_reference_cycle_is_exit_2(self):
+        self.write(PROVIDERS + "demo.conf", DEMO + "OPUS_MODEL=${SONNET_MODEL}\nSONNET_MODEL=${OPUS_MODEL}\n")
+        r = self.cw("--provider", "demo", env={"DEMO_API_KEY": "k"})
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("itself", r.stderr)
+
+    def test_user_overlay_wins_key_by_key(self):
+        data = self.root / "data"
+        (data / "providers").mkdir(parents=True)
+        (data / "providers" / "ovl.conf").write_text(
+            "PREFIX=OVL\nBASE_URL=https://shipped\nMODEL=m1\nOPUS_MODEL=${MODEL}\n")
+        self.write(PROVIDERS + "ovl.conf", "MODEL=m2\n")
+        script = ('. "%s/share/lib.sh"; ack_provider_load ovl "%s" || exit 9; '
+                  'echo "$(ack_conf BASE_URL) $(ack_conf MODEL) $(ack_conf OPUS_MODEL)"'
+                  ) % (ROOT, data)
+        r = self.run_cmd("bash", "-c", script, env={"ACK_DATA_DIR": str(data)})
+        self.assertEqual(r.stdout.strip(), "https://shipped m2 m2", r.stderr)
+
+    def test_env_layer_for_key_the_definition_omits(self):
+        r = self.cw("--provider", "demo",
+                    env={"DEMO_API_KEY": "k", "DEMO_HAIKU_MODEL": "h-1"})
+        self.assertIn("ANTHROPIC_DEFAULT_HAIKU_MODEL=h-1", r.stdout)
+
+    def test_preflight_proxy_without_support_is_exit_5(self):
+        self.write(PROVIDERS + "demo.conf", DEMO + "PREFLIGHT=proxy\n")
+        r = self.cw("--provider", "demo", env={"DEMO_API_KEY": "k"})
+        self.assertEqual(r.returncode, 5)
+        self.assertNotIn("ARGV:", r.stdout)
+
+    def test_key_file_var_names_the_variable_inside_the_file(self):
+        self.write(PROVIDERS + "demo.conf", DEMO + "KEY_FILE_VAR=OTHER_NAME\n")
+        self.write(".config/agent-construction-kit/demo.env",
+                   "DEMO_API_KEY=wrong\nOTHER_NAME=right\n", mode=0o600)
+        r = self.cw("--provider", "demo")
+        self.assertIn("ANTHROPIC_AUTH_TOKEN=right\n", r.stdout)
+
+    def test_key_file_reading_edge_cases(self):
+        with open(str(self.home / "k.env"), "wb") as f:
+            f.write(b"\xef\xbb\xbfA=\"abc\" # note\nB=plain value # note\nC='q'  #x\nD=a#b\n")
+        script = '. "%s/share/lib.sh"; for v in A B C D; do ack_key_read "$HOME/k.env" $v; echo; done' % ROOT
+        r = self.run_cmd("bash", "-c", script)
+        self.assertEqual(r.stdout.splitlines(), ["abc", "plain value", "q", "a#b"], r.stderr)
+
+    @unittest.skipIf(os.name == "nt", "symlinks need privileges on Windows")
+    def test_symlinked_key_file_does_not_warn_and_symlinked_launcher_works(self):
+        real = self.write("real.env", "DEMO_API_KEY=k-file\n", mode=0o600)
+        link = self.home / ".config" / "agent-construction-kit" / "demo.env"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(str(real), str(link))
+        os.symlink(CW, str(self.fakebin / "cw-link"))
+        r = self.run_cmd("bash", str(self.fakebin / "cw-link"), "--provider", "demo")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stderr, "")
+
+    def test_runs_from_its_own_directory_by_bare_name(self):
+        r = self.run_cmd("bash", "-c", 'cd "$1" && bash claude-with --print-env', "x",
+                         str(ROOT / "share"))
+        self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_bad_permission_mode_is_exit_2(self):
         self.assertEqual(self.cw("--permissions", "maybe").returncode, 2)

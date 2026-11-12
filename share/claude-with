@@ -6,23 +6,45 @@
 _self="${BASH_SOURCE[0]}"
 while [ -L "$_self" ]; do
   _t="$(readlink "$_self")"
-  case "$_t" in /*) _self="$_t" ;; *) _self="${_self%/*}/$_t" ;; esac
+  case "$_t" in
+    /*) _self="$_t" ;;
+    *) case "$_self" in */*) _self="${_self%/*}/$_t" ;; *) _self="./$_t" ;; esac ;;
+  esac
 done
-ACK_SHARE_DIR="$(cd "$(dirname "$_self")" && pwd)"
+case "$_self" in */*) _dir="${_self%/*}" ;; *) _dir="." ;; esac
+ACK_SHARE_DIR="$(cd "$_dir" && pwd)"
 # shellcheck source=lib.sh
 . "$ACK_SHARE_DIR/lib.sh" || exit 2
 
+_usage="claude-with: usage: claude-with [--provider NAME] [--permissions ask|allow|skip] [--print-env] [--] [claude args...]"
 provider="" permissions="ask" print_env=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --provider|--permissions)
       if [ $# -lt 2 ]; then
         echo "claude-with: $1 needs a value." >&2
-        echo "claude-with: usage: claude-with [--provider NAME] [--permissions ask|allow|skip] [--print-env] [--] [claude args...]" >&2
+        echo "$_usage" >&2
         exit 2
       fi
       if [ "$1" = --provider ]; then provider="$2"; else permissions="$2"; fi
+      if [ -z "$2" ]; then
+        echo "claude-with: $1 needs a non-empty value." >&2
+        echo "$_usage" >&2
+        exit 2
+      fi
       shift 2 ;;
+    --provider=*|--permissions=*)
+      if [ -z "${1#*=}" ]; then
+        echo "claude-with: ${1%%=*} needs a non-empty value." >&2
+        echo "$_usage" >&2
+        exit 2
+      fi
+      if [ "${1%%=*}" = --provider ]; then provider="${1#*=}"; else permissions="${1#*=}"; fi
+      shift ;;
+    --provider*|--permissions*)
+      echo "claude-with: unknown option '$1' (did you mean --provider NAME or --permissions MODE?)." >&2
+      echo "$_usage" >&2
+      exit 2 ;;
     --print-env) print_env=1; shift ;;
     --) shift; break ;;
     *) break ;;
@@ -42,34 +64,33 @@ token="" token_from_auth=0 bare=0
 
 if [ -n "$provider" ]; then
   ack_provider_load "$provider" "$ACK_SHARE_DIR" || exit 2
-  exports="$(ack_exports)"
-  [ "$(ack_conf BARE)" = 1 ] && bare=1
+  _ack_build_exports
+  exports="$ACK_EXPORTS"
+  [ "$ACK_C_BARE" = 1 ] && bare=1
 
-  keyvar="$(ack_conf KEY_VAR)"
+  keyvar="$ACK_C_KEY_VAR"
   case "$keyvar" in
     ''|[0-9]*|*[!A-Za-z0-9_]*) keyvar_ok=0 ;;
     *) keyvar_ok=1 ;;
   esac
-  if [ "$(ack_conf KEY_REQUIRED)" != 0 ]; then
-    if [ "$keyvar_ok" = 0 ]; then
-      echo "claude-with: provider '$provider' needs a key but has no valid KEY_VAR." >&2
-      echo "claude-with: set KEY_VAR=NAME in its definition, or KEY_REQUIRED=0." >&2
-      exit 2
-    fi
+  if [ "$ACK_C_KEY_REQUIRED" != 0 ] && [ "$keyvar_ok" = 0 ]; then
+    echo "claude-with: provider '$provider' needs a key but has no valid KEY_VAR." >&2
+    echo "claude-with: set KEY_VAR=NAME in its definition, or KEY_REQUIRED=0." >&2
+    exit 2
   fi
-  keyfile="$(ack_conf KEY_FILE)"
-  if [ -n "$(ack_conf AUTH_TOKEN)" ] && [ "$(ack_conf KEY_REQUIRED)" = 0 ]; then
-    token="$(ack_conf AUTH_TOKEN)"; token_from_auth=1
+  keyfile="$ACK_C_KEY_FILE"
+  if [ -n "$ACK_C_AUTH_TOKEN" ] && [ "$ACK_C_KEY_REQUIRED" = 0 ]; then
+    token="$ACK_C_AUTH_TOKEN"; token_from_auth=1
   elif [ "$keyvar_ok" = 1 ]; then
     if [ -n "${!keyvar}" ]; then
       token="${!keyvar}"
     else
-      filevar="$(ack_conf KEY_FILE_VAR)"
+      filevar="$ACK_C_KEY_FILE_VAR"
       [ -n "$filevar" ] || filevar="$keyvar"
       if token="$(ack_key_read "$keyfile" "$filevar")" && [ -n "$token" ]; then
         case "$(uname -s)" in
           MSYS*|MINGW*|CYGWIN*) ;;
-          *) mode="$(ls -ld "$keyfile" 2>/dev/null)"
+          *) mode="$(ls -ldL "$keyfile" 2>/dev/null)"
              mode="${mode%% *}"
              if [ "${mode:4:1}" = r ] || [ "${mode:7:1}" = r ]; then
                echo "claude-with: warning: key file '$keyfile' is readable by other users." >&2
@@ -81,10 +102,15 @@ if [ -n "$provider" ]; then
       fi
     fi
   fi
-  if [ -z "$token" ] && [ "$(ack_conf KEY_REQUIRED)" != 0 ]; then
-    echo "claude-with: no key for provider '$provider': variable $keyvar is unset and $keyfile has no $(ack_conf KEY_FILE_VAR)." >&2
-    echo "claude-with: set $keyvar in your environment or put $keyvar=... into $keyfile." >&2
-    exit 3
+  if [ -z "$token" ] && [ "$ACK_C_KEY_REQUIRED" != 0 ]; then
+    if [ "$print_env" = 1 ]; then
+      echo "claude-with: warning: no key for provider '$provider' (variable $keyvar is unset and $keyfile has no $ACK_C_KEY_FILE_VAR); showing the dry run anyway." >&2
+      token="***missing***"
+    else
+      echo "claude-with: no key for provider '$provider': variable $keyvar is unset and $keyfile has no $ACK_C_KEY_FILE_VAR." >&2
+      echo "claude-with: set $keyvar in your environment or put $keyvar=... into $keyfile." >&2
+      exit 3
+    fi
   fi
 fi
 
@@ -99,15 +125,20 @@ else
 fi
 [ $# -gt 0 ] && claude_args+=("$@")
 
-claude_bin="$(ack_find_claude)" || {
-  echo "claude-with: no claude executable found (ACK_CLAUDE_BIN, PATH, ~/.local/bin, ~/bin)." >&2
-  echo "claude-with: install Claude Code, or set ACK_CLAUDE_BIN to its path." >&2
-  exit 4
-}
+if ! claude_bin="$(ack_find_claude)"; then
+  if [ "$print_env" = 1 ]; then
+    echo "claude-with: warning: no claude executable found; showing the dry run with the bare name." >&2
+    claude_bin=claude
+  else
+    echo "claude-with: no claude executable found (ACK_CLAUDE_BIN, PATH, ~/.local/bin, ~/bin)." >&2
+    echo "claude-with: install Claude Code, or set ACK_CLAUDE_BIN to its path." >&2
+    exit 4
+  fi
+fi
 
 if [ "$print_env" = 1 ]; then
   {
-    [ -n "$exports" ] && printf '%s\n' "$exports" | while IFS= read -r l; do printf 'export %s\n' "$l"; done
+    [ -n "$exports" ] && printf '%s' "$exports" | while IFS= read -r l; do printf 'export %s\n' "$l"; done
     if [ -n "$provider" ] && [ -n "$token" ]; then
       if [ "$token_from_auth" = 1 ]; then printf 'export ANTHROPIC_AUTH_TOKEN=%s\n' "$token"
       else printf 'export ANTHROPIC_AUTH_TOKEN=***\n'; fi
@@ -120,7 +151,7 @@ if [ "$print_env" = 1 ]; then
 fi
 
 if [ -n "$provider" ]; then
-  if [ "$(ack_conf PREFLIGHT)" = proxy ]; then
+  if [ "$ACK_C_PREFLIGHT" = proxy ]; then
     if type ack_proxy_ensure >/dev/null 2>&1; then
       ack_proxy_ensure || exit 5
     else
@@ -131,7 +162,7 @@ if [ -n "$provider" ]; then
   fi
   unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
   if [ -n "$exports" ]; then
-    while IFS= read -r l; do export "$l"; done <<EOT
+    while IFS= read -r l; do if [ -n "$l" ]; then export "$l"; fi; done <<EOT
 $exports
 EOT
   fi
