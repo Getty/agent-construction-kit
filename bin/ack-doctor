@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+# ack-doctor: read-only check of this machine. Prints name<TAB>status<TAB>detail,
+# status ok|missing|warn|info. Exit 1 if a required line is missing, else 0.
+# It creates, changes and deletes nothing and starts no proxy.
+
+# Git for Windows may hand over a backslash path (bash 'D:\x\ack-doctor').
+_slashes() { case "$OSTYPE" in msys*|cygwin*) REPLY="${1//\\//}" ;; *) REPLY="$1" ;; esac; }
+_slashes "${BASH_SOURCE[0]}"; _self="$REPLY"
+while [ -L "$_self" ]; do
+  _slashes "$(readlink "$_self")"; _t="$REPLY"
+  case "$_t" in
+    /*) _self="$_t" ;;
+    *) case "$_self" in */*) _self="${_self%/*}/$_t" ;; *) _self="./$_t" ;; esac ;;
+  esac
+done
+case "$_self" in */*) _dir="${_self%/*}" ;; *) _dir="." ;; esac
+if ! SHARE="$(cd "$_dir/../share" 2>/dev/null && pwd)"; then
+  echo "ack-doctor: cannot find the share directory next to bin/." >&2
+  echo "ack-doctor: reinstall agent-construction-kit." >&2
+  exit 2
+fi
+BINDIR="$(cd "$_dir" && pwd)"
+# shellcheck source=../share/lib.sh
+. "$SHARE/lib.sh" || exit 2
+ack_paths
+
+TAB=$'\t'
+RC=0
+NOASK="could not ask claude"
+
+# emit NAME STATUS DETAIL [required]: one line; tabs and newlines in DETAIL become spaces.
+emit() {
+  local d="$3"
+  d="${d//$'\t'/ }"; d="${d//$'\r'/}"; d="${d//$'\n'/ }"
+  printf '%s\t%s\t%s\n' "$1" "$2" "$d"
+  [ "${4:-}" = required ] && [ "$2" = missing ] && RC=1
+  return 0
+}
+
+# strip_url_creds URL -> REPLY without user:password@ in the authority part
+strip_url_creds() {
+  local u="$1" scheme rest auth
+  case "$u" in
+    *://*)
+      scheme="${u%%://*}"; rest="${u#*://}"
+      auth="${rest%%/*}"
+      case "$auth" in
+        *@*) if [ "$auth" = "$rest" ]; then rest="${auth##*@}"; else rest="${auth##*@}/${rest#*/}"; fi ;;
+      esac
+      REPLY="$scheme://$rest" ;;
+    *) REPLY="$u" ;;
+  esac
+}
+
+# url_host URL -> REPLY: host without scheme, credentials, port, path
+url_host() {
+  local h="$1"
+  case "$h" in *://*) h="${h#*://}" ;; esac
+  h="${h%%[/?#]*}"
+  h="${h##*@}"
+  case "$h" in
+    '['*) h="${h%%]*}]" ;;
+    *) h="${h%%:*}" ;;
+  esac
+  REPLY="$h"
+}
+
+# flat_json TEXT -> REPLY: one object per line, no whitespace inside
+flat_json() {
+  REPLY="$(printf '%s' "$1" | tr -d ' \r\t\n' | tr '{}[]' '\n\n\n\n')"
+}
+
+# plugin_state NAME -> PSTATE: enabled | disabled | absent (from PLUGIN_OBJS)
+plugin_state() {
+  local name="$1" obj id seen=0 on=0
+  PSTATE=absent
+  while IFS= read -r obj; do
+    case "$obj" in *'"id":"'"$name"'@'*) ;; *) continue ;; esac
+    case "$obj" in
+      *'"id":"'"$name"'@'*'"enabled":true'*|*'"enabled":true'*'"id":"'"$name"'@'*) on=1 ;;
+    esac
+    seen=1
+  done <<EOT
+$PLUGIN_OBJS
+EOT
+  [ "$on" = 1 ] && PSTATE=enabled || { [ "$seen" = 1 ] && PSTATE=disabled; }
+  return 0
+}
+
+# ---------------------------------------------------------------- platform
+os="${ACK_UNAME:-$(uname -s)}"
+case "$os" in
+  Linux) emit platform ok "linux $(uname -m)" ;;
+  Darwin) emit platform ok "macos $(uname -m)" ;;
+  MINGW*|MSYS*|CYGWIN*)
+    if w="$(cygpath -w "$BASH" 2>/dev/null)" && [ -n "$w" ]; then emit platform ok "windows $w"
+    else emit platform ok "windows $BASH"; fi ;;
+  *) emit platform warn "unknown system $os; the kit supports linux, macos and windows" ;;
+esac
+
+# ---------------------------------------------------------------- wrapper-dir
+if out="$(bash "$BINDIR/ack-wrappers" dir 2>/dev/null)" && [ -n "$out" ]; then
+  IFS="$TAB" read -r _k st dd <<EOT
+${out%%$'\n'*}
+EOT
+  dd="${dd//$'\r'/}"
+  if [ "$st" = ok ]; then emit wrapper-dir ok "$dd"
+  else emit wrapper-dir warn "$dd is not on PATH"; fi
+else
+  emit wrapper-dir warn "could not ask ack-wrappers; check that bin/ack-wrappers is intact"
+fi
+
+# ---------------------------------------------------------------- claude, git
+CLAUDE=""
+if CLAUDE="$(ack_find_claude)"; then
+  if ack_run_bounded 15 "$CLAUDE" --version && [ -n "$ACK_BOUNDED_OUT" ]; then
+    v="${ACK_BOUNDED_OUT%%$'\n'*}"
+    emit claude ok "$CLAUDE ($v)" required
+  else
+    emit claude warn "$CLAUDE did not answer --version; run it by hand to see why"
+  fi
+else
+  CLAUDE=""
+  emit claude missing "claude is not installed or not on PATH; install Claude Code and run this again" required
+fi
+
+if gitbin="$(type -P git 2>/dev/null)" && [ -n "$gitbin" ]; then
+  if gv="$("$gitbin" --version 2>/dev/null)" && [ -n "$gv" ]; then emit git ok "$gitbin ($gv)" required
+  else emit git warn "$gitbin did not answer --version"; fi
+else
+  gitbin=""
+  emit git missing "git is not installed or not on PATH; install git and run this again" required
+fi
+
+# ---------------------------------------------------------------- repo
+if [ -z "$gitbin" ]; then
+  emit repo info "git is not available"
+elif [ "$("$gitbin" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
+  remotes=""
+  while IFS= read -r line; do
+    line="${line//$'\r'/}"
+    case "$line" in *"(fetch)") ;; *) continue ;; esac
+    line="${line%" (fetch)"}"
+    rn="${line%%[[:space:]]*}"
+    ru="${line#"$rn"}"; _ack_trim "$ru"; ru="$REPLY"
+    strip_url_creds "$ru"
+    remotes="${remotes:+$remotes, }$rn $REPLY"
+  done <<EOT
+$("$gitbin" remote -v 2>/dev/null)
+EOT
+  if [ -n "$remotes" ]; then emit repo ok "$remotes"; else emit repo info "no remote"; fi
+else
+  emit repo info "the current directory is not inside a git work tree"
+fi
+
+# ---------------------------------------------------------------- session-model
+model="${ANTHROPIC_MODEL:-}"
+host=""
+if [ -n "${ANTHROPIC_BASE_URL:-}" ]; then url_host "$ANTHROPIC_BASE_URL"; host="$REPLY"; fi
+detail="${model:-default}"
+[ -n "$host" ] && detail="$detail via $host"
+emit session-model info "$detail"
+
+# ---------------------------------------------------------------- marketplace, plugins
+MARKETS="" PLUGIN_OBJS="" ASKED_M=0 ASKED_P=0
+if [ -n "$CLAUDE" ]; then
+  if ack_run_bounded 15 "$CLAUDE" plugin marketplace list; then
+    ASKED_M=1
+    while IFS= read -r line; do
+      line="${line//$'\r'/}"
+      case "$line" in *"❯"*) ;; *) continue ;; esac
+      line="${line#*❯}"; _ack_trim "$line"
+      MARKETS="$MARKETS ${REPLY%%[[:space:]]*}"
+    done <<EOT
+$ACK_BOUNDED_OUT
+EOT
+  fi
+  if ack_run_bounded 15 "$CLAUDE" plugin list --json; then
+    ASKED_P=1
+    flat_json "$ACK_BOUNDED_OUT"; PLUGIN_OBJS="$REPLY"
+  fi
+fi
+
+if [ "$ASKED_M" = 1 ]; then
+  case "$MARKETS " in
+    *" getty "*) emit marketplace:getty ok "marketplace getty is configured" required ;;
+    *) emit marketplace:getty missing "marketplace getty is not configured; run: claude plugin marketplace add Getty/marketplace" required ;;
+  esac
+else
+  emit marketplace:getty warn "$NOASK, so this required line is not counted as missing"
+fi
+
+plugin_line() { # NAME required|optional
+  local n="$1"
+  if [ "$ASKED_P" != 1 ]; then
+    if [ "$2" = required ]; then emit "plugin:$n" warn "$NOASK, so this required line is not counted as missing"
+    else emit "plugin:$n" warn "$NOASK"; fi
+    return 0
+  fi
+  plugin_state "$n"
+  case "$PSTATE" in
+    enabled) emit "plugin:$n" ok "$n is installed and enabled" ;;
+    disabled) emit "plugin:$n" warn "$n is installed but disabled; run: claude plugin enable $n" ;;
+    *) if [ "$2" = required ]; then
+         emit "plugin:$n" missing "$n is not installed; run: claude plugin install $n@getty" required
+       else emit "plugin:$n" missing "$n is not installed (optional)"; fi ;;
+  esac
+}
+plugin_line briefing required
+plugin_line skilletor required
+plugin_line superpowers optional
+plugin_line mattpocock-skills optional
+
+# ---------------------------------------------------------------- tools
+tool_line() { # NAME MISSING-DETAIL MISSING-STATUS
+  local p
+  if p="$(type -P "$1" 2>/dev/null)" && [ -n "$p" ]; then emit "tool:$1" ok "$p"
+  else emit "tool:$1" "$3" "$2"; fi
+}
+tool_line karr "not installed (optional)" info
+tool_line claude-code-proxy "not installed (optional)" info
+tool_line uvx "needed only for the MiniMax MCP server" info
+tool_line curl "not installed; the proxy check and the local-model probe need it" warn
+
+# ---------------------------------------------------------------- kit-data
+if [ -r "$ACK_DATA_DIR/VERSION" ]; then
+  IFS= read -r have < "$ACK_DATA_DIR/VERSION"; _ack_trim "$have"; have="$REPLY"
+  IFS= read -r want < "$SHARE/VERSION"; _ack_trim "$want"; want="$REPLY"
+  if [ "$have" = "$want" ]; then emit kit-data ok "version $have in $ACK_DATA_DIR"
+  else emit kit-data warn "installed version $have, shipped $want; run ack-wrappers install again"; fi
+else
+  emit kit-data info "not installed in $ACK_DATA_DIR; ack-wrappers install creates it"
+fi
+
+# ---------------------------------------------------------------- wrappers
+if out="$(bash "$BINDIR/ack-wrappers" list 2>/dev/null)"; then
+  while IFS="$TAB" read -r n st perm path _rest; do
+    path="${path//$'\r'/}"
+    case "$st" in
+      installed) emit "wrapper:$n" ok "$path (permissions $perm)" ;;
+      foreign) emit "wrapper:$n" info "$path (not made by this kit)" ;;
+    esac
+  done <<EOT
+$out
+EOT
+else
+  emit wrapper:list warn "could not ask ack-wrappers; check that bin/ack-wrappers is intact"
+fi
+
+exit "$RC"

@@ -37,14 +37,14 @@ class Sandbox(unittest.TestCase):
         (self.fakebin / "claude").chmod(0o755)
         self.env = sandbox_env(self.home, self.fakebin)
 
-    def run_cmd(self, *argv, env=None, input=None):
+    def run_cmd(self, *argv, env=None, input=None, cwd=None):
         full = dict(self.env)
         full.update(env or {})
         argv = self._launchable(argv, full["PATH"])
         if os.name == "nt" and os.path.basename(argv[0]).lower() == "bash.exe":
             argv = self._quoted(argv)   # only MSYS programs; cmd.exe parses differently
         try:
-            return subprocess.run(argv, env=full, input=input, text=True,
+            return subprocess.run(argv, env=full, input=input, text=True, cwd=cwd,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except OSError as e:
             return subprocess.CompletedProcess(argv, 127, "", str(e))
