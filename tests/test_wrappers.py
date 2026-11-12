@@ -763,10 +763,47 @@ class WrappersTest(Sandbox):
         self.assertIn("test\tmissing\tthe proxy did not start", r.stdout)
 
     def test_test_ok_shows_the_answer_not_a_notice_before_it(self):
-        self.fake_claude("echo 'NOTICE: a setting is too large'; echo 'OK from the model'")
+        self.fake_claude("echo 'NOTICE: a setting is too large'; echo 'OK.'")
         self.aw("install", "kimi")
         r = self.aw("test", "kimi", env={"MOONSHOT_API_KEY": "k"})
-        self.assertEqual(r.stdout, "test\tok\tOK from the model\n", r.stderr)
+        self.assertEqual(r.stdout, "test\tok\tOK.\n", r.stderr)
+        for answer in ("ok", "**OK**", "  Ok!  "):
+            self.fake_claude("echo '%s'" % answer)
+            r = self.aw("test", "kimi", env={"MOONSHOT_API_KEY": "k"})
+            self.assertEqual(r.returncode, 0, answer)
+
+    def test_test_an_answer_that_only_mentions_ok_is_unexpected(self):
+        self.aw("install", "kimi")
+        for answer in ("Reply with the single word OK", "OK from the model, but no", "Not OK"):
+            self.fake_claude("echo '%s'" % answer)
+            r = self.aw("test", "kimi", env={"MOONSHOT_API_KEY": "k"})
+            self.assertEqual(r.returncode, 1, answer)
+            self.assertEqual(r.stdout, "test\tmissing\tunexpected answer: %s\n" % answer)
+
+    def test_test_reads_exit_3_4_5_as_the_kit_s_only_with_its_message(self):
+        self.aw("install", "kimi")
+        for code in (3, 4, 5):
+            self.fake_claude("echo 'model server said no'", code)
+            r = self.aw("test", "kimi", env={"MOONSHOT_API_KEY": "k"})
+            self.assertEqual(r.stdout, "test\tmissing\tmodel server said no\n", code)
+        self.fake_claude("echo 'ack: something of the kit'", 5)
+        r = self.aw("test", "kimi", env={"MOONSHOT_API_KEY": "k"})
+        self.assertEqual(r.stdout, "test\tmissing\tthe proxy did not start\n")
+
+    def test_test_masks_any_long_piece_of_the_key(self):
+        key = "sk-live-ABCDEFGH12345678ijklmnop"
+        self.aw("install", "minimax")
+        for shown in (key[:20], key[5:17], key[-9:]):
+            self.fake_claude("echo 'server: bad credential %s, try again'" % shown, 1)
+            r = self.aw("test", "minimax", env={"MINIMAX_API_KEY": key})
+            self.assertEqual(r.returncode, 1)
+            for i in range(len(key) - 7):
+                self.assertNotIn(key[i:i + 8], r.stdout, shown)
+            self.assertIn("server: bad credential ***", r.stdout)
+            self.assertIn(", try again", r.stdout)
+        self.fake_claude("echo 'server: the word sk-live is fine'", 1)
+        r = self.aw("test", "minimax", env={"MINIMAX_API_KEY": key})
+        self.assertIn("server: the word sk-live is fine", r.stdout)
 
     def test_test_wants_ok_in_the_answer(self):
         self.fake_claude("echo 'Hello there'")

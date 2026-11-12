@@ -683,8 +683,32 @@ _host_of() {
   u="${u#*://}"; u="${u%%/*}"; u="${u##*@}"
   REPLY="${u:-the provider}"
 }
+# _mask_key LINE KEY -> REPLY: LINE with every run of 8 or more consecutive characters
+# of KEY (the whole key too, also a shorter one) replaced by ***
+_mask_key() {
+  local key="$2" n i l sub
+  REPLY="$1"; n=${#key}
+  [ -n "$key" ] || return 0
+  REPLY="${REPLY//"$key"/***}"
+  i=0
+  while [ $((i + 8)) -le "$n" ]; do
+    sub="${key:$i:8}"
+    case "$REPLY" in
+      *"$sub"*)
+        # the longest piece from here on that the line holds
+        l=$((n - i))
+        while [ "$l" -gt 8 ]; do
+          case "$REPLY" in *"${key:$i:$l}"*) break ;; esac
+          l=$((l - 1))
+        done
+        sub="${key:$i:$l}"; REPLY="${REPLY//"$sub"/***}"
+        i=$((i + l)) ;;
+      *) i=$((i + 1)) ;;
+    esac
+  done
+}
 cmd_test() {
-  local wst name file out rc=0 t=0 limit pid line s kv reason="" ans
+  local wst name file out rc=0 t=0 limit pid line s kv reason="" ans kit l
   ALLOWED="--dir"; _parse "$@"
   _need_names 1; name="${ARGS[0]}"; _valid_name "$name"
   case "${ACK_TEST_TIMEOUT:-120}" in ''|0*|*[!0-9]*) usage_err "ACK_TEST_TIMEOUT must be a positive whole number of seconds." ;; esac
@@ -719,26 +743,30 @@ cmd_test() {
       fi
     done < "$out"
   fi
-  # never echo a key, even if a server error quotes one back
+  # never echo a key, even if a server error quotes one back, whole or in part
   if [ "$name" != danger ]; then
     kv="$ACK_C_KEY_VAR"; s=""
     case "$kv" in ''|[0-9]*|*[!A-Za-z0-9_]*) ;; *) s="${!kv}" ;; esac
-    [ -n "$s" ] && line="${line//"$s"/***}"
+    _mask_key "$line" "$s"; line="$REPLY"
     s="$(ack_key_read "$ACK_C_KEY_FILE" "$ACK_C_KEY_FILE_VAR" 2>/dev/null)"
-    [ -n "$s" ] && line="${line//"$s"/***}"
+    _mask_key "$line" "$s"; line="$REPLY"
     s="$ACK_C_AUTH_TOKEN"
-    [ -n "$s" ] && ! ack_is_word "$s" && line="${line//"$s"/***}"
+    ack_is_word "$s" || { _mask_key "$line" "$s"; line="$REPLY"; }
     # credentials in BASE_URL (scheme://user:password@host)
     s="${ACK_C_BASE_URL#*://}"; s="${s%%/*}"
     case "$s" in *@*) s="${s%@*}"; line="${line//"$s"/***}" ;; esac
   fi
   line="${line//$TAB/ }"
   [ "${#line}" -gt 80 ] && line="${line:0:77}..."
-  case "$rc" in
-    124) reason="could not reach $ans (no answer after ${ACK_TEST_TIMEOUT:-120}s)" ;;
-    3) reason="no key yet — add it to $ACK_C_KEY_FILE" ;;
-    4) reason="claude is not installed — install Claude Code, or set ACK_CLAUDE_BIN" ;;
-    5) if grep -Eiq 'claude-code-proxy is not installed' "$out"; then reason="claude-code-proxy is not installed"
+  # 3, 4 and 5 are the launcher's own codes only when it said so; a claude or model
+  # server may exit with them too
+  kit=0
+  grep -Eq '^(claude-with|ack):' "$out" && kit=1
+  case "$rc:$kit" in
+    124:*) reason="could not reach $ans (no answer after ${ACK_TEST_TIMEOUT:-120}s)" ;;
+    3:1) reason="no key yet — add it to $ACK_C_KEY_FILE" ;;
+    4:1) reason="claude is not installed — install Claude Code, or set ACK_CLAUDE_BIN" ;;
+    5:1) if grep -Eiq 'claude-code-proxy is not installed' "$out"; then reason="claude-code-proxy is not installed"
        elif grep -Eiq 'sign(ed)? ?in|log(ged)? ?in' "$out"; then reason="the proxy is not signed in"
        else reason="the proxy did not start"; fi ;;
     *) if [ "$rc" != 0 ] || grep -q 'API Error' "$out"; then
@@ -749,8 +777,15 @@ cmd_test() {
          else reason="${line:-claude exited with status $rc and no output}"; fi
        fi ;;
   esac
-  if [ -z "$reason" ] && ! grep -Eiq '(^|[^A-Za-z])ok([^A-Za-z]|$)' "$out"; then
-    reason="unexpected answer: ${line:-(empty)}"
+  # the answer is a line that is just OK; one that only mentions it (an echoed
+  # prompt, "Not OK") is not
+  if [ -z "$reason" ]; then
+    s=1
+    while IFS= read -r l || [ -n "$l" ]; do
+      l="${l//[[:space:][:punct:]]/}"
+      case "$l" in [Oo][Kk]) s=0; break ;; esac
+    done < "$out"
+    [ "$s" = 0 ] || reason="unexpected answer: ${line:-(empty)}"
   fi
   if [ -n "$reason" ]; then printf 'test%smissing%s%s\n' "$TAB" "$TAB" "$reason"; exit 1; fi
   printf 'test%sok%s%s\n' "$TAB" "$TAB" "$line"

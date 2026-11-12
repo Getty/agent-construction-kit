@@ -84,8 +84,9 @@ error or unknown provider; 3 a foreign file is in the way, nothing changed.
   afterwards. Windows has no `pending`: later installs in this session still print
   `path<TAB>missing`; once you ran the line, treat that as `pending`.
 
-`test` prints `test<TAB>ok<TAB><answer>` (exit 0) or `test<TAB>missing<TAB><reason>`
-(exit 1):
+`test` asks the model to reply with OK. It prints `test<TAB>ok<TAB><answer>` (exit 0)
+when a line of the answer is just that word, or `test<TAB>missing<TAB><reason>` (exit 1);
+any long piece of the key in a reason shows as `***`:
 
 | Reason starts with | What to tell the user, and the next step |
 |---|---|
