@@ -35,7 +35,7 @@ session. Statuses: `ok`, `missing`, `warn`, `info`.
 | `wrapper-dir`, `wrapper:list` | `warn` "could not ask ack-wrappers" | the kit's own files are damaged; offer to reinstall the kit as for exit 2 |
 | `marketplace:getty`, `plugin:<name>` | `warn` "could not ask claude" | `claude` did not answer in time; run `ack-doctor` once more, and if it stays, tell the user |
 | `plugin:<name>` | `warn` "disabled" | `claude plugin enable <name>`, after a yes |
-| `tool:claude-code-proxy` | `info` | not installed; needed only for OpenAI (Step 3 of the skill) |
+| `tool:claude-code-proxy` | `info` | not installed; needed only for OpenAI (step 3 of [machine.md](machine.md)) |
 | `tool:claude-code-proxy` | `ok` | installed; "(not on PATH)" after its path is fine, the kit finds it there |
 | `tool:uvx` | `info` | needed only for MiniMax's extra tools (below) |
 | `tool:curl` | `warn` | the proxy check and the local-model search need curl; offer to install it with the system's package manager |
@@ -102,11 +102,11 @@ any long piece of the key in a reason shows as `***`:
 | Reason starts with | What to tell the user, and the next step |
 |---|---|
 | `no wrapper installed at` | the starter is not there yet; run `install` for it yourself |
-| `no key yet` | the key is missing; `key-edit` as in Step 2 of the skill |
+| `no key yet` | the key is missing; `key-edit` as in step 2 of [machine.md](machine.md) |
 | `the account has no credit` | the key works, but the account at the provider has no balance or no active plan; they top it up there, then test again |
 | `the provider rejected the key` | the key is wrong, expired or without credit; ask them to check it on the provider's website, then `key-edit` again to replace it |
 | `could not reach` | no connection; ask whether the internet works, and for a model server whether it runs and the address is right |
-| `claude is not installed` | the `claude` command is not found; Step 1 of the skill, line `claude` |
+| `claude is not installed` | the `claude` command is not found; step 1 of [machine.md](machine.md), line `claude` |
 | `claude-code-proxy is not installed` | OpenAI reference, step 2 |
 | `the proxy is not signed in` | OpenAI reference, step 3 |
 | `the proxy did not start` | run `ack-proxy status` and relay what is `missing` |

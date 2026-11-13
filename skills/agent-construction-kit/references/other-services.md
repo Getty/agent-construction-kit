@@ -44,8 +44,8 @@ ack-wrappers new-provider acme --url https://api.acme.example/anthropic --model 
 ```
 
 The name is lower case, starts with a letter and is not one `ack-wrappers list` shows.
-Leave out `--key-var` only for a server that needs no key. Then, as in Step 2 of the
-skill: ask for the permissions, `ack-wrappers install acme --permissions <mode>`,
+Leave out `--key-var` only for a server that needs no key. Then, as in step 2 of
+[machine.md](machine.md): ask for the permissions, `ack-wrappers install acme --permissions <mode>`,
 `ack-wrappers test acme`, and `ack-wrappers key-edit acme` when the test says
 `no key yet`. Change a single value later with `ack-wrappers set acme KEY=VALUE`.
 
@@ -123,7 +123,7 @@ updating the server.
 Groq, Cerebras, Mistral, the Gemini API, Perplexity, Scaleway, Nous Research, Chutes and
 most company gateways document no Anthropic-compatible endpoint. Claude Code reaches such
 a service only through a proxy that translates, and the kit does not install one (its
-own proxy support is for ChatGPT subscriptions, Step 3 of the skill). Say that plainly,
+own proxy support is for ChatGPT subscriptions, step 3 of [machine.md](machine.md)). Say that plainly,
 and name the two usual ones: [LiteLLM](https://docs.litellm.ai/docs/tutorials/claude_responses_api)
 and [Langertha Knarr](https://github.com/Getty/langertha-knarr). If the user runs such a
 proxy, it is one more service for `new-provider`: the URL is the proxy's address (LiteLLM:

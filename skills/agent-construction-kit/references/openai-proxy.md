@@ -112,7 +112,7 @@ so the starter never waits for it. Recommend it. Results:
 
 ## 7. The starter
 
-Ask about permissions as in the skill's Step 2, then
+Ask about permissions as in step 2 of [machine.md](machine.md), then
 `ack-wrappers install openai --permissions <mode>` and `ack-wrappers test openai`.
 The first test starts the proxy, which takes a few seconds. For `test` reasons that
 name the proxy, see the providers reference; the proxy writes its log to

@@ -12,11 +12,12 @@ AW = str(ROOT / "bin" / "ack-wrappers")
 SCRIPTS = sorted(p for p in (ROOT / "bin").iterdir() if p.is_file()) + \
     [ROOT / "share" / "claude-with", ROOT / "share" / "lib.sh"]
 REFS = SKILL_DIR / "references"
+MACHINE = REFS / "machine.md"
 TEAM_REFS = ("team-analysis.md", "team-answer-sheet.md", "team-agents.md", "team-rules.md",
              "team-board.md", "team-family.md", "using-the-team.md")
-# The team references exist before SKILL.md links them; until it does, each must be
-# reached from team-analysis.md. Remove a name once SKILL.md links it (the test says when).
-AWAITING_SKILL_LINK = set(TEAM_REFS)
+# A new reference may exist before SKILL.md links it; until it does, it must be reached
+# from team-analysis.md. Remove a name once SKILL.md links it (the test says when).
+AWAITING_SKILL_LINK = set()
 ANSWER_KEYS = ("bauform", "manager", "prefix", "board", "committer", "publish_gate",
                "fremdeingaben", "quellen", "rollen", "bundles", "provider", "headless")
 ROLES = ("scout", "worker", "test-writer", "reviewer", "release-manager", "doc-writer",
@@ -119,7 +120,9 @@ class SkillTest(Sandbox):
         self.assertEqual(fm["name"], "agent-construction-kit")
         self.assertTrue(fm["description"].startswith("Use when"), fm["description"])
         for word in ("agent teams", "claude_with_", "claude_with_danger", "proxy",
-                     "briefing", "skilletor"):
+                     "briefing", "skilletor", "build an agent team", "subagents",
+                     "project or folder", ".claude/agents", "ack-doctor", "ack-wrappers",
+                     "ack-proxy", "ack-repo", "ack-team"):
             self.assertIn(word, fm["description"])
 
     def test_every_referenced_file_exists(self):
@@ -148,6 +151,50 @@ class SkillTest(Sandbox):
         for doc in docs():
             for target in links(doc):
                 self.assertTrue((doc.parent / target).is_file(), "%s links %s" % (doc.name, target))
+
+    def test_skill_links_every_reference(self):
+        linked = set(links(SKILL))
+        for p in sorted(REFS.glob("*.md")):
+            self.assertIn("references/" + p.name, linked, "SKILL.md does not link %s" % p.name)
+
+    def test_skill_is_the_procedure_for_both_ways_in(self):
+        text = read(SKILL)
+        self.assertEqual(re.findall(r"^## (Step \d+):", text, re.M),
+                         ["Step %d" % n for n in range(7)])
+        flat = " ".join(text.split())
+        for words in ("**Team**", "**Machine**", "set up agents for it",
+                      "`ack-doctor`", "(references/machine.md)",          # the machine way
+                      "`ack-repo inspect`", "`ack-repo init`", "`ack-repo disk-remote`",
+                      "`ack-team check`", "`/reload-plugins`", "`/exit`",  # the team way
+                      "## Answer sheet", "never overwrite an agent file unasked",
+                      "only a yes leads on", "until no line says `missing`",
+                      "start Claude in this folder", "Remote Control", "`windows` team"):
+            self.assertIn(words, flat)
+        later = re.search(r"Not in this version: (.*?)\. ", flat)
+        self.assertIsNotNone(later, "SKILL.md does not say what this version leaves out")
+        for words in ("a hub", "an issue tracker", "a survey of the machine"):
+            self.assertIn(words, later.group(1))
+        self.assertNotRegex(flat, r"team[^.]*comes with a later version")
+        doctor = read(ROOT / "bin" / "ack-doctor")      # the team way fixes these lines
+        required = set(re.findall(r"\bemit ([a-z:]+) missing [^\n]* required\b", doctor))
+        required |= {"plugin:" + n for n in re.findall(r"^plugin_line (\S+) required$",
+                                                       doctor, re.M)}
+        self.assertEqual(len(required), 5, sorted(required))
+        step1 = re.search(r"^## Step 1:(.*?)^## ", text, re.S | re.M).group(1)
+        for name in sorted(required):
+            self.assertIn("`%s`" % name, step1, "Step 1 does not name `%s`" % name)
+
+    def test_step_references_name_their_file(self):
+        steps = set(re.findall(r"^## (\d+)\. ", read(MACHINE), re.M))
+        self.assertEqual(steps, {"1", "2", "3", "4"})
+        for doc in docs() + [README]:
+            text = " ".join(read(doc).split())
+            for n in re.findall(r"(?i)\bstep (\d+) of \[?machine\.md", text):
+                self.assertIn(n, steps, "%s names step %s of machine.md" % (doc.name, n))
+            # the machine steps left SKILL.md; only its Step 0 is still a machine step
+            for n in re.findall(r"(?i)\bstep (\d+) of the skill|\bthe skill's step (\d+)", text):
+                self.assertEqual("".join(n), "0", "%s names Step %s of the skill"
+                                 % (doc.name, "".join(n)))
 
     def test_every_command_named_in_the_skill_exists(self):
         for doc in docs() + [README]:
@@ -276,10 +323,10 @@ class SkillTest(Sandbox):
         for doc in docs():
             for _, row in tables(read(doc), "Reason starts with"):
                 reasons += [(doc.name, s) for s in spans(row[0])]
-        for line in read(SKILL).splitlines():          # "   - `no key yet`: ..."
+        for line in read(MACHINE).splitlines():        # "   - `no key yet`: ..."
             m = re.match(r"\s*- `([^`]+ [^`]+)`:", line)
             if m:
-                reasons.append((SKILL.name, m.group(1)))
+                reasons.append((MACHINE.name, m.group(1)))
         self.assertGreater(len(reasons), 5)
         for where, reason in reasons:
             self.assertTrue(re.search(r'(?:reason="|%%s)%s' % re.escape(reason), src),
