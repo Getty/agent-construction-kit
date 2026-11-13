@@ -214,9 +214,7 @@ _safe_name() {
 
 # _unescape STRING -> REPLY: the few JSON escapes a path holds
 _unescape() {
-  local bs='\' sl='/'
-  REPLY="${1//"$bs$bs"/"$bs"}"
-  REPLY="${REPLY//"$bs$sl"/"$sl"}"
+  REPLY="$(printf '%s' "$1" | sed 's/\\\\/\\/g; s/\\\//\//g')"
 }
 
 # _enabled_map -> ENABLED: lines "KEY<TAB>true|false", user then project then
@@ -293,16 +291,14 @@ _installed_entries() {
 # symlinks resolved): "C:\x" and "C:/x" become the MSYS form "/c/x", duplicate and
 # trailing slashes go
 _norm_path() {
-  local p="$1" sl='/'
+  local p="$1"
   case "$p" in
     [A-Za-z]:[\\/]*|[A-Za-z]:)
-      p="${p//\\//}"
+      p="$(printf '%s' "$p" | tr '\\' '/')"
       _lower "${p:0:1}"
       p="/$REPLY${p:2}" ;;
   esac
-  while :; do
-    case "$p" in *//*) p="${p//"$sl$sl"/"$sl"}" ;; *) break ;; esac
-  done
+  case "$p" in *//*) p="$(printf '%s' "$p" | sed 's#//*#/#g')" ;; esac
   while :; do
     case "$p" in */) p="${p%/}" ;; *) break ;; esac
   done
@@ -749,9 +745,7 @@ check_git() {
 
 # _json_escape STRING -> REPLY
 _json_escape() {
-  local bs='\' qt='"'
-  REPLY="${1//"$bs"/"$bs$bs"}"
-  REPLY="${REPLY//"$qt"/"$bs$qt"}"
+  REPLY="$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 }
 
 # _find_hook -> REPLY: ACK_BRIEFING_HOOK, else the hook of the installed briefing plugin
