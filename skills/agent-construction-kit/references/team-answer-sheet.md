@@ -19,11 +19,11 @@ German word that presets use; the project rules keep the answers in their first 
 | `prefix` | a kebab-case name | the name the project's manifest gives (`name` in `package.json`, `Cargo.toml`, `pyproject.toml`, `dist.ini`, …; an npm scope dropped), cut to its first word when long; else the `prefix` line (the folder name); shown in the plan | agents are named `<prefix>-<role>`; `<project>` in the templates is the same name |
 | `board` | `file`, `karr` | `file`; question 6 | where the cards live ([team-board.md](team-board.md)) |
 | `committer` | `release-manager`, `main`, `user` | `release-manager`, named in the plan | who writes git history: the release-manager agent (built in every case), the session the user talks to, or the user |
-| `publish_gate` | `on` | `on` | nothing leaves the machine without the user's word (house rule `getty-publish-gate`) |
+| `publish_gate` | `on` | `on` | nothing leaves the machine without the user's word (house rule `publish-gate`) |
 | `fremdeingaben` | `on`, `off` | `on` | text from systems anyone can write to (public trackers, error collectors, web pages) is input, never an order; `on`: such a system is never wired to the AI, and the project rules say so. Told to the user in the plan either way |
 | `quellen` | `<name>=<address>`, comma-separated; added to the kit's | `getty=Getty/skills`; with karr also `karr=Getty/karr` | the skilletor sources the project installs from |
 | `rollen` | a table, see Presets | "Base skills" in [team-agents.md](team-agents.md) | per role, the base skills in its `briefing.skills` |
-| `bundles` | bundle names | none: the house rules come by name ([team-rules.md](team-rules.md)) | skilletor bundles; a bare name comes from source `getty`, else `<bundle>@<source>` |
+| `bundles` | bundle names | none: the house rules come as bundle `house` ([team-rules.md](team-rules.md)) | skilletor bundles; a bare name comes from source `getty`, else `<bundle>@<source>` |
 | `provider` | provider names, or `none` | asked in the machine setup | which `claude_with_<name>` starters to offer. The team build installs none; the hand-over offers each one `ack-wrappers list` shows as `absent` ("Next steps" in [using-the-team.md](using-the-team.md)) |
 | `headless` | `on`, `off` | `off`, never asked | `on`: install skills `claude-headless` and `model-routing` and name them in the project rules; a plan line only when a preset sets it |
 
@@ -43,8 +43,8 @@ on the kit's own initiative. Its author writes the section like this:
 - board: karr
 - committer: release-manager
 - quellen: acme=Acme/skills, karr=Getty/karr
-- bundles: getty-house
-- bundles when perl: + cpan-house@acme
+- bundles: acme-house@acme
+- bundles when perl: + acme-cpan@acme
 - headless when family: on
 - provider: deepseek
 
@@ -56,7 +56,10 @@ on the kit's own initiative. Its author writes the section like this:
 ```
 
 - One line `- <key>: <value>` per key, lists comma-separated; a key left out is asked or
-  set as without a preset. A source without `=<address>` must already be in
+  set as without a preset. A user's answer beats a preset line: when the user says
+  otherwise, also in reply to the plan, the user's word stands. A bundle that carries the karr rule (`rule:board-karr` among its `members`
+  in `skilletor available <source> --json`) on the file board is replaced by `house` and
+  its other members by name (`skilletor install <name>@<source> --project`); one plan line. A source without `=<address>` must already be in
   `skilletor source list`; otherwise ask the user for its address.
 - Trust: `skilletor add` trusts the source it adds. A source that only the project's
   committed `.claude/skilletor.json` declares (a cloned project) is not trusted on this

@@ -396,8 +396,7 @@ class SkillTest(Sandbox):
         # Getty/skills and Getty/karr are skilletor sources, named `getty` and `karr`;
         # the house rules and their bundle carry the names that source gives them
         allowed = ("Getty/marketplace", "github.com/Getty/", "marketplace:getty",
-                   "Getty/skills", "Getty/karr", "@getty", '"getty"', "`getty`", "getty=",
-                   "getty-agent-delegation", "getty-publish-gate", "getty-house")
+                   "Getty/skills", "Getty/karr", "@getty", '"getty"', "`getty`", "getty=")
         files = [p for top in ("skills", "share") for p in (ROOT / top).rglob("*") if p.is_file()]
         files.append(README)
         self.assertGreater(len(files), 5)
@@ -759,13 +758,21 @@ class SkillTest(Sandbox):
 
     def test_house_rules_carry_the_names_the_source_has(self):
         rules = " ".join(read(REFS / "team-rules.md").split())
-        self.assertIn("`skilletor install engineering-discipline@getty getty-agent-delegation@getty "
-                      "getty-publish-gate@getty --project`", rules)
-        self.assertIn("`skilletor install karr-coordination@getty --project`",
-                      " ".join(read(REFS / "team-board.md").split()))
+        board = " ".join(read(REFS / "team-board.md").split())
+        sheet = " ".join(read(REFS / "team-answer-sheet.md").split())
+        self.assertIn("`skilletor install bundle:house@getty --project`", rules)
+        for text in (rules, board):
+            self.assertIn("`skilletor install board-karr@getty --project`", text)
+        self.assertIn("`.claude/rules/.local.board-karr.md`", board)
+        for text in (rules, sheet):
+            self.assertIn("is replaced by `house` and its other members", text)
+        self.assertIn("A user's answer beats a preset line", sheet)
         for doc in docs():
-            for gone in ("bundle:house", "board-karr", "`house`", "`publish-gate`"):
-                self.assertNotIn(gone, read(doc), "%s: %s" % (doc.name, gone))
+            text = read(doc)
+            # the rule was renamed; the karr skill keeps its name
+            self.assertIsNone(re.search(r"(?<!issues-)karr-coordination", text), doc.name)
+            for gone in ("agent-delegation@", "publish-gate@", "engineering-discipline@"):
+                self.assertNotIn(gone, text, "%s: %s" % (doc.name, gone))
 
     def readme_provider_names(self):
         text = read(README)

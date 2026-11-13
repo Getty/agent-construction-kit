@@ -13,21 +13,21 @@ short project rules file; then the settings, the `CLAUDE.md` section and the che
 
 ## House rules
 
-Three rules from source `getty`, which skilletor installs as `.claude/rules/.local.<name>.md`
-and keeps current (never edit them, never repeat them in the project rules):
-`skilletor install engineering-discipline@getty getty-agent-delegation@getty getty-publish-gate@getty --project`.
+`skilletor install bundle:house@getty --project` installs three rules, the same in every
+project, as `.claude/rules/.local.<name>.md` and keeps them current; never edit or repeat them:
 
 - `engineering-discipline`: think before coding, small changes, tests prove intent,
   report only what was verified.
-- `getty-agent-delegation`: the session the user talks to (the main agent) hands work on
+- `agent-delegation`: the session the user talks to (the main agent) hands work on
   behaviour-relevant code to the team's agents, never to built-in ones; one agent
   commits; the reviewer runs the checks before a commit.
-- `getty-publish-gate`: pushes, releases, deployments and writes on public trackers wait for
+- `publish-gate`: pushes, releases, deployments and writes on public trackers wait for
   the user's word; local work and commits do not.
 
-With karr also `karr-coordination@getty` ([team-board.md](team-board.md)). The bundle
-`getty-house` holds all four, so it fits a karr team only; with the file board install the
-three by name, never that bundle (its karr rule would make karr the board).
+With karr also `skilletor install board-karr@getty --project` ([team-board.md](team-board.md)).
+On the file board that rule would make karr the board: a preset bundle with `rule:board-karr`
+among its `members` (`skilletor available <source> --json`) is replaced by `house` and
+its other members, installed by name ("Presets" in [team-answer-sheet.md](team-answer-sheet.md)).
 
 ## The project rules file
 
@@ -97,7 +97,7 @@ Fill it like this:
 - **A copy on a drive** (`ack-repo disk-remote`), when the user allowed its updates, into
   "Check and commits" (two lines): "After each commit <who pushes> runs
   `git push <name> <branch>` (the copy on <drive>, allowed in advance); drive not plugged
-  in: one line saying so, the next push catches up." It is the go-ahead `getty-publish-gate`
+  in: one line saying so, the next push catches up." It is the go-ahead `publish-gate`
   asks for. `<who pushes>`: `<prefix>-release-manager` (its body carries the same
   sentence, in "you" form: [team-agents.md](team-agents.md)); with `committer` `main` or
   `user` the main agent, after the commit.

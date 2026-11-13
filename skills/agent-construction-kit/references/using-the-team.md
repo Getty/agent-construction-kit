@@ -68,7 +68,7 @@ The last lines follow the second copy:
 
 Commits stay on this computer. Pushing to a remote, releasing, deploying, and writing on
 public trackers wait until the user says so, each time; a yes covers what it names
-(house rule `getty-publish-gate`). The exceptions are what the project rules write down
+(house rule `publish-gate`). The exceptions are what the project rules write down
 with the user's yes: the copy on a drive, updated after every commit, and with karr and a
 remote `origin` the board, which karr sends there with every change.
 

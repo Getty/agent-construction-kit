@@ -140,10 +140,10 @@ No `BOARD.md` then: one board, not two.
 | `kanban-issues-karr-ticket` | working one handed-over card: read, note, block, hand on | worker, test-writer, reviewer, release-manager, doc-writer, adr-auditor |
 | `kanban-issues-karr-coordination` | reading the board, creating and claiming cards, cards between repositories | coordinator; the main agent loads it itself |
 
-The rule `karr-coordination`, only with karr: `skilletor install karr-coordination@getty --project`,
-unless a bundle brought it (`.claude/rules/.local.karr-coordination.md` exists; the bundle
-`getty-house` does). It tells the main agent to make board changes one after another and
-not to poll the board, and to write a card id in text as karr does: `k12`, never `#12`.
+The rule `board-karr`, only with karr: `skilletor install board-karr@getty --project`,
+unless a bundle brought it (`.claude/rules/.local.board-karr.md` exists). It tells the
+main agent to make board changes one after another and not to poll the board, and to
+write a card id in text as karr does: `k12`, never `#12`.
 
 Card lines with karr:
 
