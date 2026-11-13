@@ -1246,6 +1246,97 @@ class TeamTest(Sandbox):
         r = self.at("check", cwd=d)
         self.assertEqual(self.one(r, "board", "warn")[3], "no heading for: Done")
 
+    # ---- fix round 3
+
+    def test_disabled_briefing_plugins_hook_is_not_run(self):
+        d = self.team()
+        self.install_plugin("briefing", "x", market="disabledmk", enabled=False)
+        self.install_plugin("briefing", "x", market="enabledmk", enabled=True)
+        for mk, src in (("disabledmk", HOOK_DENY), ("enabledmk", HOOK_OK)):
+            hd = self.home / ".claude" / "plugins" / "cache" / mk / "briefing" / "1.0.0" / "hooks"
+            hd.mkdir(parents=True)
+            shutil.copy(src, str(hd / "briefing-preload"))
+            (hd / "briefing-preload").chmod(0o755)
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": ""})
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]])
+
+    def test_only_a_disabled_briefing_plugin_falls_back_to_the_cache(self):
+        d = self.team()
+        self.install_plugin("briefing", "x", market="disabledmk", enabled=False)
+        hd = self.home / ".claude" / "plugins" / "cache" / "disabledmk" / "briefing" / "1.0.0" / "hooks"
+        hd.mkdir(parents=True)
+        shutil.copy(HOOK_DENY, str(hd / "briefing-preload"))
+        (hd / "briefing-preload").chmod(0o755)
+        os.utime(str(hd / "briefing-preload"), (1, 1))
+        other = self.home / ".claude" / "plugins" / "cache" / "x" / "briefing" / "2.0.0" / "hooks"
+        other.mkdir(parents=True)
+        shutil.copy(HOOK_OK, str(other / "briefing-preload"))
+        (other / "briefing-preload").chmod(0o755)
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": ""})
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_manifest_path_with_a_glob_character_is_not_expanded(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "pocket:tdd"))
+        self.manifest_plugin('["./q*"]', [])
+        # a directory q1 in the working directory must not satisfy "./q*"
+        (d / "q1" / "tdd").mkdir(parents=True)
+        self.put(d, "q1/tdd/SKILL.md", "x\n")
+        root = self.home / ".claude" / "plugins" / "cache" / "getty" / "pocket" / "1.0.0"
+        self.put(root, "q1/tdd/SKILL.md", "x\n")
+        r = self.at("check", cwd=d)
+        self.one(r, "skill", "missing", "pocket:tdd")
+
+    def test_path_within_dot_dot_segments(self):
+        self.assertFalse(self.within("/a/proj/../other", "/a/proj"))
+        self.assertTrue(self.within("/a/other/../proj/sub", "/a/proj"))
+        self.assertTrue(self.within("/a/proj/./sub", "/a/proj"))
+        self.assertTrue(self.within("/a/proj", "/a/x/../proj"))
+        self.assertFalse(self.within("/a", "/a/proj/.."+"/proj"))
+        self.assertTrue(self.within("/../a/proj", "/a/proj"))
+        self.assertTrue(self.within("/c/proj/x/..", "C:\\proj"))
+
+    def test_symlinked_agent_file_is_an_agent(self):
+        d = self.team()
+        target = self.root / "shared" / "harbor-worker.md"
+        target.parent.mkdir()
+        target.write_text(agent_text("harbor-worker"))
+        link = d / ".claude" / "agents" / "harbor-worker.md"
+        os.remove(str(link))
+        try:
+            os.symlink(str(target), str(link))
+        except (OSError, NotImplementedError):
+            self.skipTest("no symlinks here")
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.one(r, "agent", "ok", "harbor-worker.md")
+        self.one(r, "roles", "ok")
+        self.one(r, "hook", "ok", "harbor-worker")
+
+    def test_dangling_symlink_warns_and_is_no_agent(self):
+        d = self.team()
+        link = d / ".claude" / "agents" / "harbor-gone.md"
+        try:
+            os.symlink(str(self.root / "nowhere.md"), str(link))
+        except (OSError, NotImplementedError):
+            self.skipTest("no symlinks here")
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        row = self.one(r, "agent", "warn", "harbor-gone.md")
+        self.assertIn("dangling", row[3])
+        self.assertNotIn("harbor-gone", r.stdout.replace("harbor-gone.md", ""))
+
+    def test_only_symlinked_agents_are_not_reported_as_none(self):
+        d = self.team()
+        shutil.move(str(d / ".claude" / "agents"), str(self.root / "real-agents"))
+        try:
+            os.symlink(str(self.root / "real-agents"), str(d / ".claude" / "agents"))
+        except (OSError, NotImplementedError):
+            self.skipTest("no symlinks here")
+        r = self.at("check", cwd=d)
+        self.assertEqual(self.of(r, "agent")[0][1], "ok", r.stdout)
+
     # ---- usage
 
     def test_directory_that_does_not_exist(self):

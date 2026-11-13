@@ -5,7 +5,8 @@
 # tabs (the last may be empty, its tab stays):
 #   WHAT<TAB>ok|missing|warn<TAB>FILE-OR-NAME<TAB>TEXT
 # WHAT is one of:
-#   agent      per *.md below .claude/agents (subdirectories included; a leading ".local."
+#   agent      per *.md below .claude/agents (subdirectories included, symlinks to files
+#              too like the hook reads them, a dangling one warns; a leading ".local."
 #              is dropped from the file name, so .local.x.md must say "x"): frontmatter
 #              (a BOM is fine), name, description, briefing.skills (warn: no briefing;
 #              missing: a flow list that spans lines), allowed-tools (missing: Claude Code
@@ -298,7 +299,9 @@ _norm_path() {
       _lower "${p:0:1}"
       p="/$REPLY${p:2}" ;;
   esac
-  case "$p" in *//*) p="$(printf '%s' "$p" | sed 's#//*#/#g')" ;; esac
+  case "$p" in
+    /*) _segments "$p" 0; p="/$REPLY" ;;      # normpath: "." and ".." resolved
+  esac
   while :; do
     case "$p" in */) p="${p%/}" ;; *) break ;; esac
   done
@@ -365,20 +368,33 @@ _json_ok() {
   }' "$1" 2>/dev/null
 }
 
-# _collapse_path PATH -> REPLY: "." and ".." segments resolved; fails when the path
-# leaves its start (a leading ".." after resolving) or is absolute
-_collapse_path() {
-  local seg out=() n=0 IFS=/
-  case "$1" in /*) return 1 ;; esac
+# _segments PATH STRICT -> REPLY: PATH's "." and ".." segments resolved, joined by "/"
+# without a leading slash. A ".." with nothing left to remove fails when STRICT is 1 and
+# is dropped otherwise (the way normpath treats an absolute path). Globbing is off while
+# the path is split, so a "*" stays a "*".
+_segments() {
+  local seg out=() n=0 IFS=/ noglob=1 rc=0
+  case $- in *f*) noglob=0 ;; esac
+  set -f
   for seg in $1; do
     case "$seg" in
       ''|.) ;;
-      ..) [ "$n" -gt 0 ] || return 1; n=$((n - 1)); unset 'out[n]' ;;
+      ..)
+        if [ "$n" -gt 0 ]; then n=$((n - 1)); unset 'out[n]'
+        elif [ "$2" = 1 ]; then rc=1; break; fi ;;
       *) out[n]="$seg"; n=$((n + 1)) ;;
     esac
   done
   REPLY="${out[*]}"
-  return 0
+  [ "$noglob" = 1 ] && set +f
+  return "$rc"
+}
+
+# _collapse_path PATH -> REPLY: a relative path inside its start; fails when PATH is
+# absolute or leaves the start after resolving
+_collapse_path() {
+  case "$1" in /*) return 1 ;; esac
+  _segments "$1" 1
 }
 
 # _plugin_list -> PLUGINS: lines "NAME<TAB>ROOT" for every plugin installed (per
@@ -481,12 +497,19 @@ check_agents() {
   AG_DIS=()        # their disallowedTools text
   AG_FM=()         # 1 when the file has frontmatter
   AG_FILES=()      # their paths below .claude/agents
-  list="$(find "$DIR/.claude/agents" -type f -name '*.md' -print 2>/dev/null | LC_ALL=C sort)"
+  list="$(find -H "$DIR/.claude/agents" \( -type f -o -type l \) -name '*.md' -print 2>/dev/null | LC_ALL=C sort)"
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     rel="${f#"$DIR/.claude/agents/"}"
     base="${rel##*/}"; base="${base%.md}"
     case "$base" in .local.?*) base="${base#.local.}" ;; esac
+    # the hook walks the directory without following links: a link to a file is read, a
+    # link to a directory is no agent, a dangling link is a file that holds nothing
+    if [ -L "$f" ] && [ ! -e "$f" ]; then
+      emit agent warn "$rel" "dangling symlink (Claude Code cannot load it)"
+      continue
+    fi
+    [ -f "$f" ] || continue
     parse_agent "$f"
     if [ "$A_FM" = 0 ]; then
       emit agent warn "$rel" "no frontmatter (Claude Code does not load it)"
@@ -769,8 +792,10 @@ _find_hook() {
     return 0
   fi
   if [ -f "$idx" ] && _json_ok "$idx"; then
+    _enabled_map
     while IFS="$TAB" read -r key root proj; do
       case "$key" in briefing@*) ;; *) continue ;; esac
+      _enabled "$key" || continue
       if [ -n "$proj" ]; then
         _unescape "$proj"; _under "$REPLY" || continue
       fi
