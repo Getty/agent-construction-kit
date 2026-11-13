@@ -317,8 +317,8 @@ _path_within() {
   return 1
 }
 
-# _under PROJECT: DIR (the cwd the hook is handed) lies in PROJECT
-_under() { _path_within "$DIR" "$1"; }
+# _under PROJECT: DIRW (the cwd the hook is handed) lies in PROJECT
+_under() { _path_within "$DIRW" "$1"; }
 
 # _json_ok FILE: the file holds one complete JSON object (balanced, strings closed); the
 # hook reads anything else as {}
@@ -916,7 +916,7 @@ check_hook() {
     emit hook warn "${AG_NAMES[$w]}" "the briefing hook was not found; install the briefing plugin"
     return 0
   fi
-  _json_escape "$DIR"; esc="$REPLY"
+  _json_escape "$DIRW"; esc="$REPLY"
   for ((i = 0; i < ${#AG_NAMES[@]}; i++)); do
     agent="${AG_NAMES[$i]}"
     input="{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"ack-check\",\"cwd\":\"$esc\",\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"$agent\",\"description\":\"check\",\"prompt\":\"$MARKER\"}}"
@@ -968,6 +968,9 @@ cmd_check() {
   DIR="$(cd "${1:-.}" 2>/dev/null && pwd)" && [ -n "$DIR" ] ||
     fail 2 "'${1:-.}' is not a directory." "pass the repository that holds the team."
   DIR="${DIR%/}"
+  # the cwd the hook is handed: under Git for Windows the C:/... form (pwd -W), else DIR
+  DIRW="$(cd "$DIR" && pwd -W 2>/dev/null)" || DIRW=""
+  [ -n "$DIRW" ] || DIRW="$DIR"
   GITTOP=""
   if command -v git >/dev/null 2>&1; then
     GITTOP="$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null)"
