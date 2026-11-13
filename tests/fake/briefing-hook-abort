@@ -1,0 +1,8 @@
+#!/bin/sh
+# Stand-in for the current hook when a skill is missing at SubagentStart: it does not
+# deny there, it hands the agent an abort text (json.dumps escapes the dash).
+in="$(cat)"
+case "$in" in
+  *'"hook_event_name":"SubagentStart"'*)
+    printf '{"systemMessage":"x","hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"# Briefing \\u2014 FAILED\\n\\nThe skills this agent declares could not be loaded: harbor-gone, kit:deploy.\\n\\nYou are NOT briefed for this task."}}' ;;
+esac

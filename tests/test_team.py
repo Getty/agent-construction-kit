@@ -142,6 +142,33 @@ class TeamTest(Sandbox):
         return self.write(".claude/plugins/cache/%s/%s/%s/skills/%s/SKILL.md"
                           % (market, plugin, version, skill), "---\nname: %s\n---\n" % skill)
 
+    def install_plugin(self, plugin, skill, market="getty", enabled=True, version="1.0.0",
+                       scope="user", project=None, install_version=None, where="user"):
+        """A plugin as Claude Code leaves it: files in the cache, an entry in
+        installed_plugins.json, enabledPlugins in the user's (or the project's) settings."""
+        import json
+        self.cache_skill(plugin, skill, market, version)
+        key = "%s@%s" % (plugin, market)
+        index = self.home / ".claude" / "plugins" / "installed_plugins.json"
+        data = json.loads(index.read_text()) if index.exists() else {"version": 2, "plugins": {}}
+        entry = {"scope": scope, "version": install_version or version,
+                 "installPath": str(self.home / ".claude" / "plugins" / "cache" / market
+                                    / plugin / (install_version or version))}
+        if project:
+            entry["projectPath"] = str(project)
+        data["plugins"].setdefault(key, []).append(entry)
+        index.write_text(json.dumps(data))
+        if enabled is not None:
+            self.enable(key, enabled, where)
+
+    def enable(self, key, value=True, where="user"):
+        import json
+        path = (self.home / ".claude" / "settings.json") if where == "user" else where
+        data = json.loads(path.read_text()) if path.exists() else {}
+        data.setdefault("enabledPlugins", {})[key] = value
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+
     # ---- the good team
 
     def test_good_team_prints_only_ok(self):
@@ -367,7 +394,7 @@ class TeamTest(Sandbox):
     def test_plugin_colon_skill(self):
         d = self.team()
         self.agent(d, "worker", skills=("harbor-core", "kit:deploy"))
-        self.cache_skill("kit", "deploy")
+        self.install_plugin("kit", "deploy")
         r = self.at("check", cwd=d)
         self.assertEqual(r.returncode, 0, r.stdout)
         self.one(r, "skill", "ok", "kit:deploy")
@@ -375,18 +402,85 @@ class TeamTest(Sandbox):
     def test_plugin_colon_skill_in_the_wrong_plugin_is_missing(self):
         d = self.team()
         self.agent(d, "worker", skills=("harbor-core", "kit:deploy"))
-        self.cache_skill("other", "deploy")
+        self.install_plugin("other", "deploy")
         r = self.at("check", cwd=d)
         self.assertEqual(r.returncode, 1)
         self.one(r, "skill", "missing", "kit:deploy")
 
-    def test_bare_name_found_in_a_plugin_cache(self):
+    def test_bare_name_found_in_an_installed_plugin(self):
         d = self.team()
         self.agent(d, "worker", skills=("harbor-core", "deploy"))
-        self.cache_skill("kit", "deploy")
+        self.install_plugin("kit", "deploy")
         r = self.at("check", cwd=d)
         self.assertEqual(r.returncode, 0, r.stdout)
         self.one(r, "skill", "ok", "deploy")
+
+    def test_cache_hit_of_a_plugin_that_is_not_installed_is_missing(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "kit:deploy", "deploy"))
+        self.cache_skill("kit", "deploy")
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 1)
+        row = self.one(r, "skill", "missing", "kit:deploy")
+        self.assertIn("not installed", row[3])
+        self.one(r, "skill", "missing", "deploy")
+
+    def test_installed_but_not_enabled_plugin_is_missing(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "kit:deploy"))
+        self.install_plugin("kit", "deploy", enabled=None)
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("enabled", self.one(r, "skill", "missing", "kit:deploy")[3])
+
+    def test_plugin_set_to_false_is_missing(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "kit:deploy"))
+        self.install_plugin("kit", "deploy", enabled=False)
+        self.assertEqual(self.at("check", cwd=d).returncode, 1)
+
+    def test_plugin_enabled_by_the_project_settings(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "kit:deploy"))
+        self.install_plugin("kit", "deploy", enabled=None)
+        self.enable("kit@getty", True, d / ".claude" / "settings.local.json")
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_project_setting_overrides_the_user_setting(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "kit:deploy"))
+        self.install_plugin("kit", "deploy", enabled=True)
+        self.enable("kit@getty", False, d / ".claude" / "settings.local.json")
+        self.assertEqual(self.at("check", cwd=d).returncode, 1)
+
+    def test_stale_version_directory_does_not_count(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "kit:deploy"))
+        self.install_plugin("kit", "deploy", version="1.0.0", install_version="2.0.0")
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 1)
+        self.one(r, "skill", "missing", "kit:deploy")
+
+    def test_project_scoped_install_of_another_project_does_not_count(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "kit:deploy"))
+        self.install_plugin("kit", "deploy", scope="project", project=self.root / "elsewhere")
+        self.assertEqual(self.at("check", cwd=d).returncode, 1)
+
+    def test_project_scoped_install_of_this_project_counts(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "kit:deploy"))
+        self.install_plugin("kit", "deploy", scope="project", project=d)
+        self.assertEqual(self.at("check", cwd=d).returncode, 0)
+
+    def test_plugin_skill_missing_in_an_installed_plugin(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "kit:nothing"))
+        self.install_plugin("kit", "deploy")
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 1)
+        self.one(r, "skill", "missing", "kit:nothing")
 
     def test_skill_name_with_a_glob_character_is_missing(self):
         d = self.team()
@@ -634,8 +728,7 @@ class TeamTest(Sandbox):
         os.remove(str(d / ".claude" / "agents" / "harbor-worker.md"))
         log = self.root / "hook-input.json"
         r = self.at("check", cwd=d, env={"ACK_FAKE_HOOK_LOG": str(log)})
-        self.one(r, "hook", "ok", "harbor-reviewer")
-        self.assertIn('"subagent_type":"harbor-reviewer"', log.read_text())
+        self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-reviewer", ""]])
 
     def test_hook_deny_is_missing_with_the_reason(self):
         d = self.team()
@@ -658,10 +751,11 @@ class TeamTest(Sandbox):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.one(r, "hook", "ok", "harbor-worker")
         sent = log.read_text().splitlines()
-        self.assertEqual(len(sent), 2)
+        self.assertEqual(len(sent), 5)
         self.assertIn('"hook_event_name":"PreToolUse"', sent[0])
-        self.assertIn('"hook_event_name":"SubagentStart"', sent[1])
-        self.assertIn('"agent_type":"harbor-worker"', sent[1])
+        self.assertIn('"subagent_type":"harbor-reviewer"', sent[0])
+        self.assertIn('"hook_event_name":"SubagentStart"', sent[-1])
+        self.assertIn('"agent_type":"harbor-worker"', sent[-1])
 
     def test_hook_path_that_does_not_exist_warns(self):
         d = self.team()
@@ -689,6 +783,225 @@ class TeamTest(Sandbox):
         shutil.rmtree(str(d / ".claude" / "agents"))
         r = self.at("check", cwd=d)
         self.assertEqual(self.of(r, "hook"), [])
+
+    # ---- fix round 1
+
+    def test_hook_denial_is_reported_for_every_agent(self):
+        d = self.team()
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(FAKE / "briefing-hook-denyscout")})
+        self.assertEqual(r.returncode, 1)
+        hooks = self.of(r, "hook")
+        self.assertEqual([(x[1], x[2]) for x in hooks],
+                         [("missing", "harbor-scout"), ("ok", "harbor-worker")])
+        self.assertIn("harbor-gone", hooks[0][3])
+
+    def test_hook_is_started_once_per_agent_and_injection_checked_once(self):
+        d = self.team()
+        log = self.root / "hook-input.json"
+        self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": HOOK_SPLIT, "ACK_FAKE_HOOK_LOG": str(log)})
+        sent = log.read_text().splitlines()
+        self.assertEqual(len([x for x in sent if "PreToolUse" in x]), 4)
+        self.assertEqual(len([x for x in sent if "SubagentStart" in x]), 1)
+
+    def test_hook_that_hangs_is_cut_off(self):
+        import time
+        d = self.team()
+        t0 = time.time()
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(FAKE / "briefing-hook-hang"),
+                                         "ACK_HOOK_WAIT": "1"})
+        self.assertLess(time.time() - t0, 15)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.of(r, "hook"),
+                         [["hook", "warn", "harbor-reviewer", "the hook did not answer"]])
+
+    def test_hook_that_exits_non_zero_warns_with_one_line_of_stderr(self):
+        d = self.team()
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(FAKE / "briefing-hook-fail")})
+        self.assertEqual(r.returncode, 0, r.stdout)
+        hooks = self.of(r, "hook")
+        self.assertEqual(len(hooks), 1, r.stdout)
+        self.assertEqual(hooks[0][1:], ["warn", "harbor-reviewer", "briefing: python3 not found"])
+
+    @unittest.skipIf(os.name == "nt", "no execute bit on Windows")
+    def test_hook_that_is_not_executable_warns(self):
+        d = self.team()
+        p = self.root / "plain-hook"
+        shutil.copy(HOOK_OK, str(p))
+        p.chmod(0o644)
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(p)})
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.of(r, "hook")[0][1], "warn")
+        self.assertEqual(self.of(r, "hook")[0][3], "the hook could not be run")
+
+    def test_hook_stderr_noise_with_exit_zero_is_ignored(self):
+        d = self.team()
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(FAKE / "briefing-hook-noise")})
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]])
+        self.assertEqual(r.stderr, "")
+
+    def test_abort_text_at_subagent_start_is_missing(self):
+        d = self.team()
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(FAKE / "briefing-hook-abort")})
+        self.assertEqual(r.returncode, 1)
+        row = self.one(r, "hook", "missing", "harbor-worker")
+        self.assertIn("harbor-gone, kit:deploy", row[3])
+
+    @unittest.skipIf(os.name == "nt", "no quote or backslash in Windows paths")
+    def test_cwd_with_quote_and_backslash_is_escaped(self):
+        d = self.team(name='we"ird\\dir')
+        log = self.root / "hook-input.json"
+        r = self.at("check", cwd=d, env={"ACK_FAKE_HOOK_LOG": str(log)})
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn('we\\"ird\\\\dir', log.read_text())
+
+    def test_unclosed_flow_list_is_not_readable(self):
+        d = self.team()
+        self.put(d, ".claude/agents/harbor-worker.md",
+                 "---\nname: harbor-worker\ndescription: x\nbriefing:\n  skills: [harbor-core,\n"
+                 "    harbor-extra]\n---\n")
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(self.one(r, "agent", "missing", "harbor-worker.md")[3],
+                         'briefing.skills is not readable (keep the list on one line or use one '
+                         '"- name" per line)')
+        self.assertEqual(len(self.of(r, "agent")), 4)
+        self.assertEqual([x for x in self.of(r, "agent") if x[1] == "warn"], [])
+
+    def test_claude_md_names_need_boundaries(self):
+        d = self.team()
+        self.put(d, "CLAUDE.md", "harbor-scout, harbor-worker-api, harbor-test-writer, "
+                 "harbor-reviewer.\n")
+        r = self.at("check", cwd=d)
+        row = self.one(r, "claude-md", "warn")
+        self.assertIn("harbor-worker", row[3])
+        self.assertNotIn("harbor-scout", row[3])
+
+    def test_claude_md_name_at_line_ends_and_in_backticks(self):
+        d = self.team()
+        self.put(d, "CLAUDE.md", "`harbor-scout`\r\n(harbor-worker)\r\nharbor-test-writer\n"
+                 "x harbor-reviewer")
+        r = self.at("check", cwd=d)
+        self.one(r, "claude-md", "ok", "CLAUDE.md")
+
+    def test_rules_count_only_markdown(self):
+        d = self.team()
+        os.remove(str(d / ".claude" / "rules" / "harbor.md"))
+        self.put(d, ".claude/rules/notes.txt", "x\n")
+        self.put(d, ".claude/rules/.DS_Store", "x\n")
+        r = self.at("check", cwd=d)
+        self.one(r, "rules", "missing", ".claude/rules")
+
+    def test_bom_before_frontmatter(self):
+        d = self.team()
+        p = d / ".claude" / "agents" / "harbor-worker.md"
+        p.write_bytes(b"\xef\xbb\xbf" + p.read_bytes())
+        r = self.at("check", cwd=d)
+        self.one(r, "agent", "ok", "harbor-worker.md")
+
+    def test_disallowed_tools_block_list_at_column_zero(self):
+        d = self.team()
+        self.put(d, ".claude/agents/harbor-reviewer.md",
+                 "---\nname: harbor-reviewer\ndescription: x\ndisallowedTools:\n- Edit\n- Write\n"
+                 "briefing:\n  skills:\n  - harbor-core\n---\n")
+        r = self.at("check", cwd=d)
+        self.one(r, "readonly", "ok", "harbor-reviewer.md")
+        self.one(r, "skill", "ok", "harbor-core")
+
+    def test_enabled_plugin_value_must_be_literal_true(self):
+        d = self.team()
+        self.put(d, ".claude/settings.json", """{
+  "enabledPlugins": {"briefing@getty": "true"},
+  "extraKnownMarketplaces": {"getty": {}}
+}
+""")
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 1)
+        self.one(r, "settings", "missing", "briefing")
+
+    def test_minified_settings(self):
+        d = self.team()
+        self.put(d, ".claude/settings.json", '{"enabledPlugins":{"briefing@getty":true,'
+                 '"x@nowhere":true},"extraKnownMarketplaces":{"getty":{}}}')
+        r = self.at("check", cwd=d)
+        self.one(r, "settings", "missing", "x@nowhere")
+        self.assertEqual(len(self.of(r, "settings")), 1)
+
+    def test_nested_enabled_plugins_is_not_the_top_level_one(self):
+        d = self.team()
+        self.put(d, ".claude/settings.json", '{"other":{"enabledPlugins":{"briefing@getty":true}},'
+                 '"enabledPlugins":{"skilletor@getty":true},"extraKnownMarketplaces":{"getty":{}}}')
+        r = self.at("check", cwd=d)
+        self.one(r, "settings", "missing", "briefing")
+
+    def test_string_that_contains_enabled_plugins(self):
+        d = self.team()
+        self.put(d, ".claude/settings.json", '{"note":"see \\"enabledPlugins\\": {\\"a@b\\": true}",'
+                 '"enabledPlugins":{"briefing@getty":true},"extraKnownMarketplaces":{"getty":{}}}')
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.one(r, "settings", "ok")
+
+    def test_same_missing_skill_in_two_agents_gives_two_lines(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-gone",))
+        self.agent(d, "scout", skills=("harbor-gone",))
+        r = self.at("check", cwd=d)
+        rows = [x for x in self.of(r, "skill") if x[1] == "missing"]
+        self.assertEqual(len(rows), 2)
+        self.assertNotEqual(rows[0][3], rows[1][3])
+
+    def test_allowed_tools_in_the_body_is_no_finding(self):
+        d = self.team()
+        self.put(d, ".claude/agents/harbor-worker.md",
+                 agent_text("harbor-worker").rstrip("\n") + "\nallowed-tools: Read\nskills:\n  - x\n")
+        r = self.at("check", cwd=d)
+        self.one(r, "agent", "ok", "harbor-worker.md")
+
+    def test_skills_under_another_briefing_key_is_not_briefing_skills(self):
+        d = self.team()
+        self.put(d, ".claude/agents/harbor-worker.md",
+                 "---\nname: harbor-worker\ndescription: x\nbriefing:\n  notes:\n    skills:\n"
+                 "      - harbor-gone\n---\n")
+        r = self.at("check", cwd=d)
+        self.none(r, "skill", "missing")
+        self.assertEqual(self.one(r, "agent", "warn", "harbor-worker.md")[3], "no briefing")
+
+    def test_board_headings_must_be_real_headings(self):
+        d = self.team()
+        self.put(d, "BOARD.md", "# Board\n\nTodo\n\nDone: nothing\n\n```\n# Review\n# In progress\n```\n"
+                 "## Abandoned\n")
+        r = self.at("check", cwd=d)
+        row = self.one(r, "board", "warn", "BOARD.md")
+        for w in ("Todo", "In progress", "Review", "Done"):
+            self.assertIn(w, row[3])
+
+    def test_board_heading_text_must_be_the_name_itself(self):
+        d = self.team()
+        self.put(d, "BOARD.md", "## Todo list\n## **In progress**\n## Review ##\n## Abandoned\n")
+        r = self.at("check", cwd=d)
+        row = self.one(r, "board", "warn", "BOARD.md")
+        self.assertEqual(row[3], "no heading for: Todo, Done")
+
+    def test_agents_below_subdirectories_are_read(self):
+        d = self.team()
+        os.remove(str(d / ".claude" / "agents" / "harbor-worker.md"))
+        self.put(d, ".claude/agents/team/harbor-worker.md", agent_text("harbor-worker"))
+        r = self.at("check", cwd=d)
+        self.one(r, "agent", "ok", "team/harbor-worker.md")
+        self.one(r, "roles", "ok")
+        self.one(r, "hook", "ok", "harbor-worker")
+
+    def test_local_prefix_is_stripped_from_the_file_name_only(self):
+        d = self.team()
+        self.put(d, ".claude/agents/.local.harbor-checker.md", agent_text("harbor-checker"))
+        self.put(d, ".claude/agents/harbor-api.local.md", agent_text("harbor-api.local"))
+        self.put(d, ".claude/agents/harbor-bad.local.md", agent_text("harbor-bad"))
+        r = self.at("check", cwd=d)
+        self.one(r, "agent", "ok", ".local.harbor-checker.md")
+        self.one(r, "agent", "ok", "harbor-api.local.md")
+        self.one(r, "agent", "missing", "harbor-bad.local.md")
+        self.one(r, "readonly", "warn", ".local.harbor-checker.md")
 
     # ---- usage
 

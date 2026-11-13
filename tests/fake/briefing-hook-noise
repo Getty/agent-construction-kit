@@ -1,0 +1,6 @@
+#!/bin/sh
+# Stand-in for a briefing hook that briefs fine but writes warnings to stderr.
+in="$(cat)"
+echo "warning: that much context is rarely intended" >&2
+echo "warning: second line" >&2
+printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":{"prompt":"briefing text\\n\\n%s"}}}' "$in"

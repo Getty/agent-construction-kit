@@ -1,0 +1,9 @@
+#!/bin/sh
+# Stand-in for a briefing hook that refuses to spawn harbor-scout only.
+in="$(cat)"
+case "$in" in
+  *'"subagent_type":"harbor-scout"'*)
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"briefing: agent harbor-scout references unknown skill(s): harbor-gone"}}' ;;
+  *)
+    printf '{"hookSpecificOutput":{"updatedInput":{"prompt":"briefing text\\n\\n%s"}}}' "$in" ;;
+esac

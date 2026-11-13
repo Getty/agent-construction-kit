@@ -5,30 +5,37 @@
 # tabs (the last may be empty, its tab stays):
 #   WHAT<TAB>ok|missing|warn<TAB>FILE-OR-NAME<TAB>TEXT
 # WHAT is one of:
-#   agent      per .claude/agents/*.md: frontmatter, name equal to the file name, a
-#              description, briefing.skills (warn: no briefing), allowed-tools (missing:
-#              Claude Code ignores it), a top-level skills key (warn: briefing reads only
+#   agent      per *.md below .claude/agents (subdirectories included; a leading ".local."
+#              is dropped from the file name, so .local.x.md must say "x"): frontmatter
+#              (a BOM is fine), name, description, briefing.skills (warn: no briefing;
+#              missing: a flow list that spans lines), allowed-tools (missing: Claude Code
+#              ignores it), a top-level skills key (warn: briefing reads only
 #              briefing.skills). No agent file at all: missing .claude/agents.
 #   skill      per distinct briefing.skills entry that resolves: ok; per agent that
 #              declares an entry that does not: missing (briefing would refuse the spawn).
 #              A name resolves in .claude/skills, ~/.claude/skills or, as "plugin:skill"
-#              or bare, in a plugin cache (~/.claude/plugins/cache/*/*/*/skills/).
+#              or bare, in a plugin that is installed (installed_plugins.json, in the
+#              installed version's directory) and enabled (enabledPlugins, user, project,
+#              project-local settings), like the briefing hook decides.
 #   roles      ok when agents ending in -scout, -worker (or -worker-*), -test-writer and
 #              -reviewer all exist; else warn per missing role.
 #   readonly   per agent ending in -scout, -reviewer, -checker or -coordinator: warn
 #              unless its disallowedTools name Edit and Write.
-#   rules      missing without a file in .claude/rules/.
-#   settings   .claude/settings.json is readable, every enabled plugin's marketplace is
-#              in extraKnownMarketplaces (claude-plugins-official excepted), briefing is
-#              enabled; missing otherwise.
-#   board      ok with karr refs (refs/karr/*) or a BOARD.md holding the headings Todo,
-#              In progress, Review, Done (warn when one is absent); else missing.
-#   claude-md  warn unless CLAUDE.md exists and names every agent.
+#   rules      missing without a *.md file in .claude/rules/.
+#   settings   .claude/settings.json is readable, every plugin set to true in
+#              enabledPlugins has its marketplace in extraKnownMarketplaces
+#              (claude-plugins-official excepted), briefing is enabled; missing otherwise.
+#   board      ok with karr refs (refs/karr/*) or a BOARD.md with the headings Todo,
+#              In progress, Review, Done (each the heading's whole text, outside code
+#              fences; warn when one is absent); else missing.
+#   claude-md  warn unless CLAUDE.md exists and names every agent (as a whole name).
 #   git        missing without a repository; warn without a remote.
-#   hook       runs the briefing plugin's hook as if the first worker (else the first
-#              agent) were spawned: ok when it briefs, missing when it denies (the
-#              reason is the text), warn when it is not found or changes nothing.
-#              ACK_BRIEFING_HOOK names the hook script instead of the plugin cache's.
+#   hook       runs the briefing plugin's hook once per agent as if it were spawned: a
+#              denial is missing (the reason is the text). The first worker (else the
+#              first agent) must also be briefed: ok, missing when the hook hands it an
+#              abort text, warn when it adds nothing. A hook that is not found, cannot be
+#              run, fails or does not answer within ACK_HOOK_WAIT seconds (default 10) is
+#              one warn. ACK_BRIEFING_HOOK names the hook script instead of the cache's.
 # Exit codes: 0 no line is missing, 1 a line is missing, 2 usage error or unusable DIR.
 # Errors are two lines on stderr: "ack-team: <what>" and "ack-team: <what to do>".
 
@@ -98,13 +105,16 @@ _unquote() {
 }
 
 # parse_agent FILE: sets A_FM (1 = has frontmatter), A_HASNAME, A_NAME, A_DESC (1 = a
-# description with text), A_SKILLS (newline separated briefing.skills), A_ALLOWED,
-# A_TOPSKILLS, A_DIS (the disallowedTools text).
+# description with text), A_SKILLS (newline separated briefing.skills), A_BADLIST (1 =
+# a flow list that does not close on its line), A_ALLOWED, A_TOPSKILLS, A_DIS (the
+# disallowedTools text). Only the frontmatter is read: the lines between a first line
+# "---" (a UTF-8 BOM before it is fine) and the next "---".
 parse_agent() {
-  local f="$1" line t first=1 mode="" bsk=0 val item rest
-  A_FM=0 A_HASNAME=0 A_NAME="" A_DESC=0 A_SKILLS="" A_ALLOWED=0 A_TOPSKILLS=0 A_DIS=""
+  local f="$1" line t first=1 mode="" bsk=0 bind=-1 ind val item rest
+  A_FM=0 A_HASNAME=0 A_NAME="" A_DESC=0 A_SKILLS="" A_BADLIST=0 A_ALLOWED=0 A_TOPSKILLS=0 A_DIS=""
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line//$'\r'/}"
+    if [ "$first" = 1 ]; then line="${line#$'\xEF\xBB\xBF'}"; fi
     _ack_trim "$line"; t="$REPLY"
     if [ "$first" = 1 ]; then
       first=0
@@ -116,16 +126,23 @@ parse_agent() {
     case "$t" in ''|'#'*) continue ;; esac
     case "$line" in
       ' '*|"$TAB"*)
+        ind="${line%%[![:space:]]*}"
         case "$mode" in
           desc) A_DESC=1 ;;
           dis) A_DIS="$A_DIS $t" ;;
           briefing)
+            [ "$bind" = -1 ] && bind="${#ind}"
             case "$t" in
               skills:*)
+                if [ "${#ind}" != "$bind" ]; then bsk=0; continue; fi
                 _ack_trim "${t#skills:}"; val="$REPLY"
                 bsk=0
                 case "$val" in
                   '['*)
+                    case "$val" in
+                      *']'*) ;;
+                      *) A_BADLIST=1; continue ;;
+                    esac
                     val="${val#\[}"; val="${val%%\]*}"
                     while [ -n "$val" ]; do
                       item="${val%%,*}"
@@ -145,6 +162,16 @@ parse_agent() {
             esac ;;
         esac ;;
       *)
+        if [ "$mode" = dis ]; then
+          case "$t" in -*) A_DIS="$A_DIS $t"; continue ;; esac
+        fi
+        if [ "$mode" = briefing ] && [ "$bsk" = 1 ]; then
+          case "$t" in -*)
+            _unquote "${t#-}"
+            [ -z "$REPLY" ] || A_SKILLS="$A_SKILLS$REPLY"$'\n'
+            continue ;;
+          esac
+        fi
         mode=""
         case "$t" in
           *:*) ;;
@@ -162,7 +189,7 @@ parse_agent() {
           allowed-tools) A_ALLOWED=1 ;;
           skills) A_TOPSKILLS=1 ;;
           disallowedTools) A_DIS="$val"; mode=dis ;;
-          briefing) mode=briefing; bsk=0 ;;
+          briefing) mode=briefing; bsk=0; bind=-1 ;;
         esac ;;
     esac
   done < "$f"
@@ -183,77 +210,189 @@ _safe_name() {
   return 0
 }
 
-# _resolves NAME: the skill exists where the briefing hook (or Claude Code) looks
+# _unescape STRING -> REPLY: the few JSON escapes a path holds
+_unescape() {
+  REPLY="${1//\\\\/\\}"
+  REPLY="${REPLY//\\\//\/}"
+}
+
+# _enabled_map -> ENABLED: lines "KEY<TAB>true|false", user then project then
+# project-local settings, a later file winning per key; only literal true and false count
+_enabled_map() {
+  local f text ep k v
+  ENABLED=""
+  for f in "$HOME/.claude/settings.json" "$DIR/.claude/settings.json" "$DIR/.claude/settings.local.json"; do
+    [ -f "$f" ] || continue
+    text="$(cat "$f" 2>/dev/null)"
+    json_member "$text" enabledPlugins; ep="$REPLY"
+    _json_keys "$ep"
+    while IFS="$TAB" read -r k v; do
+      case "$v" in true|false) ;; *) continue ;; esac
+      [ -n "$k" ] || continue
+      ENABLED="$ENABLED$k$TAB$v"$'\n'
+    done <<EOT
+$VALS
+EOT
+  done
+}
+
+# _enabled KEY: the last entry for KEY in ENABLED says true
+_enabled() {
+  local k v r=1
+  while IFS="$TAB" read -r k v; do
+    [ "$k" = "$1" ] && { [ "$v" = true ] && r=0 || r=1; }
+  done <<EOT
+$ENABLED
+EOT
+  return "$r"
+}
+
+# _plugin_list -> PLUGINS: lines "NAME<TAB>ROOT" for every plugin installed (per
+# ~/.claude/plugins/installed_plugins.json, for this project) AND enabled, like the
+# briefing hook reads them; computed once
+_plugin_list() {
+  local idx="$HOME/.claude/plugins/installed_plugins.json" text pl key keys arr line root proj name mf
+  [ -z "${PLUGINS_DONE:-}" ] || return 0
+  PLUGINS_DONE=1; PLUGINS=""
+  [ -f "$idx" ] || return 0
+  text="$(cat "$idx" 2>/dev/null)"
+  json_member "$text" plugins; pl="$REPLY"
+  _json_keys "$pl"; keys="$KEYS"
+  _enabled_map
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    _enabled "$key" || continue
+    json_member "$pl" "$key"; arr="$REPLY"
+    case "$arr" in '['*) ;; *) continue ;; esac
+    json_objects "$arr"
+    while IFS= read -r line; do
+      case "$line" in *'"installPath":"'*) ;; *) continue ;; esac
+      root="${line#*\"installPath\":\"}"; root="${root%%\"*}"
+      _unescape "$root"; root="$REPLY"
+      proj=""
+      case "$line" in
+        *'"projectPath":"'*) proj="${line#*\"projectPath\":\"}"; proj="${proj%%\"*}"; _unescape "$proj"; proj="$REPLY" ;;
+      esac
+      if [ -n "$proj" ]; then
+        proj="${proj%/}"
+        case "$DIR/" in "$proj"/*) ;; *) continue ;; esac
+      fi
+      name="${key%%@*}"
+      mf="$root/.claude-plugin/plugin.json"
+      if [ -f "$mf" ]; then
+        json_member "$(cat "$mf" 2>/dev/null)" name
+        case "$REPLY" in '"'*'"') name="${REPLY#\"}"; name="${name%\"}" ;; esac
+      fi
+      PLUGINS="$PLUGINS$name$TAB$root"$'\n'
+    done <<EOT
+$PLUGIN_OBJS
+EOT
+  done <<EOT
+$keys
+EOT
+}
+
+# _plugin_has_skill ROOT SKILL: ROOT/skills/SKILL/SKILL.md exists
+_plugin_has_skill() { [ -f "$1/skills/$2/SKILL.md" ]; }
+
+# _resolves NAME -> WHY (empty on success): the skill exists where the briefing hook
+# looks: the project's and the user's .claude/skills, and the skills directory of every
+# plugin that is installed and enabled (in the installed version's directory)
 _resolves() {
-  local n="$1" plugin skill f cache="$HOME/.claude/plugins/cache"
+  local n="$1" plugin skill name root known=0
+  WHY=""
   case "$n" in
     *:*)
       plugin="${n%%:*}"; skill="${n#*:}"
-      _safe_name "$plugin" && _safe_name "$skill" || return 1
-      for f in "$cache"/*/"$plugin"/*/skills/"$skill"/SKILL.md; do
-        [ -f "$f" ] && return 0
-      done
+      if ! _safe_name "$plugin" || ! _safe_name "$skill"; then WHY="not a usable skill name"; return 1; fi
+      _plugin_list
+      while IFS="$TAB" read -r name root; do
+        [ "$name" = "$plugin" ] || continue
+        known=1
+        _plugin_has_skill "$root" "$skill" && return 0
+      done <<EOT
+$PLUGINS
+EOT
+      if [ "$known" = 1 ]; then WHY="plugin '$plugin' has no skill '$skill'"
+      else WHY="plugin '$plugin' is not installed and enabled"; fi
       return 1 ;;
   esac
-  _safe_name "$n" || return 1
+  if ! _safe_name "$n"; then WHY="not a usable skill name"; return 1; fi
   [ -f "$DIR/.claude/skills/$n/SKILL.md" ] && return 0
   [ -f "$HOME/.claude/skills/$n/SKILL.md" ] && return 0
-  for f in "$cache"/*/*/*/skills/"$n"/SKILL.md; do
-    [ -f "$f" ] && return 0
-  done
+  _plugin_list
+  while IFS="$TAB" read -r name root; do
+    [ -n "$root" ] || continue
+    _plugin_has_skill "$root" "$n" && return 0
+  done <<EOT
+$PLUGINS
+EOT
+  WHY="no such skill in .claude/skills, ~/.claude/skills or an installed and enabled plugin"
   return 1
 }
 
 # ---------------------------------------------------------------- agents
 
+# Agent files are every *.md below .claude/agents, subdirectories included. The name
+# that must stand in the file is the file name without ".md" and without one leading
+# ".local." (skilletor installs ".local.<name>.md"); "x.local.md" must say "x.local".
 check_agents() {
-  local f base pairs="" s
-  AG_NAMES=()      # file names without .md, in file order
+  local f rel base pairs="" s list
+  AG_NAMES=()      # expected names, in file order
   AG_DIS=()        # their disallowedTools text
   AG_FM=()         # 1 when the file has frontmatter
-  for f in "$DIR"/.claude/agents/*.md; do
-    [ -f "$f" ] || continue
-    base="${f##*/}"; base="${base%.md}"
+  AG_FILES=()      # their paths below .claude/agents
+  list="$(find "$DIR/.claude/agents" -type f -name '*.md' -print 2>/dev/null | LC_ALL=C sort)"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    rel="${f#"$DIR/.claude/agents/"}"
+    base="${rel##*/}"; base="${base%.md}"
+    case "$base" in .local.?*) base="${base#.local.}" ;; esac
     AG_NAMES[${#AG_NAMES[@]}]="$base"
+    AG_FILES[${#AG_FILES[@]}]="$rel"
     parse_agent "$f"
     AG_DIS[${#AG_DIS[@]}]="$A_DIS"
     AG_FM[${#AG_FM[@]}]="$A_FM"
     if [ "$A_FM" = 0 ]; then
-      emit agent missing "$base.md" "no frontmatter"
+      emit agent missing "$rel" "no frontmatter"
       continue
     fi
     local bad=0
     if [ "$A_HASNAME" = 0 ] || [ -z "$A_NAME" ]; then
-      emit agent missing "$base.md" "no name"; bad=1
+      emit agent missing "$rel" "no name"; bad=1
     elif [ "$A_NAME" != "$base" ]; then
-      emit agent missing "$base.md" "name '$A_NAME' differs from the file name"; bad=1
+      emit agent missing "$rel" "name '$A_NAME' differs from the file name"; bad=1
     fi
     if [ "$A_DESC" = 0 ]; then
-      emit agent missing "$base.md" "description is empty"; bad=1
+      emit agent missing "$rel" "description is empty"; bad=1
     fi
     if [ "$A_ALLOWED" = 1 ]; then
-      emit agent missing "$base.md" "allowed-tools: ignored by Claude Code; use disallowedTools"; bad=1
+      emit agent missing "$rel" "allowed-tools: ignored by Claude Code; use disallowedTools"; bad=1
     fi
-    if [ -z "$A_SKILLS" ]; then
-      emit agent warn "$base.md" "no briefing"; bad=1
+    if [ "$A_BADLIST" = 1 ]; then
+      emit agent missing "$rel" 'briefing.skills is not readable (keep the list on one line or use one "- name" per line)'; bad=1
+    elif [ -z "$A_SKILLS" ]; then
+      emit agent warn "$rel" "no briefing"; bad=1
     fi
     if [ "$A_TOPSKILLS" = 1 ]; then
-      emit agent warn "$base.md" "skills: briefing reads only briefing.skills"; bad=1
+      emit agent warn "$rel" "skills: briefing reads only briefing.skills"; bad=1
     fi
-    [ "$bad" = 1 ] || emit agent ok "$base.md" ""
+    [ "$bad" = 1 ] || emit agent ok "$rel" ""
     while IFS= read -r s; do
-      [ -z "$s" ] || pairs="$pairs$base$TAB$s"$'\n'
+      [ -z "$s" ] || pairs="$pairs$rel$TAB$s"$'\n'
     done <<EOT
 $A_SKILLS
 EOT
-  done
+  done <<EOT
+$list
+EOT
   if [ "${#AG_NAMES[@]}" = 0 ]; then
     emit agent missing ".claude/agents" "no agent files"
   fi
   check_skills "$pairs"
 }
 
-# check_skills PAIRS: PAIRS holds "AGENT<TAB>SKILL" lines
+# check_skills PAIRS: PAIRS holds "AGENT-FILE<TAB>SKILL" lines
 check_skills() {
   local pairs="$1" seen=$'\n' a s a2 s2
   while IFS="$TAB" read -r a s; do
@@ -265,7 +404,7 @@ check_skills() {
     else
       while IFS="$TAB" read -r a2 s2; do
         [ "$s2" = "$s" ] || continue
-        emit skill missing "$s" "$a2.md declares it; briefing would refuse the spawn"
+        emit skill missing "$s" "$a2 declares it; $WHY; briefing would refuse the spawn"
       done <<EOT
 $pairs
 EOT
@@ -309,9 +448,9 @@ check_readonly() {
     done
     [ "$ro" = 1 ] && [ "${AG_FM[$i]}" = 1 ] || continue
     if _has_word "${AG_DIS[$i]}" Edit && _has_word "${AG_DIS[$i]}" Write; then
-      emit readonly ok "$name.md" ""
+      emit readonly ok "${AG_FILES[$i]}" ""
     else
-      emit readonly warn "$name.md" "read-only role without disallowedTools naming Edit and Write"
+      emit readonly warn "${AG_FILES[$i]}" "read-only role without disallowedTools naming Edit and Write"
     fi
   done
 }
@@ -321,7 +460,7 @@ check_readonly() {
 check_rules() {
   local hit=""
   if [ -d "$DIR/.claude/rules" ]; then
-    hit="$(find "$DIR/.claude/rules" -type f -print 2>/dev/null | head -n 1)"
+    hit="$(find "$DIR/.claude/rules" -type f -name '*.md' -print 2>/dev/null | head -n 1)"
   fi
   if [ -n "$hit" ]; then
     emit rules ok ".claude/rules" ""
@@ -368,7 +507,7 @@ check_settings() {
   _json_keys "$ep"
   while IFS="$TAB" read -r k v; do
     [ -n "$k" ] || continue
-    [ "$v" = false ] && continue
+    [ "$v" = true ] || continue
     case "$k" in
       briefing@*) briefing=1 ;;
     esac
@@ -395,7 +534,7 @@ EOT
 # ---------------------------------------------------------------- board, claude-md, git
 
 check_board() {
-  local line t l todo=0 prog=0 rev=0 done_=0 miss="" have_karr=""
+  local line t todo=0 prog=0 rev=0 done_=0 fence=0 miss="" have_karr=""
   if [ -n "$GITTOP" ]; then
     have_karr="$(git -C "$DIR" for-each-ref --count=1 refs/karr 2>/dev/null)"
   fi
@@ -408,14 +547,26 @@ check_board() {
     return 0
   fi
   while IFS= read -r line || [ -n "$line" ]; do
+    line="${line//$'\r'/}"
     _ack_trim "$line"; t="$REPLY"
-    case "$t" in '#'*) ;; *) continue ;; esac
-    t="${t#"${t%%[!#]*}"}"
-    _lower "$t"; l="$REPLY"
-    case "$l" in *todo*) todo=1 ;; esac
-    case "$l" in *"in progress"*) prog=1 ;; esac
-    case "$l" in *review*) rev=1 ;; esac
-    case "$l" in *done*) done_=1 ;; esac
+    case "$t" in
+      '```'*|'~~~'*) [ "$fence" = 1 ] && fence=0 || fence=1; continue ;;
+    esac
+    [ "$fence" = 0 ] || continue
+    case "$line" in '#'*) ;; *) continue ;; esac
+    t="${line#"${line%%[!#]*}"}"
+    t="$(printf '%s' "$t" | tr -d '*`')"
+    _ack_trim "$t"; t="$REPLY"
+    t="${t%"${t##*[!#]}"}"
+    _ack_trim "$t"; t="$REPLY"
+    t="${t#"${t%%[!_]*}"}"; t="${t%"${t##*[!_]}"}"
+    _lower "$t"
+    case "$REPLY" in
+      todo) todo=1 ;;
+      "in progress") prog=1 ;;
+      review) rev=1 ;;
+      done) done_=1 ;;
+    esac
   done < "$DIR/BOARD.md"
   [ "$todo" = 1 ] || miss="$miss, Todo"
   [ "$prog" = 1 ] || miss="$miss, In progress"
@@ -429,13 +580,15 @@ check_board() {
 }
 
 check_claude_md() {
-  local n bad=0
+  local n rx bad=0
   if [ ! -f "$DIR/CLAUDE.md" ]; then
     emit claude-md warn "CLAUDE.md" "not found"
     return 0
   fi
   for n in "${AG_NAMES[@]}"; do
-    if ! grep -F -- "$n" "$DIR/CLAUDE.md" >/dev/null 2>&1; then
+    # the name stands between characters that are no part of a name, or at a line end
+    rx="$(printf '%s' "$n" | sed 's/[][\.*^$+?(){}|/]/\\&/g')"
+    if ! grep -E -- "(^|[^A-Za-z0-9_-])$rx([^A-Za-z0-9_-]|\$)" "$DIR/CLAUDE.md" >/dev/null 2>&1; then
       emit claude-md warn "CLAUDE.md" "does not name the agent $n"
       bad=1
     fi
@@ -489,46 +642,97 @@ _deny_reason() {
   REPLY="$acc"
 }
 
+# _hook_run HOOK INPUT: feeds INPUT to the hook on stdin, waiting at most ACK_HOOK_WAIT
+# seconds (default 10). Sets HR_STATE (ok | timeout | noexec | fail), HR_OUT (stdout) and
+# HR_ERR (the first line of stderr).
+_hook_run() {
+  local hook="$1" input="$2" secs="${ACK_HOOK_WAIT:-10}" d rc
+  HR_STATE=ok HR_OUT="" HR_ERR=""
+  case "$secs" in ''|*[!0-9]*) secs=10 ;; esac
+  if [ ! -x "$hook" ] || ! d="$(mktemp -d)"; then HR_STATE=noexec; return 0; fi
+  printf '%s\n' "$input" > "$d/in"
+  ack_run_bounded "$secs" sh -c 'exec "$1" < "$2"' sh "$hook" "$d/in"
+  rc=$?
+  rm -rf "$d"
+  HR_OUT="$ACK_BOUNDED_OUT"; HR_ERR="$ACK_BOUNDED_ERR"
+  case "$rc" in
+    0) ;;
+    124) HR_STATE=timeout ;;
+    126|127) HR_STATE=noexec ;;
+    *) HR_STATE=fail ;;
+  esac
+  return 0
+}
+
+# _hook_trouble AGENT: after a failed _hook_run, print the warn line; returns 1 when
+# there was trouble
+_hook_trouble() {
+  case "$HR_STATE" in
+    ok) return 1 ;;
+    timeout) emit hook warn "$1" "the hook did not answer" ;;
+    noexec) emit hook warn "$1" "the hook could not be run" ;;
+    *) emit hook warn "$1" "${HR_ERR:-the hook could not be run}" ;;
+  esac
+  return 0
+}
+
+# check_hook: every agent goes through the hook's PreToolUse check (a denial is
+# missing); the first worker (else the first agent) is also checked for being briefed.
+# The first trouble with the hook itself ends the check, so a broken hook warns once.
 check_hook() {
-  local i agent="" hook input out norm esc
+  local i w=-1 agent hook input out norm esc names bs="\\"
   [ "${#AG_NAMES[@]}" -gt 0 ] || return 0
   for ((i = 0; i < ${#AG_NAMES[@]}; i++)); do
-    if _role_match "${AG_NAMES[$i]}" worker; then agent="${AG_NAMES[$i]}"; break; fi
+    if _role_match "${AG_NAMES[$i]}" worker; then w="$i"; break; fi
   done
-  [ -n "$agent" ] || agent="${AG_NAMES[0]}"
+  [ "$w" -ge 0 ] || w=0
   _find_hook; hook="$REPLY"
   if [ -z "$hook" ] || [ ! -f "$hook" ]; then
-    emit hook warn "$agent" "the briefing hook was not found; install the briefing plugin"
+    emit hook warn "${AG_NAMES[$w]}" "the briefing hook was not found; install the briefing plugin"
     return 0
   fi
   _json_escape "$DIR"; esc="$REPLY"
-  input="{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"ack-check\",\"cwd\":\"$esc\",\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"$agent\",\"description\":\"check\",\"prompt\":\"$MARKER\"}}"
-  out="$(printf '%s\n' "$input" | "$hook" 2>/dev/null)"
-  norm="${out//[[:space:]]/}"
-  case "$norm" in
-    *'"permissionDecision":"deny"'*)
-      _deny_reason "$out"
-      emit hook missing "$agent" "${REPLY:-the hook denied the spawn}"
-      return 0 ;;
-  esac
-  # An older hook briefs here: the prompt comes back longer, the marker inside.
-  case "$out" in
-    *"$MARKER"*)
-      if [ "${#out}" -gt "${#input}" ]; then
-        emit hook ok "$agent" ""
-        return 0
-      fi ;;
-  esac
-  # The current hook only guards here and briefs when the subagent starts.
-  input="{\"hook_event_name\":\"SubagentStart\",\"session_id\":\"ack-check\",\"cwd\":\"$esc\",\"agent_type\":\"$agent\"}"
-  out="$(printf '%s\n' "$input" | "$hook" 2>/dev/null)"
-  norm="${out//[[:space:]]/}"
-  case "$norm" in
-    *'"additionalContext":"'[!\"]*)
-      emit hook ok "$agent" ""
-      return 0 ;;
-  esac
-  emit hook warn "$agent" "the hook briefs nothing for this agent"
+  for ((i = 0; i < ${#AG_NAMES[@]}; i++)); do
+    agent="${AG_NAMES[$i]}"
+    input="{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"ack-check\",\"cwd\":\"$esc\",\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"$agent\",\"description\":\"check\",\"prompt\":\"$MARKER\"}}"
+    _hook_run "$hook" "$input"
+    ! _hook_trouble "$agent" || return 0
+    out="$HR_OUT"
+    norm="${out//[[:space:]]/}"
+    case "$norm" in
+      *'"permissionDecision":"deny"'*)
+        _deny_reason "$out"
+        emit hook missing "$agent" "${REPLY:-the hook denied the spawn}"
+        continue ;;
+    esac
+    [ "$i" = "$w" ] || continue
+    # An older hook briefs here: the prompt comes back longer, the marker inside.
+    case "$out" in
+      *"$MARKER"*)
+        if [ "${#out}" -gt "${#input}" ]; then
+          emit hook ok "$agent" ""
+          continue
+        fi ;;
+    esac
+    # The current hook only guards here and briefs when the subagent starts.
+    input="{\"hook_event_name\":\"SubagentStart\",\"session_id\":\"ack-check\",\"cwd\":\"$esc\",\"agent_type\":\"$agent\"}"
+    _hook_run "$hook" "$input"
+    ! _hook_trouble "$agent" || return 0
+    out="$HR_OUT"
+    norm="${out//[[:space:]]/}"
+    case "$out" in
+      *"could not be loaded: "*)
+        # the hook cannot deny at SubagentStart; it hands the agent an abort text instead
+        names="${out#*could not be loaded: }"
+        names="${names%%".${bs}n"*}"
+        emit hook missing "$agent" "the hook reports skills that could not be loaded: $names"
+        continue ;;
+    esac
+    case "$norm" in
+      *'"additionalContext":"'[!\"]*) emit hook ok "$agent" "" ;;
+      *) emit hook warn "$agent" "the hook briefs nothing for this agent" ;;
+    esac
+  done
 }
 
 # ---------------------------------------------------------------- main

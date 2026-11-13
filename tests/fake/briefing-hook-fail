@@ -1,0 +1,6 @@
+#!/bin/sh
+# Stand-in for a briefing hook that crashes: reason on stderr, non-zero exit.
+cat > /dev/null
+echo "briefing: python3 not found" >&2
+echo "second line of noise" >&2
+exit 2
