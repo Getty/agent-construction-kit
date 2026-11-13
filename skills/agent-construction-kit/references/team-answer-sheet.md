@@ -74,6 +74,16 @@ take its answers and ask only the rest. Its author writes it like this:
   without a row keep the kit's base skills. Each role keeps `<prefix>-core` (coordinator:
   `<family>-coordination`) and, with karr, the card skill [team-board.md](team-board.md)
   gives it, whatever the rows say.
+- The skills of the rows that apply are installed before any agent file is written (build
+  item 4 in [team-analysis.md](team-analysis.md)): each one `.claude/skills/` lacks, by
+  `skilletor install <skill>@<source> --project`. A row may write `<skill>@<source>`; in
+  `briefing.skills` it stands without `@<source>`. A bare name: try the sources of the
+  preset's `quellen` line in its order, then `getty`; exit 1 with `unknown item` means
+  that source lacks it (nothing changed), try the next. No source has it: stop, write no
+  agent file, and tell the user: "The preset names the skill `<skill>`, which none of its
+  sources has, so I stopped before writing the agents." A `<plugin>:<skill>` is not
+  installed this way: it stays when `claude plugin list` shows its plugin enabled; else
+  it is left out of the row, with one line to the user saying so.
 - An unknown key is ignored, with one line to the user: "The preset names `<key>`, which
   this version of the kit does not know; I left it out." A value this version cannot
   build (a hub, an issue tracker as board): the kit's value, and one line saying so.

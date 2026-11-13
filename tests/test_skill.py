@@ -650,6 +650,31 @@ class SkillTest(Sandbox):
         self.assertIn("`ack-wrappers list` shows as `absent`",
                       " ".join(read(REFS / "using-the-team.md").split()))
 
+    def test_preset_row_skills_are_installed_before_the_agents(self):
+        sheet = " ".join(FENCE.sub("", read(REFS / "team-answer-sheet.md")).split())
+        build = " ".join(read(REFS / "team-analysis.md").partition(
+            "## After the yes: build order")[2].split())
+        item4 = re.search(r" 4\. (.*?) 5\. Agents", build)
+        self.assertIsNotNone(item4, "build order: no item 4 before the agents")
+        for words in ("`skilletor install bundle:<bundle>@<source> --project`", "`rollen`",
+                      "`skilletor install <skill>@<source> --project`", "stop before any agent file"):
+            self.assertIn(words, item4.group(1))
+        for words in ("`skilletor install <skill>@<source> --project`", "without `@<source>`",
+                      "preset's `quellen` line in its order, then `getty`", "`unknown item`",
+                      "write no agent file", "`claude plugin list` shows its plugin enabled"):
+            self.assertIn(words, sheet)
+
+    def test_an_existing_team_and_an_empty_folder_follow_the_skill(self):
+        analysis = " ".join(read(REFS / "team-analysis.md").split())
+        existing = re.search(r"## An existing team (.*?) ## ", analysis).group(1)
+        for words in ("`ack-team check`", "what the team has and what is missing",
+                      "(made only after this yes)", "Verification", "the full hand-over",
+                      "changes only with its own yes"):
+            self.assertIn(words, existing)
+        self.assertNotIn("`/exit` line", existing)
+        self.assertIn("An empty folder: no question; the answer on what will be made here "
+                      "decides.", analysis)
+
     def readme_provider_names(self):
         text = read(README)
         m = re.search(r"^## Providers\n(.*?)(?=^## |\Z)", text, re.S | re.M)

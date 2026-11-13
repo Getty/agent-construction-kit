@@ -28,8 +28,7 @@ Run `ack-repo inspect` in the project folder; it only reads, offline. One fact p
 - `remote<TAB><name><TAB><kind><TAB><url>`: where copies of the history go; `<kind>` is
   `github`, `codeberg`, `gitlab`, `forge` (a self-hosted server), `disk` or `other`.
 - `signal<TAB><kind><TAB><file>`: how it is built (`perl`, `node`, `python`, `go`, `rust`,
-  `make`, `ci`). Read that file for the build, test and release commands. None: see
-  question 5.
+  `make`, `ci`); that file has the build, test and release commands. None: question 5.
 - `tests<TAB><dir><TAB><n><TAB>nested`: tests in subfolders; check that the test command
   reaches them (many runners skip subfolders). `flat`: one folder. No `tests` line: none.
 - `team<TAB>agents<TAB><n>`, `team<TAB>rules<TAB><n>`, `team<TAB>skills<TAB><n>`: team parts
@@ -43,29 +42,28 @@ Run `ack-repo inspect` in the project folder; it only reads, offline. One fact p
   name part for the agents (`<prefix>-worker`).
 
 Then read, without asking: `README*`, `CONTRIBUTING*`, `CLAUDE.md`, `AGENTS.md`,
-`docs/adr/`, the files the `signal` lines name, the CI config: the build and test
-commands and their traps, the release path, written conventions, clearly separate parts
-("Workers by path" in [team-agents.md](team-agents.md)). The `plugin:superpowers`,
-`plugin:mattpocock-skills` and `tool:karr` lines of the latest `ack-doctor` run decide the
-base skills and the board question. Run `git config user.name` and `git config user.email`;
-an empty answer means question 4.
+`docs/adr/`, the `signal` files, the CI config: build and test commands and their traps,
+the release path, written conventions, clearly separate parts ("Workers by path" in
+[team-agents.md](team-agents.md)). The latest `ack-doctor` run's `plugin:superpowers`,
+`plugin:mattpocock-skills` and `tool:karr` lines decide the base skills and the board
+question. `git config user.name` or `git config user.email` empty: question 4.
 
 ## An existing team
 
 Agent files in `.claude/agents/` mean a team exists: `team<TAB>agents` above `0`, or
 `.local.*.md` files there (agents skilletor installed; that line does not count them).
-Never build a second team beside it. Run `ack-team check` and say in plain words: "N
-things are missing: <each in a few words>. Shall I fix them? I recommend yes." Fix only
-what the check names, each file with its own yes, then "Verification" in
-[team-rules.md](team-rules.md), one commit of the fixed files after the user's yes, and the
-`/exit` line of the hand-over ([using-the-team.md](using-the-team.md)). A rules file that
-starts with `<!-- ack: ... -->` keeps the earlier answers; ask the questions below only
-for what the user wants changed.
+Never build a second team. Run `ack-team check`, then say in plain words what the team
+has and what is missing ("The team has <its agents, the board>. N things are missing:
+<each in a few words>."). Only what it lacks is built, the check's findings and what the
+user asks for, as for a new team: questions, a plan naming the fixes and their one commit
+(made only after this yes), build order, Verification, the commit, the full hand-over. An
+existing agent file changes only with its own yes. A rules file that starts with
+`<!-- ack: ... -->` keeps the earlier answers; ask only about what the user wants changed.
 
 ## From one sentence to a structure
 
-Propose a structure from what the user says and what you read, with its reason in one
-sentence (they need not know the words); they confirm or change it.
+Propose a structure from what the user says (an empty folder: what will be made here) and
+what you read, with its reason in one sentence; they confirm or change it.
 
 | The user says, or the repository shows | Propose |
 |---|---|
@@ -74,8 +72,6 @@ sentence (they need not know the words); they confirm or change it.
 | `sibling` lines that share a core | a family ([team-family.md](team-family.md)) |
 
 ## The questions, in order
-
-Skip each question that the repository, `ack-doctor` or a preset answers.
 
 1. **Repository**, only with `git<TAB>missing`: "Agents, their rules and the board are
    files in a git repository, which keeps every change with its history. There is none
@@ -119,15 +115,17 @@ Skip each question that the repository, `ack-doctor` or a preset answers.
      plan names the command. Missing: "Your tests need the program <runner>, which is
      missing here. May I install it for this project only? I recommend yes." (build
      item 3). No tests: no question; the first cards are for them.
-   - No code files at all: "How can you tell that a piece of work here is right?"
-6. **The board**, only when karr is ready here: `tool:karr` is `ok`, or the table in
-   [team-board.md](team-board.md) has a ready program for this system. "Each job becomes
-   a card on a board. The file `BOARD.md` needs nothing installed. karr is a board
-   program that also passes cards between projects. karr sends the cards, with the
-   e-mail of whoever changed them, to <the second copy> with every change: anyone who
-   can see that copy can read them. I recommend <karr for a family, else the file>."
-   Without a second copy, drop the sentence on sending. karr not ready: no question,
-   the file board.
+   - An empty folder: no question; the answer on what will be made here decides. Software:
+     that language's usual test runner, named in the plan, installed by build item 3.
+     Anything else: the plan says how the reviewer checks the work (a text by its card).
+   - Files, but no code: "How can you tell that a piece of work here is right?"
+6. **The board**, only when karr is ready here (`tool:karr` `ok`, or the table in
+   [team-board.md](team-board.md) has a ready program for this system; else the file
+   board, no question): "Each job becomes a card on a board. The file `BOARD.md` needs
+   nothing installed. karr is a board program that also passes cards between projects.
+   karr sends the cards, with the e-mail of whoever changed them, to <the second copy>
+   with every change: anyone who can see that copy can read them. I recommend <karr for
+   a family, else the file>." Without a second copy, drop the sentence on sending.
 
 ## The plan
 
@@ -158,8 +156,7 @@ Example for a new web shop `harbor`, with a copy on a USB drive:
 > - Their know-how: `harbor-core`, a short instruction file (a "skill") from your README
 >   and code, plus skills from superpowers, which you have installed.
 > - Rules: careful work, the helpers do the work, nothing leaves without your word.
-> - A board: the file `BOARD.md`, with lists for to do, in progress, review and done.
->   karr, a board program, can come later.
+> - A board: the file `BOARD.md` (to do, in progress, review, done); karr can come later.
 > - Public issue trackers stay outside: anyone can write there, and a model cannot
 >   reliably tell such text from an order. You bring single entries in as cards.
 > - Saved work carries "Sam Doe <sam@example.org>", in this project only.
@@ -184,10 +181,12 @@ Example for a new web shop `harbor`, with a copy on a USB drive:
    give the user the one command to type (Debian, Ubuntu `sudo apt install python3-venv`); wait.
 4. Skills and rules, before any agent names them. Per source in `quellen`:
    `skilletor add <name> <address> --project` (the kit's `skilletor add Getty/skills --project`
-   names it `getty`). Bundles: `skilletor install bundle:house@getty --project`. `headless`
-   `on`: `skilletor install claude-headless@getty model-routing@getty --project`. Board
-   `karr`: karr itself, its board, source, skills and rule ([team-board.md](team-board.md)).
-   Then `<prefix>-core` ([team-agents.md](team-agents.md)).
+   names it `getty`). Per bundle: `skilletor install bundle:<bundle>@<source> --project` (a
+   bare name: `getty`). `headless` `on`: `skilletor install claude-headless@getty model-routing@getty --project`.
+   Board `karr`: karr itself, its board, source, skills and rule ([team-board.md](team-board.md)).
+   A met `rollen` row's skill not in `.claude/skills/`: `skilletor install <skill>@<source> --project`
+   ([team-answer-sheet.md](team-answer-sheet.md) names the source); none has it: stop before
+   any agent file, tell the user which. Then `<prefix>-core` ([team-agents.md](team-agents.md)).
 5. Agents: [team-agents.md](team-agents.md).
 6. Project rules, `.claude/settings.json`, `CLAUDE.md`: [team-rules.md](team-rules.md).
 7. The file board: [team-board.md](team-board.md); a family also [team-family.md](team-family.md).
