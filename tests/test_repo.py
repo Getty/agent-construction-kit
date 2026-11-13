@@ -1023,6 +1023,62 @@ class RepoTest(Sandbox):
         for words in ("safe.directory", "git config", "git -C"):
             self.assertNotIn(words, r.stderr)
 
+    # ---- Git for Windows: one form of a folder ------------------------------
+
+    def windows(self, works=True):
+        """Git for Windows as far as the script can tell: OSTYPE msys and a cygpath.
+
+        There bash's pwd says /tmp/x while git says C:/Users/.../Temp/x; the fake
+        cygpath -m marks what it turned into git's form with a 'W:' in front.
+        """
+        body = 'printf "W:%s\\n" "$2"' if works else "exit 1"
+        f = self.fakebin / "cygpath"
+        f.write_text('#!/bin/sh\n[ "$1" = -m ] || exit 1\n%s\n' % body)
+        f.chmod(0o755)
+        return {"OSTYPE": "msys"}
+
+    @unittest.skipIf(NT, "a fake cygpath stands in for Git for Windows")
+    def test_on_windows_every_line_names_a_folder_as_git_does(self):
+        win = self.windows()
+        plain = self.work / "acme-web"
+        plain.mkdir()
+        self.repo("acme")
+        r = self.ar("inspect", str(plain), env=win)
+        self.assertEqual(self.fact(r, "git"), [["git", "missing", "W:%s" % plain]])
+        self.assertEqual(self.fact(r, "sibling"), [["sibling", "W:%s" % (self.work / "acme")]])
+        empty = self.work / "empty"
+        (empty / ".git").mkdir(parents=True)
+        g = self.fact(self.ar("inspect", str(empty), env=win), "git")
+        self.assertEqual(g[0][:3], ["git", "refused", "W:%s" % empty], g)
+        r = self.ar("init", str(empty), env=win)
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("at 'W:%s'" % empty, self.two_lines(r)[0])
+        r = self.ar("init", str(plain), env=win)
+        self.assertEqual(self.fact(r, "git"), [["git", "created", "W:%s" % plain]])
+        sub = plain / "sub"
+        sub.mkdir()
+        t = self.disk()
+        r = self.ar("disk-remote", str(t), "--dir", str(sub), env=win)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("'W:%s' has no repository of its own" % sub, self.two_lines(r)[0])
+        r = self.ar("init", "--own", str(sub), env=win)
+        self.assertEqual(self.fact(r, "git"), [["git", "created", "W:%s" % sub]])
+        r = self.ar("disk-remote", str(t), "--dir", str(sub), env=win)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rem = self.fact(r, "remote")
+        self.assertEqual(rem, [["remote", "created", "origin", "W:%s/sub.git" % t]])
+        r = self.ar("init", env=win, cwd=self.home)
+        self.assertIn("'W:%s' is your home folder" % self.home, self.two_lines(r)[0])
+        r = self.ar("disk-remote", str(t), env=win, cwd=self.home)
+        self.assertIn("'W:%s' is your home folder" % self.home, self.two_lines(r)[0])
+
+    @unittest.skipIf(NT, "a fake cygpath stands in for Git for Windows")
+    def test_on_windows_a_failing_cygpath_leaves_the_folder_as_bash_names_it(self):
+        d = self.work / "proj"
+        d.mkdir()
+        r = self.ar("inspect", str(d), env=self.windows(works=False))
+        self.assertEqual(self.fact(r, "git"), [["git", "missing", str(d)]])
+
     # ---- usage -------------------------------------------------------------
 
     def test_help_prints_the_header(self):

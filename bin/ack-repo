@@ -51,6 +51,7 @@
 # writable, inside the repository, DIR is no repository of its own, the home folder), 3
 # something is in the way: that name already exists, git refuses the .git there, or the
 # other repository tracks files in DIR (nothing changed).
+# On Git for Windows a folder is printed as git prints it (C:/Users/...), in every line.
 # Errors are two lines on stderr: "ack-repo: <what>" and "ack-repo: <what to do>".
 
 _help() {
@@ -100,6 +101,21 @@ command -v git >/dev/null 2>&1 || fail 2 "git is not installed." "install git an
 # is cleared: cd would take a folder of that name from it and print its path.
 _absdir() { REPLY="$(CDPATH= cd -- "$1" 2>/dev/null && pwd)" && [ -n "$REPLY" ]; }
 _physdir() { REPLY="$(CDPATH= cd -- "$1" 2>/dev/null && pwd -P)" && [ -n "$REPLY" ]; }
+
+# _shown DIR -> REPLY: DIR as the output names it. Git for Windows' bash says /tmp/x or
+# /c/x where git says C:/Users/.../x: there cygpath -m (else MSYS bash's pwd -W) gives
+# git's form, so a folder is named one way in every line. Elsewhere, and when neither
+# answers, DIR is unchanged. Only for output: the script keeps working with DIR.
+_shown() {
+  REPLY="$1"
+  case "$OSTYPE" in msys*|cygwin*) ;; *) return 0 ;; esac
+  if command -v cygpath >/dev/null 2>&1; then
+    REPLY="$(cygpath -m "$1" 2>/dev/null)"
+  else
+    REPLY="$(CDPATH= cd -- "$1" 2>/dev/null && pwd -W 2>/dev/null)"
+  fi
+  [ -n "$REPLY" ] || REPLY="$1"
+}
 
 # _toplevel DIR -> REPLY: the repository's top directory; fails outside a repository
 _toplevel() {
@@ -183,7 +199,7 @@ _kind() {
 # ---------------------------------------------------------------- inspect
 
 cmd_inspect() {
-  local dir="${1:-.}" top base name f d n f2 rel nested kind url
+  local dir="${1:-.}" top base name f d n f2 rel nested kind url why
   [ $# -le 1 ] || usage_err "inspect takes at most one directory."
   case "$dir" in -*) [ -d "$dir" ] || usage_err "unknown option '$dir'." ;; esac
   [ -d "$dir" ] || fail 2 "'$dir' is not a directory." "pass an existing directory."
@@ -219,9 +235,11 @@ cmd_inspect() {
 $(git -C "$top" remote 2>/dev/null)
 EOT
   elif ack_git_refused "$base"; then
-    printf 'git%srefused%s%s%s%s\n' "$TAB" "$TAB" "$ACK_GIT_AT" "$TAB" "$REPLY"
+    why="$REPLY"; _shown "$ACK_GIT_AT"
+    printf 'git%srefused%s%s%s%s\n' "$TAB" "$TAB" "$REPLY" "$TAB" "$why"
   else
-    printf 'git%smissing%s%s\n' "$TAB" "$TAB" "$base"
+    _shown "$base"
+    printf 'git%smissing%s%s\n' "$TAB" "$TAB" "$REPLY"
   fi
 
   # build and test signals: top level and .github/workflows only
@@ -307,7 +325,8 @@ EOT
       esac
       [ -d "$s" ] && [ -e "$s/.git" ] || continue
       _kebab "$sn"; sn="$REPLY"
-      [ "${sn%%-*}" = "$mine" ] && printf 'sibling%s%s\n' "$TAB" "$s"
+      [ "${sn%%-*}" = "$mine" ] || continue
+      _shown "$s"; printf 'sibling%s%s\n' "$TAB" "$REPLY"
     done
   fi
   printf 'prefix%s%s\n' "$TAB" "$n"
@@ -397,7 +416,7 @@ _accounts() {
 # ---------------------------------------------------------------- init
 
 cmd_init() {
-  local dir="" own=0 top
+  local dir="" own=0 top shown why
   while [ $# -gt 0 ]; do
     case "$1" in
       --own) own=1 ;;
@@ -411,12 +430,14 @@ cmd_init() {
   [ -d "$dir" ] || fail 2 "'$dir' is not a directory." "create it or pass an existing directory."
   _absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
   dir="$REPLY"
+  _shown "$dir"; shown="$REPLY"
   if ack_git_refused "$dir"; then
-    fail 3 "git refuses to read the repository at '$ACK_GIT_AT': $REPLY." \
+    why="$REPLY"; _shown "$ACK_GIT_AT"
+    fail 3 "git refuses to read the repository at '$REPLY': $why." \
       "tell the user; the fix is theirs. Nothing was changed."
   fi
   if _same_dir "$dir" "$HOME"; then
-    fail 2 "'$dir' is your home folder, which is no project." \
+    fail 2 "'$shown' is your home folder, which is no project." \
       "create a folder for the project and run ack-repo init there."
   fi
   if _where "$dir"; then
@@ -428,27 +449,27 @@ cmd_init() {
     esac
     # --own: a repository of its own inside the other one, unless that one tracks files here
     if [ -n "$(CDPATH= cd -- "$dir" 2>/dev/null && git ls-files 2>/dev/null | head -n 1)" ]; then
-      fail 3 "the repository at '$top' already tracks files in '$dir'." \
+      fail 3 "the repository at '$top' already tracks files in '$shown'." \
         "a repository of its own would split them off: ask the user where they belong; nothing was changed."
     fi
   elif git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
     # a bare repository or a .git directory has no work tree but is a repository all the same
-    printf 'git%sok%s%s\n' "$TAB" "$TAB" "$dir"
+    printf 'git%sok%s%s\n' "$TAB" "$TAB" "$shown"
     return 0
   fi
   git init -q "$dir" >/dev/null 2>&1 && git -C "$dir" symbolic-ref HEAD refs/heads/main >/dev/null 2>&1 ||
-    fail 1 "git init failed in '$dir'." "check that the directory is writable."
+    fail 1 "git init failed in '$shown'." "check that the directory is writable."
   if [ ! -e "$dir/.gitignore" ] && [ ! -L "$dir/.gitignore" ]; then
     printf '%s\n' '.claude/settings.local.json' '.env' '*.key' > "$dir/.gitignore" ||
-      fail 1 "cannot write '$dir/.gitignore'." "check that the directory is writable."
+      fail 1 "cannot write '$shown/.gitignore'." "check that the directory is writable."
   fi
-  printf 'git%screated%s%s\n' "$TAB" "$TAB" "$dir"
+  printf 'git%screated%s%s\n' "$TAB" "$TAB" "$shown"
 }
 
 # ---------------------------------------------------------------- disk-remote
 
 cmd_disk_remote() {
-  local target="" name="" dir="." explicit=0 top ptop ptarget bare repo branch ok
+  local target="" name="" dir="." explicit=0 top ptop ptarget bare repo branch ok shown sbare
   while [ $# -gt 0 ]; do
     case "$1" in
       --name) [ $# -ge 2 ] || usage_err "--name needs a value."; name="$2"; explicit=1; shift 2 ;;
@@ -461,15 +482,16 @@ cmd_disk_remote() {
   [ -d "$dir" ] || fail 2 "'$dir' is not a directory." "pass the repository with --dir."
   _absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
   dir="$REPLY"
+  _shown "$dir"; shown="$REPLY"
   if _same_dir "$dir" "$HOME"; then
-    fail 2 "'$dir' is your home folder, which is no project." \
+    fail 2 "'$shown' is your home folder, which is no project." \
       "create a folder for the project, run ack-repo init there, then disk-remote."
   fi
-  _where "$dir" || fail 2 "'$dir' is not a git repository." "run ack-repo init first."
+  _where "$dir" || fail 2 "'$shown' is not a git repository." "run ack-repo init first."
   top="$REPLY"
   # a copy of the repository above, and a remote in its config, would be the wrong one
-  [ "$WHERE" = ok ] || fail 2 "'$dir' has no repository of its own; it lies in the one at '$top'." \
-    "run ack-repo init --own '$dir' first (after the user's yes), then disk-remote."
+  [ "$WHERE" = ok ] || fail 2 "'$shown' has no repository of its own; it lies in the one at '$top'." \
+    "run ack-repo init --own '$shown' first (after the user's yes), then disk-remote."
   [ -d "$target" ] || fail 2 "the target '$target' does not exist." "mount or create it, then run ack-repo again."
   [ -w "$target" ] || fail 2 "the target '$target' is not writable." "check the permissions or the mount."
   _physdir "$top" && ptop="$REPLY" || ptop="$top"
@@ -480,8 +502,9 @@ cmd_disk_remote() {
   _absdir "$target" && target="$REPLY"
   repo="${top##*/}"
   bare="$target/$repo.git"
+  _shown "$target"; sbare="$REPLY/$repo.git"
   if [ -e "$bare" ] || [ -L "$bare" ]; then
-    fail 3 "'$bare' already exists." "pick another target or remove it yourself; nothing was changed."
+    fail 3 "'$sbare' already exists." "pick another target or remove it yourself; nothing was changed."
   fi
   if [ "$explicit" = 0 ]; then
     name=origin
@@ -499,14 +522,14 @@ cmd_disk_remote() {
     fail 3 "the remote '$name' already exists." "pick another name with --name; nothing was changed."
   fi
   git init -q --bare "$bare" >/dev/null 2>&1 ||
-    fail 1 "cannot create '$bare'." "check that the target is writable."
+    fail 1 "cannot create '$sbare'." "check that the target is writable."
   branch="$(git -C "$top" symbolic-ref -q HEAD 2>/dev/null)" || branch=""
   [ -n "$branch" ] && git --git-dir="$bare" symbolic-ref HEAD "$branch" >/dev/null 2>&1
   if ! git -C "$top" remote add "$name" "$bare" >/dev/null 2>&1; then
     rm -rf "$bare"
     fail 1 "cannot add the remote '$name'." "check the repository's config."
   fi
-  printf 'remote%screated%s%s%s%s\n' "$TAB" "$TAB" "$name" "$TAB" "$bare"
+  printf 'remote%screated%s%s%s%s\n' "$TAB" "$TAB" "$name" "$TAB" "$sbare"
   if ! git -C "$top" rev-parse --verify -q HEAD >/dev/null 2>&1; then
     printf 'push%sskipped%sno commit yet\n' "$TAB" "$TAB"
     return 0
@@ -514,7 +537,7 @@ cmd_disk_remote() {
   if git -C "$top" push -q "$name" --all >/dev/null 2>&1; then
     printf 'push%sok%sall branches\n' "$TAB" "$TAB"
   else
-    fail 1 "the push to '$bare' failed." "run: git -C '$top' push $name --all"
+    fail 1 "the push to '$sbare' failed." "run: git -C '$top' push $name --all"
   fi
 }
 
