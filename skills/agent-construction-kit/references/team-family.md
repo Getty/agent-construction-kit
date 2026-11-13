@@ -4,8 +4,8 @@ A family is several repositories around a common core (`harbor-core`, `harbor-we
 `harbor-cli`): each keeps its own team, and work that crosses from one to another goes as
 a card to the repository that owns it, never as an edit there. The family's name is the
 common start of the names (`harbor`); each repository keeps its own `prefix` for its
-agents. `bauform` is `family`, `headless` defaults to `on`, karr is the recommended board
-([team-board.md](team-board.md)).
+agents. `bauform` is `family`; karr is the recommended board when it is ready on this
+machine ([team-board.md](team-board.md)).
 
 ## Contents
 
@@ -22,13 +22,14 @@ The core holds what every member needs, in its own `.claude/skills/`: the skill
 `<family>-conventions`. The other repositories install them from the core through
 skilletor, which reads a repository's own `.claude/skills/` like a published source:
 
-- `skilletor add <family> <core address> --project`, with the address that
-  `git -C <core folder> remote get-url origin` prints (`Acme/harbor-core`, or a URL).
+- `skilletor add <family> <core address> --project`, with the URL that
+  `git -C <core folder> remote get-url origin` prints (`https://github.com/acme/harbor-core.git`).
 - `skilletor install <family>-coordination@<family> --project`, and the same for
   `<family>-conventions` if it exists.
 
 A fresh clone on another machine asks once: `skilletor trust <family>`. A core without a
-remote has no address another machine could use; for this machine only, write it into
+hosted remote (none, or only a copy on a drive, which prints a path) has no address
+another machine could use; for this machine only, write it into
 `.claude/skilletor.local.json` (not committed): `"sources"` with
 `"<family>": { "local": "<core folder>" }`, and the same `install` entry, then `skilletor sync`.
 

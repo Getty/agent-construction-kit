@@ -47,7 +47,7 @@ time. A card moves by moving its row to another table.
 
 The four headings are fixed (`ack-team check` looks for them). Cards are numbered `c1`,
 `c2`, …; a new card takes the highest number plus one, never a used one. Without tests,
-the first cards are for them, before other work.
+the first cards are for them, before other work. No job yet: leave `Todo` without rows.
 
 How a card moves:
 
@@ -90,29 +90,32 @@ as `c12`, never `#12`: hosting services link that to their issue 12.
 karr keeps the board inside git (`refs/karr/*`) instead of a file, lets many agents
 claim cards at once, and passes cards between repositories. Source:
 https://github.com/Getty/karr. Each change to the board is pulled from and sent to the
-repository's remote: on a public repository anyone can read the cards. Say that in the
-board question; choosing karr is the user's word for those board pushes.
+repository's remote `origin`, with the e-mail of whoever made it: anyone who can read that
+copy can read the cards. The board question says so ([team-analysis.md](team-analysis.md));
+choosing karr is the user's word for those board pushes.
 
 ### What it needs
 
-From karr's README (release 0.602); the kit has not tested the systems marked so.
+From karr's README (release 0.602). The kit has tested none of these installs.
 
 | System | Install |
 |---|---|
 | Linux, x86_64 or aarch64 | a ready program, no Perl: from the release page download `karr-<version>-linux-x86_64` (or `-aarch64`) and `karr-<version>-checksums.txt`, run `sha256sum -c --ignore-missing karr-<version>-checksums.txt`, then `chmod +x` it and put it on the `PATH` as `karr`. It needs the system libraries libssl, libcrypto, libssh2, libz and libzstd, present on a normal Linux |
 | any system with Perl and `cpanm` | `cpanm App::karr` |
-| macOS | no ready program named in the README: `cpanm App::karr`, or Docker. Not tested by the kit |
-| Windows | Strawberry Perl and Git for Windows; then in PowerShell `$env:CMAKE_GENERATOR = 'MinGW Makefiles'`, `cpanm Alien::Libgit2`, `cpanm --notest Git::Libgit2 Git::Native`, `cpanm App::karr`. Over HTTPS set `SSL_CERT_FILE` to a CA bundle; ssh remotes need nothing. Not tested by the kit |
-| Docker | the image `raudssus/karr:latest` |
+| macOS | no ready program named in the README: `cpanm App::karr` |
+| Windows | Strawberry Perl and Git for Windows; then in PowerShell `$env:CMAKE_GENERATOR = 'MinGW Makefiles'`, `cpanm Alien::Libgit2`, `cpanm --notest Git::Libgit2 Git::Native`, `cpanm App::karr`. Over HTTPS set `SSL_CERT_FILE` to a CA bundle; ssh remotes need nothing |
 
-Tell the user what their system needs before they choose; `ack-doctor` shows
-`tool:karr` `ok` once `karr` is on the `PATH`.
+A ready program exists only for Linux; elsewhere karr needs Perl, so the analysis asks
+about karr only when it is ready ("karr can come later"). `ack-doctor` shows `tool:karr`
+`ok` once `karr` is on the `PATH`.
 
 ### Setting it up
 
 In the top folder of the repository, after the user's yes:
 
-1. `karr init --name "<project>"` creates the board.
+1. `karr init --name "<project>"` creates the board. It adds `tasks/` and `config.yml` to
+   `.gitignore`, which would hide every such folder and file in the project: change the
+   two lines to `/tasks/` and `/config.yml`, then check `git status --short`.
 2. Per card: `karr create "<card>" --priority high` (or without `--priority`). A new
    card waits in the backlog: `karr move <id> todo` makes it ready to hand out.
 3. `karr board` shows it; show the user.
@@ -130,8 +133,8 @@ No `BOARD.md` then: one board, not two.
 | `kanban-issues-karr-coordination` | reading the board, creating and claiming cards, cards between repositories | coordinator; the main agent loads it itself |
 
 Install the rule only with karr: `skilletor install board-karr@getty --project`. It
-tells the main agent to write card ids as `kNN` (`k12`), to make board changes one after
-another, and not to poll the board.
+tells the main agent to make board changes one after another and not to poll the board,
+and to write a card id in text as karr does: `k12` (karr reads it as card 12), never `#12`.
 
 Card lines with karr:
 
@@ -145,8 +148,9 @@ Card lines with karr:
 The board section of the project rules, with karr:
 
 ```markdown
-The board is karr (`karr board`). Card ids are written `k12`. Only the main agent
-creates and hands out cards; <the committer> moves a card to done after its commit.
+The board is karr (`karr board`); a card id in text is `k12`, as karr writes it. Only
+the main agent creates and hands out cards; <the committer> moves a card to done after
+its commit. karr sends each board change to `origin`; allowed when karr was chosen.
 ```
 
 ## Issue trackers

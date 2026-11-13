@@ -21,7 +21,7 @@ briefing plugin loads when the agent starts; never copy skill text into a body.
 | `worker` | implements, refactors, debugs | always; one per part ("Workers by path") | all | `inherit` |
 | `test-writer` | writes and extends tests | always | all | `sonnet` |
 | `reviewer` | checks a finished job against its card, runs the check itself | always | read-only | `opus` |
-| `release-manager` | commits, changelog entry, card to done, release check | `committer` is `release-manager` | all | `sonnet` |
+| `release-manager` | commits (as the committer), changelog entry, card to done, release check | always | all | `sonnet` |
 | `doc-writer` | documentation in the project's own format | the project has one (POD, a docs site with rules) | all | `sonnet` |
 | `adr-auditor` | finds architecture decisions nobody wrote down | `docs/adr/` exists, or the user wants decisions recorded | all | `opus` |
 | `coordinator` | passes cards between the repositories of a family | `bauform` is `family`, in the core repository | read-only | `sonnet` |
@@ -31,54 +31,51 @@ role exists only if its `description` tells when to use it, and no two fit the s
 
 ## Frontmatter contract and body
 
-- Keys, as in the templates: `name`, `description`, `model`, `disallowedTools` (only
-  read-only roles), `briefing.skills`; nothing else. `name` equals the file name without
-  `.md`. `description` is what the main session routes on: what the agent owns, what it
-  never does; a vague one, and the main session does the work itself.
+- Keys, as in the templates: `name` (the file name without `.md`), `description`, `model`,
+  `disallowedTools` (read-only roles only), `briefing.skills`; nothing else. The main
+  session routes on `description`, what the agent owns and never does; a vague one, and
+  the main session does the work itself.
 - `disallowedTools: Edit, Write, NotebookEdit` only for the read-only roles (a reviewer
-  that can edit starts fixing instead of reporting). Every other role carries no tool key
-  and has all tools. Never write `allowed-tools`: in an agent file Claude Code ignores
-  it, and the agent gets every tool. Never write `tools:` either: it is an allow-list,
-  and whatever it leaves out is gone.
+  that can edit starts fixing instead of reporting); every other role has all tools. Never
+  `allowed-tools` (in an agent file Claude Code ignores it: every tool) nor `tools:` (an
+  allow-list: what it leaves out is gone).
 - `briefing.skills`: each entry must exist, as an installed skill, in `.claude/skills/`,
-  or as `<plugin>:<skill>` of an installed plugin; otherwise briefing refuses the spawn.
+  or as `<plugin>:<skill>` of an installed, enabled plugin; else briefing refuses the spawn.
   Only what the role needs. A top-level `skills:` key does nothing for briefing.
-- Body: `You are the <prefix>-<role> for **<project>**.`, two or three sentences (the
-  lane, what it hands back, what it never does), the card lines, then "Apply the skills
-  above silently." Then only what is true here and in no skill (a trap of the check
-  command, an invariant reviewers keep finding), often nothing.
+- Body: `You are the <prefix>-<role> for **<project>**.`, two or three sentences (lane, what
+  it hands back, what it never does), the card lines, "Apply the skills above silently.",
+  then only what is true here and in no skill (a trap of the check command), often nothing.
 
 ## Base skills
 
-Per topic: the superpowers skill when `ack-doctor` shows `plugin:superpowers` `ok`, else
-the mattpocock-skills one when `plugin:mattpocock-skills` is `ok`, else none; never two
-for one topic. Every role also gets `<prefix>-core` when it exists, and with karr its
-card skill ([team-board.md](team-board.md)). A preset's `rollen` row replaces the list.
+Per topic the superpowers skill if `plugin:superpowers` is `ok`, else (or where its cell
+is none) the mattpocock-skills one if `plugin:mattpocock-skills` is `ok`; never two for
+one topic. A preset's `rollen` row replaces only these: every role gets `<prefix>-core`,
+and with karr its card skill ([team-board.md](team-board.md)), in any case.
 
 | Role | Topic | superpowers (wins) | mattpocock-skills |
 |---|---|---|---|
-| worker | test first | `superpowers:test-driven-development` | `mattpocock-skills:tdd` |
+| worker, test-writer | test first | `superpowers:test-driven-development` | `mattpocock-skills:tdd` |
 | worker | debugging | `superpowers:systematic-debugging` | `mattpocock-skills:diagnosing-bugs` |
-| worker | proof before "done" | `superpowers:verification-before-completion` | none |
-| test-writer | test first | `superpowers:test-driven-development` | `mattpocock-skills:tdd` |
-| reviewer | proof | `superpowers:verification-before-completion` | none |
+| worker, reviewer | proof before "done" | `superpowers:verification-before-completion` | none |
 | reviewer | review method | none | `mattpocock-skills:code-review` |
 | adr-auditor | design words | none | `mattpocock-skills:codebase-design`, `mattpocock-skills:domain-modeling` |
 
 ## The project skill `<prefix>-core`
 
-What is true for this repository and nowhere else, taken from README, CONTRIBUTING, ADRs,
-CI config, `git log` and the code: layout, build and test commands with their traps,
-written conventions, commit and changelog style, the release path; each fact with the
-file it comes from. Write it before the agents, to `.claude/skills/<prefix>-core/SKILL.md`,
-frontmatter `name: <prefix>-core` and a `description` starting "Use when working in
-<project>". With `superpowers:writing-skills` installed, follow it. Nothing to take from
-yet (a new project): no core skill; a card writes it once there is code.
+What is true for this repository and nowhere else, from README, CONTRIBUTING, ADRs, CI
+config, `git log` and the code: layout, build and test commands with their traps,
+conventions, commit and changelog style, the release path; each fact with its file.
+Always write it, before the agents: `.claude/skills/<prefix>-core/SKILL.md`, frontmatter
+`name: <prefix>-core` and a `description` starting "Use when working in <project>"; with
+`superpowers:writing-skills` installed, follow it. A new project: from the user's
+sentence, what it is for, where code and tests will go, "no tests yet"; a card extends it.
 
 ## Templates
 
 `<base>`: the role's rows from "Base skills"; `<check>`: the test command; `<card lines>`:
 from [team-board.md](team-board.md). Fill every placeholder; drop an entry with nothing.
+The coordinator's template is in [team-family.md](team-family.md).
 
 ```markdown
 ---
@@ -122,8 +119,9 @@ briefing:
     - <base>
 ---
 You are the <prefix>-test-writer for **<project>**. Whoever hands you the job decides
-which behaviour matters; you decide how the test proves it; unclear: ask. Report the
-test with its command and result. Never commit. <card lines> Apply the skills above silently.
+which behaviour matters; you decide how the test proves it; unclear: ask. You do only
+the failing-test step; making it pass is the worker's. Report the test with its command
+and result. Never commit. <card lines> Apply the skills above silently.
 ```
 
 ```markdown
@@ -140,13 +138,13 @@ briefing:
 You are the <prefix>-reviewer for **<project>**. Read the card, `git diff` and the report,
 run `<check>` yourself: no passing run, no "ready". Report the verdict and each finding
 with file, line and reason, most important first. Never change a file; fixes go back to
-the worker. You start no agents. Apply the skills above silently.
+the worker. You start no agents. <card lines> Apply the skills above silently.
 ```
 
 ```markdown
 ---
 name: <prefix>-release-manager
-description: "Owns <project>'s git history: commits reviewed work, writes the commit message and the changelog entry, marks the card done, checks a release on request. Never pushes, tags or releases."
+description: "Owns <project>'s git history: commits reviewed work, writes the commit message and the changelog entry, marks the card done, checks a release on request. Pushes only where the project rules allow it; never tags or releases on its own."
 model: sonnet
 briefing:
   skills:
@@ -158,6 +156,10 @@ tree are not yours). <The changelog rule, if any.> Then <card lines>. A release 
 reports ready or what blocks. Push, tag or publish only on the user's word, or where the
 project rules allow it. Apply the skills above silently.
 ```
+
+With `committer` `main` or `user` the release manager never commits: drop "commits
+reviewed work" and "marks the card done" from its description, and its body says "Never
+commit; <the main agent|the user> does." in place of the commit sentences and card lines.
 
 ```markdown
 ---
@@ -185,15 +187,13 @@ briefing:
 You are the <prefix>-adr-auditor for **<project>**. Walk the structure (modules, seams,
 data shapes), confirm each reason from git history and code; old plans only confirm.
 Number from the highest ADR. Report ADRs written and gaps left. Never commit. <card lines>
+Apply the skills above silently.
 ```
-
-The coordinator's template is in [team-family.md](team-family.md).
 
 ## Workers by path
 
-Split workers by the paths they own, never by activity: `<prefix>-worker-<part>`, each
-`description` naming its paths (`harbor-worker-frontend`: "… code under `web/`"). Every
-file has exactly one owner; the project rules carry the table path → agent
-([team-rules.md](team-rules.md)). A job across two parts: the main session hands it to
-both owners, each on its own card. No clear boundary: one worker; an unclear owner is
-worse than no split.
+Split workers by the paths they own, never by activity: `<prefix>-worker-<part>`, its
+`description` naming its paths (`harbor-worker-frontend`: "… code under `web/`"). Each
+file has one owner, in the Lanes of the project rules ([team-rules.md](team-rules.md)).
+A job across two parts: one card per owner. No clear boundary: one worker; an unclear
+owner is worse than no split.

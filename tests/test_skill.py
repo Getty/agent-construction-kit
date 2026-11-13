@@ -12,8 +12,8 @@ AW = str(ROOT / "bin" / "ack-wrappers")
 SCRIPTS = sorted(p for p in (ROOT / "bin").iterdir() if p.is_file()) + \
     [ROOT / "share" / "claude-with", ROOT / "share" / "lib.sh"]
 REFS = SKILL_DIR / "references"
-TEAM_REFS = ("team-analysis.md", "team-agents.md", "team-rules.md", "team-board.md",
-             "team-family.md", "using-the-team.md")
+TEAM_REFS = ("team-analysis.md", "team-answer-sheet.md", "team-agents.md", "team-rules.md",
+             "team-board.md", "team-family.md", "using-the-team.md")
 # The team references exist before SKILL.md links them; until it does, each must be
 # reached from team-analysis.md. Remove a name once SKILL.md links it (the test says when).
 AWAITING_SKILL_LINK = set(TEAM_REFS)
@@ -349,7 +349,7 @@ class SkillTest(Sandbox):
                              "%s: ## Contents and the ## sections differ" % name)
 
     def test_answer_sheet_keys_and_the_rules_header(self):
-        text = read(REFS / "team-analysis.md")
+        text = read(REFS / "team-answer-sheet.md")
         values = {spans(row[0])[0]: spans(row[1]) for _, row in tables(text, "Key")}
         self.assertEqual(sorted(values), sorted(ANSWER_KEYS))
         m = re.search(r"<!-- ack: ([^>]*?) -->", read(REFS / "team-rules.md"))
@@ -360,7 +360,7 @@ class SkillTest(Sandbox):
             if values[key]:
                 self.assertIn(value, values[key], "rules header: %s=%s" % (key, value))
         preset = re.search(r"^```markdown\n## Answer sheet\n(.*?)^```", text, re.S | re.M)
-        self.assertIsNotNone(preset, "team-analysis.md: no preset example")
+        self.assertIsNotNone(preset, "team-answer-sheet.md: no preset example")
         for key in re.findall(r"^- ([a-z_]+):", preset.group(1), re.M):
             self.assertIn(key, values, "preset example: unknown key %r" % key)
         self.assertTrue(tables(preset.group(1), "rollen"), "preset example: no rollen table")
@@ -482,11 +482,41 @@ class SkillTest(Sandbox):
         for words in ("/remote-control", "claude --remote-control", "claude.ai/code",
                       "Enable Remote Control for all sessions", "same claude.ai account",
                       "subscription", "API key", "not with a starter for another service",
-                      "The kit does not switch it on"):
+                      "The kit does not switch it on", "(`claude_with_danger` is that too",
+                      "First type `/exit`, then start `claude` in this folder again"):
             self.assertIn(words, use)
+        example = "\n".join(l for l in read(REFS / "using-the-team.md").splitlines()
+                            if l.startswith(">"))
+        self.assertIn("Remote Control", example, "the example hand-over offers no Remote Control")
+        self.assertNotIn("close this session", use)
         for hub in ("Start Claude always in `admin`; it steers the others.",
                     "Start directly in `developer` only to talk with it alone;"):
             self.assertIn("With a hub: \"" + hub, use)
+
+    def test_what_leaves_the_machine_is_said_before_the_yes(self):
+        def flat(name):
+            return " ".join(read(REFS / name).split())
+        analysis, board = flat("team-analysis.md"), flat("team-board.md")
+        for words in ("Your saved versions carry a name and an e-mail; both become visible "
+                      "if the project is ever published.", "without `--global`",
+                      "I would update that copy after every saved change, without asking "
+                      "each time.", "a network drive", "with the e-mail of whoever changed "
+                      "them", "anyone who can see that copy can read them",
+                      "`.claude/skilletor.json`", "`git status --short -uall`"):
+            self.assertIn(words, analysis)
+        self.assertNotIn("NAS", analysis)
+        for words in ("`/tasks/` and `/config.yml`", "with the e-mail of whoever made it"):
+            self.assertIn(words, board)
+        karr = [b for b in FENCE.findall(read(REFS / "team-board.md")) if "karr board" in b]
+        self.assertTrue(karr and "karr sends each board change to `origin`; allowed when karr "
+                        "was chosen." in " ".join(karr[0].split()), "the karr rules section")
+        for name in TEAM_REFS:     # pushes follow the project rules, and those say which
+            for words in ("never uploads", "Never pushes", "headless` defaults to `on"):
+                self.assertNotIn(words, read(REFS / name), "%s: %r" % (name, words))
+        built = {spans(row[0])[0]: row[head.index("Built when")]
+                 for head, row in tables(read(REFS / "team-agents.md"), "Role")
+                 if "Built when" in head}
+        self.assertEqual(built["release-manager"], "always")
 
     def readme_provider_names(self):
         text = read(README)

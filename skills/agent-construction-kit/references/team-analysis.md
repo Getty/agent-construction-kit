@@ -1,19 +1,20 @@
-# Analysis, questions, answer sheet and plan
+# Analysis, questions and plan
 
 Read first, then ask only what the repository, `ack-doctor` or a preset cannot tell. One
 question per message, each with your recommendation, in everyday words; explain a word
 like "worker" in half a sentence the first time you use it. At most seven questions
-before the plan for a project team. Apart from the repository and its remote (each with
-its own yes), nothing is written before the user says yes to the plan.
+before the plan. Nothing is written before the user says yes to the plan, except the
+repository and its second copy, each with its own yes. Call `ack-repo` and `ack-team`
+like `ack-doctor`: by their full path, with `bash` in front (SKILL.md). The decisions and
+their keys: [team-answer-sheet.md](team-answer-sheet.md).
 
 ## Contents
 
 - Reading the repository: `ack-repo inspect`
-- From one sentence to a structure
-- The questions, in order (Git first)
-- The answer sheet, and presets
-- The plan
 - An existing team
+- From one sentence to a structure
+- The questions, in order
+- The plan
 - After the yes: build order
 
 ## Reading the repository
@@ -26,20 +27,19 @@ Run `ack-repo inspect` in the project folder; it only reads, offline. One fact p
   one (a store for copies, without files to work on).
 - `branch<TAB><name>`: `detached` means no branch is checked out; ask which branch the
   team commits to. `dirty<TAB><n>`: changed files nobody committed; the user's, never in
-  the team's commits; name them in the plan. `commits<TAB>0` (normal when new): all files
-  are the user's and none is saved yet; the plan offers a first commit of them, before
-  the team's (caches and build output into `.gitignore` first).
+  the team's commits; name them in the plan. `commits<TAB>0` (normal when new): nothing
+  is saved yet and every file is the user's; the plan lists them for a first commit.
 - `remote<TAB><name><TAB><kind><TAB><url>`: where copies of the history go; `<kind>` is
   `github`, `codeberg`, `gitlab`, `forge` (a self-hosted server), `disk` or `other`.
 - `signal<TAB><kind><TAB><file>`: how it is built (`perl`, `node`, `python`, `go`, `rust`,
-  `make`, `ci`). Read that file for the build, test and release commands.
+  `make`, `ci`). Read that file for the build, test and release commands. None: see
+  question 5.
 - `tests<TAB><dir><TAB><n><TAB>nested`: tests in subfolders; check that the test command
   reaches them (many runners skip subfolders). `flat`: one folder. No `tests` line: none.
 - `team<TAB>agents<TAB><n>`, `team<TAB>rules<TAB><n>`, `team<TAB>skills<TAB><n>`: team parts
-  that exist; agents above `0`: "An existing team" below. `team<TAB>board<TAB>karr`,
-  `file` or `none`: the board that exists; keep it. `team<TAB>skilletor<TAB>yes`: a
-  skilletor config exists. Read `.claude/skilletor.json` whenever it exists: it names the
-  sources, skills and bundles already installed.
+  that exist. `team<TAB>board<TAB>karr`, `file` or `none`: the board that exists; keep it.
+  `team<TAB>skilletor<TAB>yes`: a skilletor config exists. Read `.claude/skilletor.json`
+  whenever it exists: it names the sources, skills and bundles already installed.
 - `account<TAB><service><TAB><source><TAB><name>`: an account at `github`, `gitlab` or
   `codeberg` on this machine. Source `gh` or `glab`: that tool is signed in as `<name>`;
   `ssh` or `gitconfig`: only the host is known.
@@ -51,7 +51,18 @@ Then read, without asking: `README*`, `CONTRIBUTING*`, `CLAUDE.md`, `AGENTS.md`,
 commands and their traps, the release path, written conventions, clearly separate parts
 ("Workers by path" in [team-agents.md](team-agents.md)). Run `ack-doctor` if it has not
 run in this session: its `plugin:superpowers`, `plugin:mattpocock-skills` and `tool:karr`
-lines decide the base skills and the board question.
+lines decide the base skills and the board question. Run `git config user.name` and
+`git config user.email`; an empty answer means question 4.
+
+## An existing team
+
+Agent files in `.claude/agents/` mean a team exists: `team<TAB>agents` above `0`, or
+`.local.*.md` files there (agents skilletor installed; that line does not count them).
+Never build a second team beside it. Run `ack-team check` and say in plain words: "N
+things are missing: <each in a few words>. Shall I fix them? I recommend yes." Fix only
+what the check names, each file with its own yes, then "Verification" in
+[team-rules.md](team-rules.md). A rules file that starts with `<!-- ack: ... -->` keeps
+the earlier answers; ask the questions below only for what the user wants changed.
 
 ## From one sentence to a structure
 
@@ -63,12 +74,14 @@ sentence (they need not know the words); they confirm or change it.
 | one project here ("I have a small web shop in this folder") | a project team |
 | clearly separate parts (`frontend/` and `backend/`, `packages/*`) | a project team, one worker per part |
 | `sibling` lines that share a core | a family ([team-family.md](team-family.md)) |
-| several areas ("a homelab, and I develop things") | say that a structure steering several teams (a hub) comes with the next version of the kit; build the team for this folder now, and name the hub as the next step |
+| several areas ("a homelab, and I develop things") | the team for this folder now; a structure that steers several teams (a hub) comes with the next version of the kit |
 | an issue tracker as the board | say that this comes with a later version; use the file board |
 
 ## The questions, in order
 
-Skip each one that the repository, `ack-doctor` or a preset answers.
+First a preset: a skill loaded in this session with a section `## Answer sheet` answers
+some questions; take its answers ([team-answer-sheet.md](team-answer-sheet.md)). Then
+skip each question that the repository, `ack-doctor` or the preset answers.
 
 1. **Repository**, only with `git<TAB>missing`: "Agents, their rules and the board are
    files in a git repository, which keeps every change with its history. There is none
@@ -77,123 +90,108 @@ Skip each one that the repository, `ack-doctor` or a preset answers.
    settings, key files), or `git<TAB>ok<TAB><dir>` for a bare one: nothing changed; ask
    for the folder with the files.
 2. **A second copy**, only without a `remote` line.
-   - An `account` line: "You have an account at GitHub (as `<name>`, if the line has one).
-     I suggest a private copy of this project there. Shall I create it, or will you do that
-     on the website? Nothing is uploaded without your word." After a yes, with source `gh`:
-     `gh repo create <prefix> --private --source . --remote origin` (uploads nothing);
-     otherwise the user gives you the address: `git remote add origin <address>`.
-   - No `account` line, asked in passing: "Do you have an account at GitHub or a similar
-     service, for a copy of this project?" Yes: as above.
-   - No account: "Then I suggest a second copy on another disk, a USB drive or your NAS;
-     no account needed. I recommend it. Which folder on that disk?" Then
-     `ack-repo disk-remote <folder>`: it prints `remote<TAB>created<TAB><name><TAB><path>`,
-     then `push<TAB>ok<TAB>all branches` or `push<TAB>skipped<TAB>no commit yet` (normal).
-     Exit 2 (folder missing, not writable, inside the project) or 3 (the name exists,
-     nothing changed): relay it, ask for another folder. Exit 1: set up, only the push
-     failed; the next push repeats it.
+   - An `account` line with source `gh`: "You have an account at GitHub as `<name>`. I
+     suggest a private copy of this project there. Shall I create it? Nothing is uploaded
+     without your word." Yes: `gh repo create <folder name> --private --source . --remote origin`
+     (an empty private repository; nothing is uploaded). No: as without an account.
+   - Source `ssh` or `gitconfig`, or the user names an account: "Please create an empty
+     private repository on the website and give me its address." Then
+     `git remote add origin <address>`.
+   - No account: look for drives yourself, the folders in `/media/$USER/` and
+     `/run/media/$USER/` (Linux), in `/Volumes/` (macOS, except the system disk), drive
+     letters other than `C:` (Windows). "I see a drive '<label>'. Shall I keep a second
+     copy of this project there? I recommend it, and I would update that copy after
+     every saved change, without asking each time. OK?" Several: name them, ask which.
+     None: "Do you have a USB drive, a second disk or a network drive for a copy?"
+     After a yes, `ack-repo disk-remote <drive folder>` creates `<project>.git` there; it
+     prints `remote<TAB>created<TAB><name><TAB><path>`, then `push<TAB>ok<TAB>all branches`
+     or `push<TAB>skipped<TAB>no commit yet` (normal). Exit 2 (folder missing, not
+     writable, inside the project) or 3 (the name exists, nothing changed): relay it, ask
+     for another folder. Exit 1: set up, only the push failed; the next push repeats it.
    - "Only on this computer" is allowed: confirm it once ("Then the history exists only
      on this disk; if the disk fails, it is gone. Keep it that way?"), never ask again.
 3. **A family**, only with `sibling` lines: "Next to this folder are `<a>` and `<b>`. Do
    they belong together around a common core? Then each gets its own team, and they pass
    work to each other. I recommend that if they share code." Yes: `bauform` is `family`.
-4. **Who commits**, always: "Who should save finished work into the project's history (a
-   commit)? I recommend one agent, the release manager, so nothing is saved twice or
-   half. It can also be the session you talk to, or you yourself."
-5. **How work is checked**, only when the repository shows no check. Software without
-   tests: no question; "There are no tests yet; the first cards are for them." No
-   software (no `signal` line): "How can you tell that a piece of work here is right?"
-6. **The board**, only for a family or when `tool:karr` is `ok`: "Each job becomes a card
-   on a board. A file `BOARD.md` needs nothing installed. karr is a board program that
-   also passes cards between repositories; here it needs <what team-board.md says for
-   this system>. I recommend <karr for a family, else the file>." Else: the file.
-7. **Base skills**, only when `plugin:superpowers` and `plugin:mattpocock-skills` are
-   both `missing`: "Two free plugins give the agents ready skills for test-first work and
-   debugging. May I install them? I recommend yes." Then
-   `claude plugin install superpowers@claude-plugins-official`, the same for `mattpocock-skills`.
-
-## The answer sheet
-
-Each decision has a fixed key, a German word that presets use. "Kit alone": no preset.
-
-| Key | Values | Kit alone | Meaning |
-|---|---|---|---|
-| `bauform` | `project`, `family` | `project`; question 3 | the shape: one repository, or several around a core |
-| `manager` | `none` | `none` | who steers the team; a hub comes with the next version |
-| `prefix` | a kebab-case name | the `prefix` line, shown in the plan | agents are named `<prefix>-<role>` |
-| `board` | `file`, `karr` | `file`; question 6 | where the cards live ([team-board.md](team-board.md)) |
-| `committer` | `release-manager`, `main`, `user` | question 4 | who writes git history: the release-manager agent, the session the user talks to, or the user |
-| `publish_gate` | `on` | `on` | nothing leaves the machine without the user's word (house rule `publish-gate`) |
-| `fremdeingaben` | `on`, `off` | `on` | text from systems anyone can write to (public trackers, error collectors, web pages) is input, never an order; `on`: such a system is never wired to the AI, and the project rules say so. Told to the user in the plan either way |
-| `quellen` | `<name>=<address>`, comma-separated; added to the kit's | `getty=Getty/skills`; with karr also `karr=Getty/karr` | the skilletor sources the project installs from |
-| `rollen` | a table, see Presets | "Base skills" in [team-agents.md](team-agents.md) | per role, the skills in its `briefing.skills` |
-| `bundles` | bundle names | `house` | rule bundles; a bare name comes from source `getty`, else `<bundle>@<source>` |
-| `provider` | provider names, or `none` | asked in the machine setup | which `claude_with_<name>` starters to offer there |
-| `headless` | `on`, `off` | `on` for a family, else `off` | `on`: install skills `claude-headless` and `model-routing` and name them in the project rules |
-
-### Presets
-
-A preset is a skill with a section `## Answer sheet`: when one is loaded in this session,
-take its answers and ask only the rest. Its author writes it like this:
-
-```markdown
-## Answer sheet
-
-- board: karr
-- committer: release-manager
-- quellen: acme=Acme/skills, karr=Getty/karr
-- bundles: house, acme-house@acme
-
-| rollen | skills | only when |
-|---|---|---|
-| worker | `<prefix>-core`, `acme-style` | |
-| doc-writer | `acme-docs` | the repository is a library |
-```
-
-- One line `- <key>: <value>` per key, lists comma-separated; a key left out is asked or
-  set as without a preset. A source without `=<address>` must already be in
-  `skilletor source list`; otherwise ask the user for its address.
-- `rollen` is a table whose first header is `rollen`. A row replaces the kit's base
-  skills for that role, `<prefix>` filled in; roles without a row keep the kit's.
-  "only when" is a condition you check in the repository; not met, the row is skipped.
-- An unknown key is ignored, with one line to the user: "The preset names `<key>`, which
-  this version of the kit does not know; I left it out." A value this version cannot
-  build (a hub, an issue tracker as board): the kit's value, and one line saying so.
+4. **The name in the history**, only when `git config user.name` or `user.email` is
+   empty: "Your saved versions carry a name and an e-mail; both become visible if the
+   project is ever published. Which shall I use?" Set after the plan's yes.
+5. **How work is checked**, only when no `signal` file names a test command.
+   - Code files (`*.py`, `*.js`, ...) without a build file: take the test runner from the
+     test files (`import pytest`, `import unittest`), run it once now, and the plan names
+     it. Not installed: "Your tests need the program <runner>, which is missing here. May
+     I install it? I recommend yes." No tests: no question; the first cards are for them.
+   - No code files at all: "How can you tell that a piece of work here is right?"
+6. **The board**, only when karr is ready here: `tool:karr` is `ok`, or the table in
+   [team-board.md](team-board.md) has a ready program for this system. "Each job becomes
+   a card on a board. The file `BOARD.md` needs nothing installed. karr is a board
+   program that also passes cards between projects. karr sends the cards, with the
+   e-mail of whoever changed them, to <the second copy> with every change: anyone who
+   can see that copy can read them. I recommend <karr for a family, else the file>."
+   Without a second copy, drop the sentence on sending. karr not ready: no question,
+   the file board.
 
 ## The plan
 
-One message, in plain words, then "Shall I build it?". Name in one line what is not
-included that the user might expect (`headless`, a hub). Example for a web shop `harbor`:
+One message, in plain words, then "Shall I build it?"; the user may take out or change
+any line. Besides the team itself, it names:
+
+- `commits<TAB>0`: the user's files, listed, for a first commit of their own; the user
+  may take files out. Caches and build output (`__pycache__/`, `node_modules/`) and what
+  looks like a key or password (`.env`, `*.pem`) go into `.gitignore`. With `dirty`
+  files: they stay out of every commit of the team.
+- Ready skills: an installed superpowers or mattpocock-skills is used. Neither: "Two
+  free plugins, superpowers and mattpocock-skills, give the agents ready know-how for
+  test-first work and finding bugs; I would install them."
+- Who commits: `<prefix>-release-manager`, unless a preset or the user wants the session
+  (`committer` `main`) or the user (`user`); the release manager is built either way.
+- The name and e-mail from question 4, the copy on a drive and its updates, the board,
+  and what is not included that the user might expect (a hub; "karr can come later").
+
+Example for a new web shop `harbor`, with a copy on a USB drive:
 
 > Here is my plan for `harbor`.
-> - Five agents, each a small file: `harbor-scout` reads and reports, changes nothing;
->   `harbor-worker` changes the code; `harbor-test-writer` writes the tests;
->   `harbor-reviewer` checks each finished job and runs `npm test`, changes nothing;
->   `harbor-release-manager` saves finished work as a commit and never uploads.
-> - Their knowledge: a skill `harbor-core` from your CONTRIBUTING.md, plus ready skills.
-> - Rules: careful work, agents do the work, nothing leaves without your word; one file.
+> - First your own files, saved as they are: `shop.py`, `templates/`, `tests/`,
+>   `README.md`. Tell me if one should stay out.
+> - Five helpers ("agents"), each a small file: `harbor-scout` reads and reports,
+>   changes nothing; `harbor-worker` changes the code; `harbor-test-writer` writes the
+>   tests; `harbor-reviewer` checks each finished job and runs the tests, changes
+>   nothing; `harbor-release-manager` saves finished work (a commit).
+> - Their know-how: `harbor-core`, a short instruction file (a "skill") from your README
+>   and code: what goes where, how the tests run; plus skills from superpowers, which
+>   you have installed.
+> - Rules: careful work, the helpers do the work, nothing leaves this computer without
+>   your word; one file.
 > - A board: the file `BOARD.md`, with lists for to do, in progress, review and done.
+>   karr, a board program, can come later.
 > - Public issue trackers stay outside: anyone can write there, and a model cannot
 >   reliably tell such text from an order. You bring single entries in as cards.
-> - At the end I save all of it as one commit. Your 3 changed files stay out of it.
-
-## An existing team
-
-`team<TAB>agents` above `0`: run `ack-team check` first and report in plain words what
-works and what is missing ("Verification" in [team-rules.md](team-rules.md)). Rules that
-start with `<!-- ack: ... -->` carry an earlier run's answers: take them, ask only what
-should change. Overwrite an agent file only after a yes for that file.
+> - Saved work carries "Sam Doe <sam@example.org>", in this project only.
+> - The copy on 'BACKUP' is updated after every saved change, as you allowed.
+> - At the end I save all of this as one commit.
 
 ## After the yes: build order
 
-1. Skills and rules, before any agent names them. Per source in `quellen`:
+1. Question 4 asked: `git config user.name "<name>"`, `git config user.email "<e-mail>"`,
+   without `--global`, so it holds for this repository only.
+2. `commits<TAB>0`: the user's files first. Write the plan's `.gitignore` lines; check
+   that `git status --short -uall` shows exactly the listed files (a key file: into
+   `.gitignore`, tell the user); `git add` them by path; `git commit -m "Add the project files"`.
+3. Plugins the plan installs: `claude plugin install superpowers@claude-plugins-official`,
+   the same for `mattpocock-skills`.
+4. Skills and rules, before any agent names them. Per source in `quellen`:
    `skilletor add <name> <address> --project` (the kit's `skilletor add Getty/skills --project`
    names it `getty`). Bundles: `skilletor install bundle:house@getty --project`. `headless`
    `on`: `skilletor install claude-headless@getty model-routing@getty --project`. Board
-   `karr`: its source, skills and rule ([team-board.md](team-board.md)). Then the project
-   skills ([team-agents.md](team-agents.md)).
-2. Agents: [team-agents.md](team-agents.md).
-3. Project rules, `.claude/settings.json`, `CLAUDE.md`: [team-rules.md](team-rules.md).
-4. Board: [team-board.md](team-board.md); a family also [team-family.md](team-family.md).
-5. Check: "Verification" in [team-rules.md](team-rules.md), until no line is `missing`.
-6. One commit of exactly the files you wrote and those skilletor reported (`commit it`),
-   never the user's `dirty` files; then the hand-over: [using-the-team.md](using-the-team.md).
+   `karr`: karr itself, its board, source, skills and rule ([team-board.md](team-board.md)).
+   Then `<prefix>-core` ([team-agents.md](team-agents.md)).
+5. Agents: [team-agents.md](team-agents.md).
+6. Project rules, `.claude/settings.json`, `CLAUDE.md`: [team-rules.md](team-rules.md).
+7. The file board: [team-board.md](team-board.md); a family also [team-family.md](team-family.md).
+8. Check: "Verification" in [team-rules.md](team-rules.md), until no line is `missing`.
+9. One commit of the files you wrote and those skilletor reported (`commit it`), among
+   them `.claude/skilletor.json`. `git status --short -uall` first: the user's `dirty`
+   files stay out.
+10. A copy on a drive: `git push <name> <branch>`, as allowed (`<name>` as
+    `ack-repo disk-remote` printed it, `<branch>` from `git branch --show-current`).
+    Then the hand-over: [using-the-team.md](using-the-team.md).

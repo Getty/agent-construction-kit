@@ -32,8 +32,8 @@ With karr also `skilletor install board-karr@getty --project` ([team-board.md](t
 
 `.claude/rules/<prefix>-rules.md`, at most 50 lines once filled; every rule carries its
 reason in half a sentence. Only what is true here: no house rule, no skill text. The first
-line keeps the answers for a later run ([team-analysis.md](team-analysis.md)). Write
-"With superpowers" only when `plugin:superpowers` is `ok`; the board section is in
+line keeps the answers for a later run ([team-answer-sheet.md](team-answer-sheet.md)).
+Write "With superpowers" only when `plugin:superpowers` is `ok`; the board section is in
 [team-board.md](team-board.md).
 
 ```markdown
@@ -54,8 +54,7 @@ Behaviour-relevant here: `<paths>`; a change there goes to its agent, which is b
 
 ## What the main agent does itself
 
-Typos, docs, configuration, answering, reading: itself and without a card, since a card
-is only for work that goes to an agent.
+Typos, docs, configuration, answers: itself, without a card (cards are for agent work).
 
 ## Check and commits
 
@@ -68,10 +67,11 @@ is only for work that goes to an agent.
 
 ## With superpowers
 
-- Plan tasks go to `<prefix>-worker` or `<prefix>-test-writer`, never `general-purpose`,
-  and each task's review to `<prefix>-reviewer`: built-in agents get no briefing.
-- <The committer> commits, not the plan's flow, so one writes history.
-- Brainstorming and the plan stay with the main agent: they need the talk with the user.
+A plan runs in this folder on this branch, no worktree, so `BOARD.md` stays here. Per
+task, one after another: `<prefix>-worker` (a test task: `-test-writer`) is told to skip
+the prompt's commit step; `<prefix>-reviewer` reviews the uncommitted `git diff`; then
+<the committer> commits, so one writes history. Never `general-purpose`: built-in agents
+get no briefing. Brainstorming and the plan stay with the main agent: they need the user.
 
 ## Outside input
 
@@ -86,14 +86,16 @@ can write there; none is wired to the AI, the user brings single entries in as c
 Fill it like this:
 
 - **Lanes**: one row per agent; workers by path get one row each, with their paths. A
-  row for `doc-writer` or `adr-auditor` only when built.
+  row for `doc-writer` or `adr-auditor` only when built. With `committer` `main` or
+  `user`, the release manager's row is "changelog, release check".
 - **Committer line**: `release-manager`: "`<prefix>-release-manager` writes every commit
   and marks cards done, so the history has one author." `main`: "The main agent commits
   after the reviewer's ready; no agent commits." `user`: "Only the user commits: the
   main agent proposes the message and marks the card done afterwards."
-- **Second copy on a disk** (`ack-repo disk-remote`), only if the user wants it: "After
-  each commit the committer pushes to `origin`, the copy on <disk>: the user allowed this
-  one push in advance." That is the go-ahead `publish-gate` asks for, written down.
+- **A copy on a drive** (`ack-repo disk-remote`), when the user allowed its updates, into
+  "Check and commits": "After each commit, `git push <name> <branch>` updates the copy on
+  <drive>: the user allowed it in advance, so nobody asks." It is the go-ahead
+  `publish-gate` asks for, written down.
 - **Outside input**: with `fremdeingaben` `off` leave the section out; the user was told.
 - **Hazards**: what you found while reading and the agents would trip over: a test that
   needs the network or a real account, a generated file nobody edits by hand, a folder
@@ -103,9 +105,9 @@ Fill it like this:
 
 ## `.claude/settings.json`
 
-Merge into the existing file, never overwrite it: skilletor's first sync has already put
-`skilletor@getty` and its marketplace there ("updated — commit it"). The team needs at
-least:
+Merge into the existing file, never overwrite it (skilletor's sync may have put
+`skilletor@getty` and its marketplace there: "updated — commit it"); none yet: create
+it. The team needs at least:
 
 ```json
 {
@@ -142,11 +144,17 @@ Start Claude in this folder. The session you talk to hands the work to the right
 - `<prefix>-worker`: changes the code.
 - `<prefix>-test-writer`: writes the tests.
 - `<prefix>-reviewer`: checks finished work and runs the tests, changes nothing.
-- `<prefix>-release-manager`: saves finished work as commits, never uploads.
+- `<prefix>-release-manager`: saves finished work as commits; uploads only where the
+  project rules allow it.
 
 Work is tracked in `BOARD.md`; rules in `.claude/rules/<prefix>-rules.md`. Nothing is
-pushed, released or posted without your word.
+pushed, released or posted without your word, unless the project rules allow it.
 ```
+
+Then name what they allow: "… allow it: the copy on <drive>, which you allowed." With
+karr: "Work is tracked with karr (`karr board`)", and "… allow it: the karr board, which
+goes to `origin` with every change." With `committer` `main` or `user`, the release
+manager's line is "writes the changelog and checks releases, never commits".
 
 ## Verification
 
@@ -157,27 +165,23 @@ and run again until no line is `missing`; tell the user each `warn` in one sente
 
 | What | Checks | On `missing` or `warn` |
 |---|---|---|
-| `agent` | each agent file: frontmatter, `name` equal to the file name, a description, `briefing.skills`; no `allowed-tools`, no top-level `skills:` | fix the file ([team-agents.md](team-agents.md)) |
-| `skill` | each `briefing.skills` entry exists | install it, write it, or drop the entry |
+| `agent` | each agent file: frontmatter, `name` equal to the file name (`.local.` dropped), a description, a readable `briefing.skills`; no `allowed-tools`, no top-level `skills:` | fix the file ([team-agents.md](team-agents.md)) |
+| `skill` | each `briefing.skills` entry resolves: in `.claude/skills/`, `~/.claude/skills/`, or in a plugin that is installed and enabled | install it, enable its plugin, write it, or drop the entry |
 | `roles` | agents ending in `-scout`, `-worker`, `-test-writer`, `-reviewer` exist | build the role the text names |
-| `readonly` | scout, reviewer and coordinator carry `disallowedTools` naming Edit and Write | add the line |
+| `readonly` | agents ending in `-scout`, `-reviewer`, `-checker`, `-coordinator` carry `disallowedTools` naming Edit and Write | add the line |
 | `rules` | a file in `.claude/rules/` | write the project rules |
 | `settings` | `.claude/settings.json`: readable, every marketplace declared, briefing enabled | merge as above |
 | `board` | karr refs, or `BOARD.md` with the four headings | add what the text names |
 | `claude-md` | `CLAUDE.md` names every agent | add the name to the section |
 | `git` | a repository, and a remote | no remote: fine when the user chose "only on this computer" |
-| `hook` | runs the briefing hook as if the first worker started | `missing`: the text is briefing's reason; fix that skill. Not found: `claude plugin install briefing@getty`. Briefs nothing: give that agent its `briefing.skills` |
-
-A `skill` line `missing` for `mattpocock-skills:<name>` while `ack-doctor` shows that
-plugin `ok`: this version of `ack-team` does not look into that plugin's skill folders;
-the entry is right, leave it and say so.
+| `hook` | runs the briefing hook once per agent, as if it were started; the first worker must also get a briefing | `missing`: the hook would refuse that agent, or hands it an abort; the text is briefing's reason: fix that entry. `warn`: hook not found (`claude plugin install briefing@getty`), no answer in time (run again), or it briefs nothing (give that agent its `briefing.skills`) |
 
 That the hook refuses a broken agent is checked once by hand, in a scratch folder:
 
 ```bash
 d="$(mktemp -d)"; mkdir -p "$d/.claude/agents"
 printf '%s\n' '---' 'name: probe-worker' 'description: probe' 'briefing:' '  skills:' '    - no-such-skill' '---' > "$d/.claude/agents/probe-worker.md"
-ack-team check "$d" | grep '^hook'; rm -rf "$d"
+bash "<skill base dir>/../../bin/ack-team" check "$d" | grep '^hook'; rm -rf "$d"
 ```
 
 Expected: a line `hook<TAB>missing<TAB>probe-worker<TAB>` whose text, briefing's reason,
