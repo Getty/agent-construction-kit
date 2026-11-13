@@ -24,3 +24,23 @@ Revision history for agent-construction-kit
       is its own; ack-wrappers --help prints the whole header.
     - ack-wrappers install reports "path pending" instead of "path missing"
       once path-fix has added the directory to the shell profile.
+    - Build an agent team for a project: the skill reads the folder, asks what
+      it could not read, shows a plan, and after a yes writes the agents, the
+      project skill, the rules, the board and the CLAUDE.md section, checks
+      the result and commits it.
+    - Add ack-repo: inspect reads a folder and changes nothing (git, branch,
+      remotes, tests, sibling projects, an existing team, accounts of git
+      services), init creates the repository, disk-remote puts a copy on a
+      second drive.
+    - Add ack-team check, which verifies a team: agent files, the skills they
+      name, rules, settings, board, CLAUDE.md, git, and one run of the
+      briefing hook per agent.
+    - A board without installing anything: BOARD.md, a table per column. karr
+      stays the recommendation where it is already installed.
+    - A preset (a skill with an answer sheet) can fix answers and add skills
+      per role; the kit installs what the preset names.
+    - Teams for folders without code: a reading check instead of a test
+      command, no test-writer.
+    - The machine setup moved from SKILL.md to references/machine.md.
+    - ack-doctor reports Node.js and Python 3, which the skilletor and
+      briefing plugins need before a team can be built or run.

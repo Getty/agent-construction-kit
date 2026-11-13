@@ -43,6 +43,9 @@ kit holds firmly.
 - git. On Windows, [Git for Windows](https://git-scm.com/downloads/win): the kit's
   commands run in its bash. If git is missing on macOS or Linux, the setup helps you
   install it.
+- For an agent team, also [Node.js](https://nodejs.org) 18 or newer and Python 3: two
+  of the plugins a team builds on need them. The machine setup with starters works
+  without both; the kit's check tells you if one is missing and how to get it.
 
 ## Install
 
@@ -153,9 +156,6 @@ the agent tells you so.
 
 ## Example: a team for a software project
 
-> This part is the next version of the kit. It is shown here so you know what the
-> machine setup is for. Today the kit says so when you ask for a team.
-
 You have a repository, say a web shop called `harbor`, and you say: **build an agent
 team for this project**.
 
@@ -251,7 +251,9 @@ The rules matter more here than in a code project:
 - "Done" has a meaning: every number carries the receipt it came from, and the sums
   match the statements.
 
-This too is the next version; the machine setup of today already runs on Windows.
+Today the kit builds a team for a folder without code (a reader, a worker, a reviewer
+that checks against a list, and one agent that saves the work), with these rules. The
+roles above, the browser work and a Windows team of its own are the next version.
 
 ## Example: a homelab
 
@@ -314,7 +316,7 @@ A second disk is a full remote: `git push` works the same, and no account is nee
 1. **Machine setup**: prerequisites, starters for any model service, local models,
    OpenAI through a proxy. Done.
 2. **The team itself**: reading the project, the questions, agents, rules, skills,
-   board, and the check at the end.
+   board, and the check at the end. Done.
 3. Sample projects that teach the team your conventions, per-language knowledge, and
    teams for workflows without code.
 4. The management hub: a repository that steers several projects by starting a session
@@ -336,6 +338,21 @@ in the plugin's `bin/` folder:
 
   ```
   ack-wrappers install kimi --permissions ask
+  ```
+
+- `ack-repo` reads a folder before a team is built (git, tests, sibling projects, an
+  existing team) and changes nothing; `init` and `disk-remote` create the repository
+  and a copy on a second drive:
+
+  ```
+  ack-repo inspect
+  ```
+
+- `ack-team` checks a finished team: every agent, every skill it names, the rules, the
+  board, and that the briefing plugin would refuse a broken agent:
+
+  ```
+  ack-team check
   ```
 
 - `ack-proxy` looks after claude-code-proxy for the `openai` provider:
