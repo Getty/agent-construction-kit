@@ -1,8 +1,8 @@
 # Machine setup: plugins and starters
 
 The steps for the machine, after Step 0 of the skill (the model of this session). Talk
-with the user and run the commands as SKILL.md says. Step 2 says which of steps 3 and 4
-apply.
+with the user and run the commands as SKILL.md says. Its step 2 below says which of
+steps 3 and 4 apply.
 
 ## Contents
 
@@ -73,8 +73,9 @@ If the user wants OpenAI models, follow [openai-proxy.md](openai-proxy.md) in or
 
 ## 4. Local models
 
-Say first: local models are for work in the finished team, not for setting up. `ack-wrappers
-probe-local` prints `local<TAB><url><TAB><model>` per model found (a local Ollama too).
+Say first: local models are for work in the finished team, not for setting up.
+`ack-wrappers probe-local` prints `local<TAB><url><TAB><model>` per model found (a local
+Ollama too).
 
 - Per model: ask whether they want a starter, suggesting a short name (lower case, first
   a letter, not a name `list` shows), and for its context window unless the model's

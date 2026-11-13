@@ -122,8 +122,10 @@ class SkillTest(Sandbox):
         for word in ("agent teams", "claude_with_", "claude_with_danger", "proxy",
                      "briefing", "skilletor", "build an agent team", "subagents",
                      "project or folder", ".claude/agents", "ack-doctor", "ack-wrappers",
-                     "ack-proxy", "ack-repo", "ack-team"):
+                     "ack-proxy", "ack-repo", "ack-team",
+                     "I have a homelab and want to develop things", "not an ordinary coding"):
             self.assertIn(word, fm["description"])
+        self.assertLessEqual(len(fm["description"]), 1024)
 
     def test_every_referenced_file_exists(self):
         text = read(SKILL)
@@ -161,28 +163,50 @@ class SkillTest(Sandbox):
         text = read(SKILL)
         self.assertEqual(re.findall(r"^## (Step \d+):", text, re.M),
                          ["Step %d" % n for n in range(7)])
-        flat = " ".join(text.split())
-        for words in ("**Team**", "**Machine**", "set up agents for it",
-                      "`ack-doctor`", "(references/machine.md)",          # the machine way
-                      "`ack-repo inspect`", "`ack-repo init`", "`ack-repo disk-remote`",
-                      "`ack-team check`", "`/reload-plugins`", "`/exit`",  # the team way
-                      "## Answer sheet", "never overwrite an agent file unasked",
-                      "only a yes leads on", "until no line says `missing`",
-                      "start Claude in this folder", "Remote Control", "`windows` team"):
-            self.assertIn(words, flat)
-        later = re.search(r"Not in this version: (.*?)\. ", flat)
-        self.assertIsNotNone(later, "SKILL.md does not say what this version leaves out")
+        body = re.match(r"---\n.*?\n---\n(.*)", text, re.S).group(1)
+        part = {"intro": " ".join(body.split("\n## ", 1)[0].split())}
+        for head, rest in re.findall(r"^## ([^\n]+)\n(.*?)(?=^## |\Z)", body, re.S | re.M):
+            part[head.split(":")[0]] = " ".join(rest.split())
+
+        def has(name, *words):
+            for w in words:
+                self.assertIn(w, part[name], "SKILL.md %s lacks %r" % (name, w))
+
+        has("intro", "**Team**", "**Machine**", "set up agents for it",
+            "I have a homelab and want to develop things", "Step 0 after the answer",
+            "In Step 2, before its questions", "ask which one this folder is for",
+            "ask what will be made here", "## Answer sheet")
+        later = re.search(r"Not in this version: (.*?)\. ", part["intro"])
+        self.assertIsNotNone(later, "the intro does not say what this version leaves out")
         for words in ("a hub", "an issue tracker", "a survey of the machine"):
             self.assertIn(words, later.group(1))
-        self.assertNotRegex(flat, r"team[^.]*comes with a later version")
+        self.assertNotRegex(" ".join(text.split()), r"team[^.]*comes with a later version")
+        has("Talking with the user", "`/reload-plugins`", "`/exit`",
+            "Nothing is written into the project before the user's yes to the short plan",
+            "Nothing leaves this machine without their word")
+        machine_way, team_way = re.findall(r"^- (?:Machine|Team):.*?(?=^- |\Z)",
+                                           re.search(r"^## Step 1:.*?\n(.*?)(?=^## )", body,
+                                                     re.S | re.M).group(1), re.S | re.M)
+        for way in (machine_way, team_way):
+            self.assertIn("`/reload-plugins`", way)
+        self.assertIn("(references/machine.md)", machine_way)
+        self.assertIn("The team needs two free add-ons for Claude Code. May I install them? "
+                      "I recommend yes.", " ".join(team_way.split()))
+        has("Step 2", "`ack-repo inspect`", "`ack-repo init`", "`ack-repo disk-remote`",
+            "`ack-team check` first", "never overwrite an agent file unasked",
+            "goes through Steps 3 and 4 first; then Steps 5 and 6")
+        has("Step 3", "only a yes leads on")
+        has("Step 5", "`ack-team check` until no line says `missing`")
+        has("Step 6", "`/exit`", "Claude Code loads agents only when a session starts",
+            "fixed start sentence and this folder's full path", "Remote Control",
+            "`windows` team", "`ack-wrappers list` shows `absent`")
         doctor = read(ROOT / "bin" / "ack-doctor")      # the team way fixes these lines
         required = set(re.findall(r"\bemit ([a-z:]+) missing [^\n]* required\b", doctor))
         required |= {"plugin:" + n for n in re.findall(r"^plugin_line (\S+) required$",
                                                        doctor, re.M)}
         self.assertEqual(len(required), 5, sorted(required))
-        step1 = re.search(r"^## Step 1:(.*?)^## ", text, re.S | re.M).group(1)
         for name in sorted(required):
-            self.assertIn("`%s`" % name, step1, "Step 1 does not name `%s`" % name)
+            self.assertIn("`%s`" % name, team_way, "Step 1 does not name `%s`" % name)
 
     def test_step_references_name_their_file(self):
         steps = set(re.findall(r"^## (\d+)\. ", read(MACHINE), re.M))
