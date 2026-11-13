@@ -1,0 +1,16 @@
+{
+  "sources": {
+    "getty": {
+      "git": "https://github.com/Getty/skills"
+    }
+  },
+  "install": {
+    "bundles": [
+      "house@getty"
+    ],
+    "skills": [
+      "getty-git-commit-style@getty",
+      "getty-git-usage@getty"
+    ]
+  }
+}
