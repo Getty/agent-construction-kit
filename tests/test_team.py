@@ -474,6 +474,37 @@ class TeamTest(Sandbox):
         self.install_plugin("kit", "deploy", scope="project", project=d)
         self.assertEqual(self.at("check", cwd=d).returncode, 0)
 
+    def manifest_plugin(self, skills_json, files, plugin="pocket", market="getty"):
+        """An installed, enabled plugin whose manifest lists its skill paths."""
+        self.install_plugin(plugin, "unused", market)
+        root = self.home / ".claude" / "plugins" / "cache" / market / plugin / "1.0.0"
+        shutil.rmtree(str(root / "skills"))
+        self.put(root, ".claude-plugin/plugin.json",
+                 '{\n  "name": "%s",\n  "skills": %s\n}\n' % (plugin, skills_json))
+        for f in files:
+            self.put(root, f, "---\nname: x\n---\n")
+
+    def test_plugin_skills_listed_in_the_manifest(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "pocket:tdd", "pocket:triage", "tdd",
+                                        "pocket:nope"))
+        self.manifest_plugin('[\n    "./skills/engineering/tdd",\n    "./skills/more"\n  ]',
+                             ["skills/engineering/tdd/SKILL.md", "skills/more/triage/SKILL.md"])
+        r = self.at("check", cwd=d)
+        self.one(r, "skill", "ok", "pocket:tdd")
+        self.one(r, "skill", "ok", "pocket:triage")
+        self.one(r, "skill", "ok", "tdd")
+        self.one(r, "skill", "missing", "pocket:nope")
+
+    def test_manifest_skills_as_a_string_and_outside_paths(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "pocket:tdd", "pocket:evil"))
+        self.manifest_plugin('"./skills/deep/tdd"', ["skills/deep/tdd/SKILL.md"])
+        self.put(self.home, "outside/evil/SKILL.md", "x\n")
+        r = self.at("check", cwd=d)
+        self.one(r, "skill", "ok", "pocket:tdd")
+        self.one(r, "skill", "missing", "pocket:evil")
+
     def test_plugin_skill_missing_in_an_installed_plugin(self):
         d = self.team()
         self.agent(d, "worker", skills=("harbor-core", "kit:nothing"))

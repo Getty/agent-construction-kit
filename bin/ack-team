@@ -247,53 +247,107 @@ EOT
   return "$r"
 }
 
+# _installed_entries FILE: one line KEY<TAB>installPath<TAB>projectPath per entry of
+# the "plugins" object of installed_plugins.json (a 150 KB file on a busy machine, so
+# an awk scan, not a shell loop); strings keep their JSON escapes
+_installed_entries() {
+  awk 'BEGIN { RS = "\001" }
+  {
+    s = $0; n = length(s); depth = 0; i = 1
+    while (i <= n) {
+      c = substr(s, i, 1)
+      if (c == "\"") {
+        j = i + 1; str = ""
+        while (j <= n) {
+          d = substr(s, j, 1)
+          if (d == "\\") { str = str substr(s, j, 2); j += 2; continue }
+          if (d == "\"") break
+          str = str d; j++
+        }
+        i = j + 1
+        if (ctx[depth] == "o" && expectkey[depth]) { key[depth] = str; expectkey[depth] = 0 }
+        else if (depth == 4 && key[1] == "plugins") {
+          if (key[4] == "installPath") ip = str
+          else if (key[4] == "projectPath") pp = str
+        }
+        continue
+      }
+      if (c == "{" || c == "[") {
+        depth++; ctx[depth] = (c == "{") ? "o" : "a"; expectkey[depth] = (c == "{")
+        if (depth == 4) { ip = ""; pp = "" }
+      } else if (c == "}" || c == "]") {
+        if (depth == 4 && key[1] == "plugins" && ip != "") printf "%s\t%s\t%s\n", key[2], ip, pp
+        depth--
+      } else if (c == ",") {
+        if (ctx[depth] == "o") expectkey[depth] = 1
+      }
+      i++
+    }
+  }' "$1" 2>/dev/null
+}
+
+# _under PROJECT: DIR lies in PROJECT, also when one of them goes through a symlink
+# (macOS temp directories do)
+_under() {
+  local p="$1" real
+  case "$DIR/" in "$p"/*) return 0 ;; esac
+  case "$DIRP/" in "$p"/*) return 0 ;; esac
+  real="$(cd "$p" 2>/dev/null && pwd -P)" || return 1
+  case "$DIRP/" in "$real"/*) return 0 ;; esac
+  return 1
+}
+
 # _plugin_list -> PLUGINS: lines "NAME<TAB>ROOT" for every plugin installed (per
 # ~/.claude/plugins/installed_plugins.json, for this project) AND enabled, like the
 # briefing hook reads them; computed once
 _plugin_list() {
-  local idx="$HOME/.claude/plugins/installed_plugins.json" text pl key keys arr line root proj name mf
+  local idx="$HOME/.claude/plugins/installed_plugins.json" key root proj name mf
   [ -z "${PLUGINS_DONE:-}" ] || return 0
   PLUGINS_DONE=1; PLUGINS=""
   [ -f "$idx" ] || return 0
-  text="$(cat "$idx" 2>/dev/null)"
-  json_member "$text" plugins; pl="$REPLY"
-  _json_keys "$pl"; keys="$KEYS"
   _enabled_map
-  while IFS= read -r key; do
+  while IFS="$TAB" read -r key root proj; do
     [ -n "$key" ] || continue
     _enabled "$key" || continue
-    json_member "$pl" "$key"; arr="$REPLY"
-    case "$arr" in '['*) ;; *) continue ;; esac
-    json_objects "$arr"
-    while IFS= read -r line; do
-      case "$line" in *'"installPath":"'*) ;; *) continue ;; esac
-      root="${line#*\"installPath\":\"}"; root="${root%%\"*}"
-      _unescape "$root"; root="$REPLY"
-      proj=""
-      case "$line" in
-        *'"projectPath":"'*) proj="${line#*\"projectPath\":\"}"; proj="${proj%%\"*}"; _unescape "$proj"; proj="$REPLY" ;;
-      esac
-      if [ -n "$proj" ]; then
-        proj="${proj%/}"
-        case "$DIR/" in "$proj"/*) ;; *) continue ;; esac
-      fi
-      name="${key%%@*}"
-      mf="$root/.claude-plugin/plugin.json"
-      if [ -f "$mf" ]; then
-        json_member "$(cat "$mf" 2>/dev/null)" name
-        case "$REPLY" in '"'*'"') name="${REPLY#\"}"; name="${name%\"}" ;; esac
-      fi
-      PLUGINS="$PLUGINS$name$TAB$root"$'\n'
-    done <<EOT
-$PLUGIN_OBJS
-EOT
+    _unescape "$root"; root="$REPLY"
+    if [ -n "$proj" ]; then
+      _unescape "$proj"; proj="${REPLY%/}"
+      if ! _under "$proj"; then continue; fi
+    fi
+    name="${key%%@*}"
+    mf="$root/.claude-plugin/plugin.json"
+    if [ -f "$mf" ]; then
+      json_member "$(cat "$mf" 2>/dev/null)" name
+      case "$REPLY" in '"'*'"') name="${REPLY#\"}"; name="${name%\"}" ;; esac
+    fi
+    PLUGINS="$PLUGINS$name$TAB$root"$'\n'
   done <<EOT
-$keys
+$(_installed_entries "$idx")
 EOT
 }
 
-# _plugin_has_skill ROOT SKILL: ROOT/skills/SKILL/SKILL.md exists
-_plugin_has_skill() { [ -f "$1/skills/$2/SKILL.md" ]; }
+# _plugin_has_skill ROOT SKILL: the plugin at ROOT holds the skill: skills/SKILL/SKILL.md,
+# or at a path the manifest's "skills" lists (each one a skill directory or a directory
+# of them, like ./skills/engineering/tdd), as the briefing hook reads it
+_plugin_has_skill() {
+  local root="$1" skill="$2" mf="$1/.claude-plugin/plugin.json" raw p
+  [ -f "$root/skills/$skill/SKILL.md" ] && return 0
+  [ -f "$mf" ] || return 1
+  json_member "$(cat "$mf" 2>/dev/null)" skills
+  raw="$(printf '%s' "$REPLY" | tr -d '[]\r\n' | tr ',' '\n')"
+  while IFS= read -r p; do
+    _ack_trim "$p"; p="$REPLY"
+    case "$p" in '"'*'"') p="${p#\"}"; p="${p%\"}" ;; *) continue ;; esac
+    _unescape "$p"; p="$REPLY"
+    p="${p#./}"; p="${p%/}"
+    case "$p" in ''|/*|..|../*|*/..|*/../*) continue ;; esac
+    [ "${p##*/}" = "$skill" ] && [ -f "$root/$p/SKILL.md" ] && return 0
+    [ -f "$root/$p/$skill/SKILL.md" ] && return 0
+  done <<EOT
+$raw
+EOT
+  return 1
+}
 
 # _resolves NAME -> WHY (empty on success): the skill exists where the briefing hook
 # looks: the project's and the user's .claude/skills, and the skills directory of every
@@ -743,6 +797,7 @@ cmd_check() {
   DIR="$(cd "${1:-.}" 2>/dev/null && pwd)" && [ -n "$DIR" ] ||
     fail 2 "'${1:-.}' is not a directory." "pass the repository that holds the team."
   DIR="${DIR%/}"
+  DIRP="$(cd "$DIR" && pwd -P)"
   GITTOP=""
   if command -v git >/dev/null 2>&1; then
     GITTOP="$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null)"
