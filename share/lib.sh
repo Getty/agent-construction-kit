@@ -366,12 +366,14 @@ ack_find_python() {
 # refuses to read it (dubious ownership, a broken gitfile, a dangling link). DIR's own
 # .git always counts; one above only when git names another reason than "not a git
 # repository" (git skips such a folder and looks no further). REPLY is git's reason, its
-# first line without "fatal: "; ACK_GIT_AT is the folder that holds that .git. Returns 1
-# when git reads the repository or there is none. DIR is absolute.
+# first line without "fatal: ", or the kit's own where git's would mislead (a dangling
+# link, an empty folder: git says "not a git repository"); ACK_GIT_AT is the folder that
+# holds that .git. Returns 1 when git reads the repository or there is none. DIR is
+# absolute.
 ack_git_refused() {
   local d="$1" err p
   REPLY="" ACK_GIT_AT=""
-  err="$(cd "$d" 2>/dev/null && git rev-parse --git-dir 2>&1 >/dev/null)" && return 1
+  err="$(CDPATH= cd -- "$d" 2>/dev/null && git rev-parse --git-dir 2>&1 >/dev/null)" && return 1
   err="${err%%$'\n'*}"; err="${err//$'\r'/}"; err="${err#fatal: }"
   p="$d"
   while :; do
@@ -383,6 +385,11 @@ ack_git_refused() {
     [ -n "$p" ] && [ "$p" != / ] || return 1
     p="${p%/*}"
   done
+  if [ -L "$p/.git" ] && [ ! -e "$p/.git" ]; then
+    err="'.git' is a link to something that does not exist"
+  elif [ -d "$p/.git" ] && [ -z "$(ls -A "$p/.git" 2>/dev/null)" ]; then
+    err="'.git' is an empty folder, no repository"
+  fi
   REPLY="${err:-git cannot read it}" ACK_GIT_AT="${p:-/}"
   return 0
 }

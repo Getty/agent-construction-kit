@@ -22,11 +22,12 @@ Run `ack-repo inspect` in the project folder; it only reads, offline. One fact p
 - `git<TAB>inside<TAB><top>`: the folder lies inside the repository `<top>`. Before anything
   else ask whether the team belongs to `<top>` (then the user starts Claude there, as in
   Step 1 of SKILL.md) or to this folder alone (question 1). `git<TAB>home<TAB><top>`: that
-  repository is the user's home folder kept in git; never build in it: question 1. Neither
-  prints `commits`, `branch`, `dirty` or `remote` lines; the other lines are this folder's.
-- `git<TAB>refused<TAB><dir><TAB><reason>`: `<dir>` holds a `.git` that git refuses to read;
-  `<reason>` is git's (dubious ownership, a broken `.git`). Tell the user in plain words
-  and stop until it is fixed: nothing is built, and `ack-repo init` writes nothing there.
+  repository is the user's home folder kept in git; never build in it: question 1, or Step 2
+  of SKILL.md when `<top>` is this folder (a home folder is no project). Neither prints
+  `commits`, `branch`, `dirty` or `remote` lines; the other lines are this folder's.
+- `git<TAB>refused<TAB><dir><TAB><reason>`: git refuses to read the `.git` in `<dir>` (dubious
+  ownership, a broken `.git`). Tell the user and stop until it is fixed, by them: nothing is
+  built, `ack-repo init` writes nothing there, and you never change their global git config.
 - `branch<TAB><name>`: `detached` means no branch is checked out; ask which branch the
   team commits to. `dirty<TAB><n>`: files changed or untracked now; keep the list
   `git status --short -uall` prints: they stay the user's (build item 9), named in the plan.
@@ -35,9 +36,8 @@ Run `ack-repo inspect` in the project folder; it only reads, offline. One fact p
   `github`, `codeberg`, `gitlab`, `forge` (a self-hosted server), `disk` or `other`.
 - `signal<TAB><kind><TAB><file>`: how it is built (`perl`, `node`, `python`, `go`, `rust`,
   `make`, `ci`); that file has the build, test and release commands. None: question 5.
-- `tests<TAB><dir><TAB><n><TAB>nested`: tests in subfolders (helper folders like `fixtures/`
-  not counted); check that the test command reaches them (many runners skip subfolders).
-  `flat`: one folder. No `tests` line: none.
+- `tests<TAB><dir><TAB><n><TAB>nested`: tests in subfolders (not helpers like `fixtures/`),
+  which many runners skip: check that the test command reaches them. `flat`: one folder.
 - `team<TAB>agents<TAB><n>`, `team<TAB>rules<TAB><n>`, `team<TAB>skills<TAB><n>`: team parts
   that exist. `team<TAB>board<TAB>karr`, `file` or `none`: the board that exists; keep it.
   `team<TAB>skilletor<TAB>yes`: a skilletor config exists. Read `.claude/skilletor.json`
@@ -87,16 +87,16 @@ First load the presets this session lists ("Presets" in [team-answer-sheet.md](t
    (No: the team needs one; stop.) Then `ack-repo init` prints `git<TAB>created<TAB><dir>` and
    writes a `.gitignore` (local settings, key files), or `git<TAB>ok<TAB><dir>` for a bare
    one: nothing changed; ask for the folder with the files. `inside` or `home`: "This folder
-   is part of a larger repository, `<top>`. The team needs one of its own here; your files
-   stay where they are. May I create it? I recommend yes." Then `ack-repo init --own`; exit 3
-   means `<top>` already tracks files here: say so and stop. A new repository: from here on
-   treat it as `commits<TAB>0` (the user's files get a first commit).
-2. **A second copy**, only without a `remote` line: [team-second-copy.md](team-second-copy.md).
+   is part of a larger repository, `<top>`. The team needs one of its own; your files stay
+   where they are. May I create it? I recommend yes." (No: stop.) Then `ack-repo init --own`;
+   exit 3 means `<top>` already tracks files here: say so and stop. Exit 2 of either init for
+   the home folder: Step 2 of SKILL.md. A new repository: from here on treat it as `commits<TAB>0`.
+2. **A second copy**, only once `git` is `ok` or `created`, without a `remote` line: [team-second-copy.md](team-second-copy.md).
 3. **A family**, only with `sibling` lines: "Next to this folder are `<a>` and `<b>`. Do
    they belong together around a common core? Then each gets its own team, and they pass
-   work to each other. I recommend that if they share code." Yes: `shape` is `family`. Both
-   names going on after the shared first word (`harbor-shop`, `harbor-notes`): name that
-   sibling "probably unrelated", unless a file ties them; the user's no drops it.
+   work to each other. I recommend that if they share code." Offer as one family the siblings
+   with a sign of one (a `-core` name such as `harbor-core`, a file that ties them); name the
+   rest "probably unrelated". Yes: `shape` is `family`; the user's no drops a sibling.
 4. **The name in the history**, only when `git config user.name` or `user.email` is
    empty: "Your saved versions carry a name and an e-mail; both become visible if the
    project is ever published. Which shall I use? I recommend your name and an e-mail you
@@ -135,9 +135,10 @@ any line. Besides the team itself, it names:
   ready know-how for test-first work and finding bugs; I would install them."
 - Who commits: `<prefix>-release-manager`, unless a preset or the user wants the session
   (`committer` `main`) or the user (`user`); the release manager is built either way.
-- The name and e-mail from question 4, the copy on a drive and its updates, the board
-  (karr, downloaded into the folder `ack-wrappers dir` prints), and what is not included
-  that the user might expect (a hub; "karr can come later").
+- The name and e-mail from question 4, the copy on a drive and its updates, the board (karr,
+  downloaded into the folder `ack-wrappers dir` prints, and with `dir<TAB>missing` the line
+  `ack-wrappers path-fix` adds to the shell's startup file), and what is not included that
+  the user might expect (a hub; "karr can come later").
 
 Example for a new web shop `harbor`, with a copy on a USB drive:
 
@@ -152,8 +153,7 @@ Example for a new web shop `harbor`, with a copy on a USB drive:
 >   and code, plus skills from superpowers, which you have installed.
 > - Rules: careful work, the helpers do the work, nothing leaves without your word.
 > - A board: the file `BOARD.md` (to do, in progress, review, done); karr can come later.
-> - Public issue trackers stay outside: anyone can write there, and a model cannot
->   reliably tell such text from an order. You bring single entries in as cards.
+> - Public issue trackers stay outside: anyone can write there. You bring entries in as cards.
 > - Saved work carries "Sam Doe <sam@example.org>", in this project only.
 > - The copy on 'BACKUP' is updated after every saved change, as you allowed.
 > - At the end I save all of this as one commit.

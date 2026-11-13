@@ -771,7 +771,9 @@ class SkillTest(Sandbox):
             self.assertIn("`skilletor install board-karr@getty --project`", text)
         self.assertIn("`.claude/rules/.local.board-karr.md`", board)
         for text in (rules, sheet):
-            self.assertIn("is replaced by `house` and its other members", text)
+            self.assertIn("is replaced by `house`, plus the members `house` lacks, other than "
+                          "the rule `board-karr`", text)
+            self.assertNotIn("its other members", text)
         self.assertIn("A user's answer beats a preset line", sheet)
         for doc in docs():
             text = read(doc)
@@ -864,6 +866,38 @@ class SkillTest(Sandbox):
         for words in ("Your paths are `<paths>`", "one line per worker", "stay with the main agent",
                       "the changelog with the committer"):
             self.assertIn(words, workers)
+
+    def test_residual_findings_of_the_scoped_review(self):
+        flat = lambda n: " ".join(read(REFS / n).split())
+        analysis = flat("team-analysis.md")
+        reading = analysis.partition("## Reading the repository")[2].partition("## An existing")[0]
+        home = re.search(r"`git<TAB>home<TAB><top>`:(.*?) - `git<TAB>refused", reading).group(1)
+        self.assertIn("Step 2 of SKILL.md when `<top>` is this folder", home)
+        refused = re.search(r"- `git<TAB>refused<TAB><dir><TAB><reason>`:(.*?) - `branch", reading)
+        self.assertIn("never change their global git config", refused.group(1))
+        for doc in docs():
+            self.assertNotIn("safe.directory", read(doc), doc.name)
+        q1 = re.search(r" 1\. \*\*Repository\*\*(.*?) 2\. \*\*A second copy\*\*", analysis).group(1)
+        inside = q1.partition("`inside` or `home`:")[2]
+        self.assertIn("I recommend yes.\" (No: stop.) Then `ack-repo init --own`", inside)
+        self.assertIn("Exit 2 of either init for the home folder: Step 2 of SKILL.md", inside)
+        q2 = re.search(r" 2\. \*\*A second copy\*\*(.*?) 3\. \*\*A family\*\*", analysis).group(1)
+        self.assertIn("only once `git` is `ok` or `created`", q2)
+        second = flat("team-second-copy.md")
+        self.assertIn("asked only once this folder has a repository of its own", second)
+        self.assertIn("no repository of its own: question 1 first", second)
+        q3 = re.search(r" 3\. \*\*A family\*\*(.*?) 4\. \*\*The name", analysis).group(1)
+        for words in ("Offer as one family the siblings with a sign of one", "a `-core` name",
+                      "a file that ties them", 'name the rest "probably unrelated"'):
+            self.assertIn(words, q3)
+        self.assertIn("(`harbor-core`, `harbor-web`, `harbor-cli`)", flat("team-family.md"))
+        plan = analysis.partition("## The plan")[2].partition("## After the yes")[0]
+        self.assertIn("with `dir<TAB>missing` the line `ack-wrappers path-fix` adds", plan)
+        karr = [r for _, r in tables(read(REFS / "team-board.md"), "System") if "Linux" in r[0]]
+        for words in ("`# agent-construction-kit`", "the plan names that line"):
+            self.assertIn(words, karr[0][1])
+        setup = flat("team-board.md").partition("### Setting it up")[2].partition("### ")[0]
+        self.assertIn("call karr by its full path, `<dir>/karr`", setup)
 
     def readme_provider_names(self):
         text = read(README)

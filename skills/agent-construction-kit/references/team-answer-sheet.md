@@ -60,9 +60,10 @@ on the kit's own initiative. Its author writes the section like this:
   set as without a preset. A user's answer beats a preset line: when the user says
   otherwise, also in reply to the plan, the user's word stands. A bundle that carries the
   karr rule (`rule:board-karr` among its `members` in `skilletor available <source> --json`)
-  on the file board is replaced by `house` and its other members by name
-  (`skilletor install <name>@<source> --project`); one plan line. A source without
-  `=<address>` must already be in `skilletor source list`; otherwise ask the user for its address.
+  on the file board is replaced by `house`, plus the members `house` lacks, other than the
+  rule `board-karr`, by name (`skilletor install <name>@<source> --project`); one plan line.
+  A source without `=<address>` must already be in `skilletor source list`; otherwise ask
+  the user for its address.
 - Trust: `skilletor add` trusts the source it adds. A source that only the project's
   committed `.claude/skilletor.json` declares (a cloned project) is not trusted on this
   machine: `skilletor sync` prints `trust: source "<name>" … — run: skilletor trust <name>`

@@ -33,11 +33,12 @@ Revision history for agent-construction-kit
       services), init creates the repository, disk-remote puts a copy on a
       second drive. A folder inside another repository, or below a home
       folder kept in git, is reported as such and gets a repository of its
-      own with init --own; init never runs on the home folder. A .git that
-      git refuses to read (dubious ownership, a broken link) is reported with
-      git's reason, and init then writes nothing.
+      own with init --own; init and disk-remote never run on the home folder,
+      and disk-remote only on a repository of its own. A .git that git
+      refuses to read (dubious ownership, a broken link, an empty folder) is
+      reported with its reason, and init then writes nothing.
     - Add ack-team check, which verifies a team: agent files, the skills they
-      name, rules, settings, board, CLAUDE.md, git (with git's reason when it
+      name, rules, settings, board, CLAUDE.md, git (with the reason when git
       refuses the repository), and one run of the briefing hook per agent:
       the hook of the installed, enabled briefing plugin, never another copy
       in the cache. On Git for Windows the hook's briefing-preload.exe runs,

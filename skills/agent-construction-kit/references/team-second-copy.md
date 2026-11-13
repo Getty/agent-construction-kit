@@ -1,6 +1,7 @@
 # The second copy: hosted or on a drive
 
-Question 2 of [team-analysis.md](team-analysis.md), asked only when `ack-repo inspect`
+Question 2 of [team-analysis.md](team-analysis.md), asked only once this folder has a
+repository of its own (`git` `ok`, or `created` by question 1) and `ack-repo inspect`
 printed no `remote` line: a second copy of the history, so that a broken disk loses
 nothing. Take the first way that fits; each needs the user's yes.
 
@@ -39,8 +40,9 @@ After a yes, `ack-repo disk-remote <drive folder>` creates `<project>.git` there
 `remote<TAB>created<TAB><name><TAB><path>`, then `push<TAB>ok<TAB>all branches` or
 `push<TAB>skipped<TAB>no commit yet` (normal). Exit 2 (folder missing, not writable,
 inside the project, a name a remote cannot have) or 3 (the name exists, nothing changed):
-relay it, ask for another folder or name. Exit 1 after `remote<TAB>created`: only the push
-failed; the next push repeats it. Without it: nothing set up; relay it.
+relay it, ask for another folder or name; exit 2 because this folder has no repository of
+its own: question 1 first. Exit 1 after `remote<TAB>created`: only the push failed; the
+next push repeats it. Without it: nothing set up; relay it.
 
 The yes covers the updates after every commit: the project rules write that down ("A copy
 on a drive" in [team-rules.md](team-rules.md)), and build item 10 makes the first push.

@@ -108,7 +108,7 @@ From karr's README (release 0.602). The kit has tested none of these installs.
 
 | System | Install |
 |---|---|
-| Linux, x86_64 or aarch64 | a ready program, no Perl: from the release page download `karr-<version>-linux-x86_64` (or `-aarch64`) and `karr-<version>-checksums.txt`, run `sha256sum -c --ignore-missing karr-<version>-checksums.txt`, then `chmod +x` it and move it as `karr` into the folder `ack-wrappers dir` prints (the kit's folder for starters; create it if needed; never `sudo`); `dir<TAB>missing`: that folder is not on the `PATH` yet, so `ack-wrappers path-fix` after the user's yes. It needs the system libraries libssl, libcrypto, libssh2, libz and libzstd, present on a normal Linux |
+| Linux, x86_64 or aarch64 | a ready program, no Perl: from the release page download `karr-<version>-linux-x86_64` (or `-aarch64`) and `karr-<version>-checksums.txt`, run `sha256sum -c --ignore-missing karr-<version>-checksums.txt`, then `chmod +x` it and move it as `karr` into the folder `ack-wrappers dir` prints (the kit's folder for starters; create it if needed; never `sudo`); `dir<TAB>missing`: that folder is not on the `PATH` yet, so `ack-wrappers path-fix` after the user's yes; it adds one line ending in `# agent-construction-kit` to the shell's startup file (`.bashrc`, `.zshrc`), and the plan names that line, so its yes covers it. It needs the system libraries libssl, libcrypto, libssh2, libz and libzstd, present on a normal Linux |
 | any system with Perl and `cpanm` | `cpanm App::karr` |
 | macOS | no ready program named in the README: `cpanm App::karr` |
 | Windows | Strawberry Perl and Git for Windows; then in PowerShell `$env:CMAKE_GENERATOR = 'MinGW Makefiles'`, `cpanm Alien::Libgit2`, `cpanm --notest Git::Libgit2 Git::Native`, `cpanm App::karr`. Over HTTPS set `SSL_CERT_FILE` to a CA bundle; ssh remotes need nothing |
@@ -119,7 +119,9 @@ about karr only when it is ready ("karr can come later"). `ack-doctor` shows `to
 
 ### Setting it up
 
-In the top folder of the repository, after the user's yes:
+After `dir<TAB>missing`, this session's `PATH` still lacks that folder (path-fix holds for
+new terminals): call karr by its full path, `<dir>/karr`, as `ack-wrappers dir` printed
+`<dir>`. In the top folder of the repository, after the user's yes:
 
 1. `karr init --name "<project>"` creates the board. It adds `tasks/` and `config.yml` to
    `.gitignore`, which would hide every such folder and file in the project: change the

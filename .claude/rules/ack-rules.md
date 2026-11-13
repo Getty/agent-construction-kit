@@ -1,4 +1,4 @@
-<!-- ack: bauform=project manager=none board=file committer=release-manager fremdeingaben=on headless=off -->
+<!-- ack: shape=project manager=none board=file committer=release-manager outside_input=on headless=off -->
 # agent-construction-kit: project rules
 
 ## Lanes

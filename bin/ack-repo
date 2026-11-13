@@ -41,12 +41,14 @@
 # then nothing changes, no commit either. With --own, init creates DIR's own repository
 # inside that other one (which then sees DIR as an untracked folder), unless that one
 # tracks files in DIR. init refuses the home folder and a .git git refuses to read.
-# disk-remote creates TARGET-DIR/<repo>.git as a bare repository, adds it as remote NAME
-# (default origin; backup when origin is taken) and pushes all branches. It prints
-# "remote<TAB>created<TAB>NAME<TAB>PATH" and "push<TAB>ok|skipped<TAB>REASON" (skipped
-# while there is no commit). --dir DIR selects the repository (default: current directory).
+# disk-remote needs DIR to be the top folder of a repository of its own (not inside
+# another one, not the home folder); it creates TARGET-DIR/<repo>.git as a bare
+# repository, adds it as remote NAME (default origin; backup when origin is taken) and
+# pushes all branches. It prints "remote<TAB>created<TAB>NAME<TAB>PATH" and
+# "push<TAB>ok|skipped<TAB>REASON" (skipped while there is no commit). --dir DIR selects
+# the repository (default: current directory).
 # Exit codes: 0 ok, 1 the push failed, 2 usage error or unusable target (missing, not
-# writable, inside the repository, DIR is no repository, init on the home folder), 3
+# writable, inside the repository, DIR is no repository of its own, the home folder), 3
 # something is in the way: that name already exists, git refuses the .git there, or the
 # other repository tracks files in DIR (nothing changed).
 # Errors are two lines on stderr: "ack-repo: <what>" and "ack-repo: <what to do>".
@@ -108,6 +110,7 @@ _toplevel() {
 # Windows, whose disks usually are)
 _same_dir() {
   local a b
+  [ -n "$1" ] && [ -n "$2" ] || return 1     # an empty HOME names no folder
   _physdir "$1" && a="$REPLY" || return 1
   _physdir "$2" && b="$REPLY" || return 1
   case "$OSTYPE" in
@@ -410,7 +413,7 @@ cmd_init() {
   dir="$REPLY"
   if ack_git_refused "$dir"; then
     fail 3 "git refuses to read the repository at '$ACK_GIT_AT': $REPLY." \
-      "run 'git -C \"$ACK_GIT_AT\" status' to see how git says to fix it; nothing was changed."
+      "tell the user; the fix is theirs. Nothing was changed."
   fi
   if _same_dir "$dir" "$HOME"; then
     fail 2 "'$dir' is your home folder, which is no project." \
@@ -456,8 +459,17 @@ cmd_disk_remote() {
   done
   [ -n "$target" ] || usage_err "disk-remote needs a target directory."
   [ -d "$dir" ] || fail 2 "'$dir' is not a directory." "pass the repository with --dir."
-  _toplevel "$dir" || fail 2 "'$dir' is not a git repository." "run ack-repo init first."
+  _absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
+  dir="$REPLY"
+  if _same_dir "$dir" "$HOME"; then
+    fail 2 "'$dir' is your home folder, which is no project." \
+      "create a folder for the project, run ack-repo init there, then disk-remote."
+  fi
+  _where "$dir" || fail 2 "'$dir' is not a git repository." "run ack-repo init first."
   top="$REPLY"
+  # a copy of the repository above, and a remote in its config, would be the wrong one
+  [ "$WHERE" = ok ] || fail 2 "'$dir' has no repository of its own; it lies in the one at '$top'." \
+    "run ack-repo init --own '$dir' first (after the user's yes), then disk-remote."
   [ -d "$target" ] || fail 2 "the target '$target' does not exist." "mount or create it, then run ack-repo again."
   [ -w "$target" ] || fail 2 "the target '$target' is not writable." "check the permissions or the mount."
   _physdir "$top" && ptop="$REPLY" || ptop="$top"

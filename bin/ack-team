@@ -31,7 +31,7 @@
 #              fences; warn when one is absent); else missing.
 #   claude-md  warn unless CLAUDE.md exists and names every agent (as a whole name).
 #   git        missing without a repository (when a .git is there but git refuses to
-#              read it, the text is git's reason); warn without a remote.
+#              read it, the text is the reason, git's or the kit's); warn without a remote.
 #   hook       runs the briefing plugin's hook once per agent as if it were spawned: a
 #              denial is missing (the reason is the text). The first worker (else the
 #              first agent) must also be briefed: ok, missing when the hook hands it an

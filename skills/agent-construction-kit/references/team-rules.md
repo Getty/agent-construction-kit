@@ -26,8 +26,8 @@ project, as `.claude/rules/.local.<name>.md` and keeps them current; never edit 
 
 With karr also `skilletor install board-karr@getty --project` ([team-board.md](team-board.md)).
 On the file board that rule would make karr the board: a preset bundle with `rule:board-karr`
-among its `members` (`skilletor available <source> --json`) is replaced by `house` and
-its other members, installed by name ("Presets" in [team-answer-sheet.md](team-answer-sheet.md)).
+among its `members` (`skilletor available <source> --json`) is replaced by `house`, plus the
+members `house` lacks, other than the rule `board-karr` ([team-answer-sheet.md](team-answer-sheet.md)).
 
 ## The project rules file
 
@@ -179,7 +179,7 @@ and run again until no line is `missing`; tell the user each `warn` in one sente
 | `settings` | `.claude/settings.json`: readable, every marketplace declared, briefing enabled | merge as above |
 | `board` | karr refs, or `BOARD.md` with the four headings | add what the text names |
 | `claude-md` | `CLAUDE.md` names every agent | add the name to the section |
-| `git` | a repository, and a remote | no remote: fine when the user chose "only on this computer". `missing` with "git cannot read the repository: <reason>": git's own reason (dubious ownership, a broken `.git`); tell the user, change nothing until it is fixed |
+| `git` | a repository, and a remote | no remote: fine when the user chose "only on this computer". `missing` with "git cannot read the repository: <reason>": the reason (dubious ownership, a broken `.git`); tell the user, change nothing until they fixed it |
 | `hook` | runs the briefing hook as if each agent were started; the first worker (else the first agent) must also get a briefing | every agent passes: ONE line `hook<TAB>ok<TAB><first worker>`, standing for all of them. `missing`: one line per agent the hook refuses, or for the first worker when it hands an abort; the text is briefing's reason: fix that entry. `warn` (one line; the hook part stops there): hook not found, only an installed and enabled briefing counts (`claude plugin install briefing@getty`), no answer in time (run again), or it briefs nothing for the first worker (give it `briefing.skills`) |
 
 That the hook refuses a broken agent is checked once by hand, in a scratch folder:

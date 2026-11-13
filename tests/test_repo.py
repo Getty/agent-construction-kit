@@ -947,6 +947,82 @@ class RepoTest(Sandbox):
         r = self.ar("inspect", str(d))
         self.assertEqual(self.fact(r, "tests"), [["tests", "tests", "2", "nested"]])
 
+    # ---- residual fixes: a repository of its own, an empty HOME, kit reasons ---
+
+    def test_disk_remote_needs_a_repository_of_its_own(self):
+        top = self.repo("parent")
+        d = top / "sub"
+        d.mkdir()
+        t = self.disk()
+        for args, cwd in ((("disk-remote", str(t)), d),
+                          (("disk-remote", str(t), "--dir", str(d)), self.work)):
+            r = self.ar(*args, cwd=cwd)
+            self.assertEqual(r.returncode, 2, args)
+            self.assertEqual(r.stdout, "")
+            lines = self.two_lines(r)
+            self.assertIn("ack-repo init --own", lines[1])
+            self.assertEqual(os.listdir(str(t)), [])
+            self.assertEqual(self.git(top, "remote"), "")
+        self.assertEqual(self.fact(self.ar("init", "--own", str(d)), "git")[0][1], "created")
+        r = self.ar("disk-remote", str(t), cwd=d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.git(d, "remote"), "origin")
+        self.assertEqual(self.git(top, "remote"), "")
+        self.assertEqual(os.listdir(str(t)), ["sub.git"])
+
+    def test_disk_remote_refuses_the_home_folder_and_below_it(self):
+        self.git(self.home, "init", "-q")
+        sub = self.home / "proj"
+        sub.mkdir()
+        t = self.disk()
+        r = self.ar("disk-remote", str(t), cwd=self.home)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("home folder", self.two_lines(r)[0])
+        r = self.ar("disk-remote", str(t), cwd=sub)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("ack-repo init --own", self.two_lines(r)[1])
+        self.assertEqual(os.listdir(str(t)), [])
+        self.assertEqual(self.git(self.home, "remote"), "")
+
+    def test_an_empty_home_variable_names_no_home_folder(self):
+        d = self.work / "proj"
+        d.mkdir()
+        env = {"HOME": ""}
+        r = self.ar("init", cwd=d, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.fact(r, "git")[0][1], "created")
+        r = self.ar("inspect", cwd=d, env=env)
+        self.assertEqual(self.fact(r, "git")[0][1], "ok", r.stdout)
+        r = self.ar("disk-remote", str(self.disk()), cwd=d, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_dot_git_git_cannot_read_gets_the_kits_reason(self):
+        cases = [("empty", lambda g: g.mkdir(), "empty folder")]
+        if not NT:
+            cases.append(("link", lambda g: os.symlink(str(self.work / "gone"), str(g)),
+                          "link to something that does not exist"))
+        for name, make, words in cases:
+            d = self.work / name
+            d.mkdir()
+            make(d / ".git")
+            g = self.fact(self.ar("inspect", str(d)), "git")
+            self.assertEqual([x[1] for x in g], ["refused"], name)
+            self.assertIn(words, g[0][3], name)
+            self.assertNotIn("not a git repository", g[0][3], name)
+            r = self.ar("init", str(d))
+            self.assertEqual(r.returncode, 3, name)
+            self.assertIn(words, self.two_lines(r)[0])
+        self.assertFalse(os.path.lexists(str(self.work / "gone")))
+
+    def test_init_on_a_refused_repository_leaves_the_fix_to_the_user(self):
+        d = self.repo(commit=False)
+        r = self.ar("init", str(d), env=self.REFUSE)
+        self.assertEqual(r.returncode, 3)
+        lines = self.two_lines(r)
+        self.assertIn("tell the user; the fix is theirs", lines[1])
+        for words in ("safe.directory", "git config", "git -C"):
+            self.assertNotIn(words, r.stderr)
+
     # ---- usage -------------------------------------------------------------
 
     def test_help_prints_the_header(self):
