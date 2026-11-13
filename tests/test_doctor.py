@@ -479,6 +479,7 @@ class RuntimeTest(Sandbox):
         self.assertEqual(self.line(r, "runtime:python")[1], "warn")
         self.assertEqual(self.line(r, "runtime:node")[1], "warn")
 
+    @unittest.skipIf(os.name == "nt", "the Windows host keeps its own python on PATH, found next")
     def test_python_2_does_not_count(self):
         self.fake("python3", self.PYTHON % "Python 2.7.18")
         self.fake("node", self.NODE % "v20.0.0")
