@@ -11,6 +11,17 @@ PROVIDER_DIR = ROOT / "share" / "providers"
 AW = str(ROOT / "bin" / "ack-wrappers")
 SCRIPTS = sorted(p for p in (ROOT / "bin").iterdir() if p.is_file()) + \
     [ROOT / "share" / "claude-with", ROOT / "share" / "lib.sh"]
+REFS = SKILL_DIR / "references"
+TEAM_REFS = ("team-analysis.md", "team-agents.md", "team-rules.md", "team-board.md",
+             "team-family.md", "using-the-team.md")
+# The team references exist before SKILL.md links them; until it does, each must be
+# reached from team-analysis.md. Remove a name once SKILL.md links it (the test says when).
+AWAITING_SKILL_LINK = set(TEAM_REFS)
+ANSWER_KEYS = ("bauform", "manager", "prefix", "board", "committer", "publish_gate",
+               "fremdeingaben", "quellen", "rollen", "bundles", "provider", "headless")
+ROLES = ("scout", "worker", "test-writer", "reviewer", "release-manager", "doc-writer",
+         "adr-auditor", "coordinator")
+FENCE = re.compile(r"^```[^\n]*\n(.*?)^```", re.S | re.M)
 
 
 def read(path):
@@ -37,9 +48,18 @@ def frontmatter(path):
 
 def code_spans(text):
     """Contents of fenced blocks and of inline `code` spans."""
-    fence = re.compile(r"^```[^\n]*\n(.*?)^```", re.S | re.M)
-    rest = fence.sub("", text)
-    return fence.findall(text) + re.findall(r"`([^`\n]+)`", rest)
+    rest = FENCE.sub("", text)
+    return FENCE.findall(text) + re.findall(r"`([^`\n]+)`", rest)
+
+
+def links(path):
+    """Relative file links of a Markdown file, without anchors."""
+    out = []
+    for target in re.findall(r"\]\(([^)\s]+)\)", read(path)):
+        target = target.split("#")[0]
+        if target and not re.match(r"[a-z]+:", target):
+            out.append(target)
+    return out
 
 
 def source():
@@ -82,8 +102,10 @@ def spans(text):
 
 
 # How the scripts print a result line's name and its status.
-NAME_FORMS = (r"'{}(?:\\t|%s)", r"\bkind={}\b", r"\bfor kind in [\w ]*\b{}\b")
-STATUS_FORMS = (r"(?:\\t|%s){}(?:\\t|%s)", r'\bst="{}"', r'"\$kind" {}\b')
+NAME_FORMS = (r"'{}(?:\\t|%s)", r"\bkind={}\b", r"\bfor kind in [\w ]*\b{}\b",
+              r"\bemit {} \w+")
+STATUS_FORMS = (r"(?:\\t|%s){}(?:\\t|%s)", r'\bst="{}"', r'"\$kind" {}\b',
+                r"\bemit [\w-]+ {}\b", r"\bfor \w+ in [\w ]*\b{}\b")
 DOCTOR_STATUS = r'\bemit "?[\w:$-]+"? {}\b|\btool_line [\w-]+ "[^"]*" {}\b'
 
 
@@ -106,8 +128,26 @@ class SkillTest(Sandbox):
         self.assertTrue(named, "SKILL.md names no reference file")
         for rel in named:
             self.assertTrue((SKILL_DIR / rel).is_file(), rel)
-        for p in (SKILL_DIR / "references").glob("*.md"):   # no orphans either
-            self.assertIn("references/" + p.name, named)
+        for name in AWAITING_SKILL_LINK:
+            self.assertNotIn("references/" + name, named, "SKILL.md links %s now: remove "
+                             "it from AWAITING_SKILL_LINK in this file" % name)
+        reached, todo = set(), ["team-analysis.md"]
+        while todo:
+            name = todo.pop()
+            if name not in reached and (REFS / name).is_file():
+                reached.add(name)
+                todo += [t for t in links(REFS / name) if "/" not in t]
+        for p in REFS.glob("*.md"):   # no orphans either
+            if p.name in AWAITING_SKILL_LINK:
+                self.assertIn(p.name, reached, "%s: linked from neither SKILL.md nor "
+                              "team-analysis.md (or a file it links)" % p.name)
+            else:
+                self.assertIn("references/" + p.name, named)
+
+    def test_every_link_in_a_reference_resolves(self):
+        for doc in docs():
+            for target in links(doc):
+                self.assertTrue((doc.parent / target).is_file(), "%s links %s" % (doc.name, target))
 
     def test_every_command_named_in_the_skill_exists(self):
         for doc in docs() + [README]:
@@ -187,9 +227,12 @@ class SkillTest(Sandbox):
 
     def test_every_result_line_named_is_printed_by_a_script(self):
         src, doctor = source(), read(ROOT / "bin" / "ack-doctor")
+        groups = set(re.findall(r'\bemit "?([a-z]+):', doctor))    # plugin:, tool:, ...
+        self.assertIn("plugin", groups)
         checked = 0
         for doc in docs():
             text = read(doc)
+            made_here = "\n".join(FENCE.findall(text))     # names the doc itself creates
             for span in code_spans(text):
                 if "<TAB>" not in span:
                     continue
@@ -201,9 +244,13 @@ class SkillTest(Sandbox):
                 for status in fields[1].split("|"):
                     if re.fullmatch(r"[a-z]+", status):
                         self.assert_printed(STATUS_FORMS, status, "%s: `%s`" % (doc.name, span), src)
+                for field in fields[2:]:                 # literal text: `push<TAB>ok<TAB>all branches`
+                    if field and not re.search(r"[<|]|\.\.\.", field):
+                        self.assertTrue(field in src or field in made_here,
+                                        "%s: `%s`: no script prints %r" % (doc.name, span, field))
                 checked += 1
             for span in spans(text):                 # ack-doctor names like `tool:uvx`
-                if re.fullmatch(r"[a-z]+:[a-z<>-]+", span):
+                if re.fullmatch(r"[a-z]+:[a-z<>-]+", span) and span.split(":")[0] in groups:
                     self.assertTrue(self.doctor_name_ok(span, doctor),
                                     "%s: ack-doctor prints no line `%s`" % (doc.name, span))
             for head, row in tables(text, "Line"):
@@ -273,8 +320,9 @@ class SkillTest(Sandbox):
         # the public marketplace, plugin ids and repo URLs are fine, and
         # `marketplace:getty` is a literal ack-doctor line name; nothing else about
         # one machine or person
+        # Getty/skills and Getty/karr are skilletor sources, named `getty` and `karr`
         allowed = ("Getty/marketplace", "github.com/Getty/", "marketplace:getty",
-                   "briefing@getty", "skilletor@getty", "agent-construction-kit@getty")
+                   "Getty/skills", "Getty/karr", "@getty", '"getty"', "`getty`", "getty=")
         files = [p for top in ("skills", "share") for p in (ROOT / top).rglob("*") if p.is_file()]
         files.append(README)
         self.assertGreater(len(files), 5)
@@ -283,8 +331,162 @@ class SkillTest(Sandbox):
             for a in allowed:
                 text = text.replace(a, "")
             low = text.lower()
-            for bad in ("brain", "citilan", "reuben", "/home/", "getty"):
-                self.assertFalse(bad in low, "%s contains %r" % (p.relative_to(ROOT), bad))
+            for bad in (r"\bbrain\b", "citilan", "reuben", "/home/", "getty"):
+                self.assertFalse(re.search(bad, low), "%s contains %r" % (p.relative_to(ROOT), bad))
+
+    # ---- the team references
+
+    def test_team_references_are_short_and_list_their_sections(self):
+        for name in TEAM_REFS:
+            text = read(REFS / name)
+            n = len(text.splitlines())
+            self.assertLess(n, 200, "%s has %d lines" % (name, n))
+            heads = re.findall(r"^## (.+)$", FENCE.sub("", text), re.M)
+            self.assertEqual(heads[:1], ["Contents"], "%s: ## Contents is not the first section" % name)
+            contents = re.search(r"^## Contents\n\n((?:- .*\n)+)", text, re.M)
+            self.assertIsNotNone(contents, "%s: ## Contents lists nothing" % name)
+            self.assertEqual(len(contents.group(1).splitlines()), len(heads) - 1,
+                             "%s: ## Contents and the ## sections differ" % name)
+
+    def test_answer_sheet_keys_and_the_rules_header(self):
+        text = read(REFS / "team-analysis.md")
+        values = {spans(row[0])[0]: spans(row[1]) for _, row in tables(text, "Key")}
+        self.assertEqual(sorted(values), sorted(ANSWER_KEYS))
+        m = re.search(r"<!-- ack: ([^>]*?) -->", read(REFS / "team-rules.md"))
+        self.assertIsNotNone(m, "team-rules.md: no <!-- ack: ... --> header")
+        for pair in m.group(1).split():
+            key, _, value = pair.partition("=")
+            self.assertIn(key, values, "rules header: unknown key %r" % key)
+            if values[key]:
+                self.assertIn(value, values[key], "rules header: %s=%s" % (key, value))
+        preset = re.search(r"^```markdown\n## Answer sheet\n(.*?)^```", text, re.S | re.M)
+        self.assertIsNotNone(preset, "team-analysis.md: no preset example")
+        for key in re.findall(r"^- ([a-z_]+):", preset.group(1), re.M):
+            self.assertIn(key, values, "preset example: unknown key %r" % key)
+        self.assertTrue(tables(preset.group(1), "rollen"), "preset example: no rollen table")
+
+    def agent_templates(self):
+        out = []
+        for name in TEAM_REFS:
+            for block in re.findall(r"^```markdown\n(---\nname: .*?)^```", read(REFS / name),
+                                    re.S | re.M):
+                m = re.match(r"---\n(.*?)\n---\n", block, re.S)
+                self.assertIsNotNone(m, "%s: a template without frontmatter" % name)
+                if re.search(r"(?m)^model:", m.group(1)):      # an agent, not a skill
+                    out.append((name, m.group(1), block[m.end():]))
+        return out
+
+    def test_agent_templates_follow_the_contract(self):
+        roles = {}
+        for head, row in tables(read(REFS / "team-agents.md"), "Role"):
+            if "Tools" in head:
+                roles[spans(row[0])[0]] = (row[head.index("Tools")],
+                                           spans(row[head.index("`model`")])[0])
+        self.assertEqual(sorted(roles), sorted(ROLES))
+        readonly = header("ack-team")
+        for role, (tools, _) in roles.items():
+            if tools == "read-only":       # ack-team warns about exactly these suffixes
+                self.assertIn("-" + role, readonly)
+        seen = set()
+        for doc, fm, body in self.agent_templates():
+            name = re.search(r"^name: (\S+)$", fm, re.M).group(1)
+            role = next((r for r in sorted(ROLES, key=len, reverse=True)
+                         if name.endswith("-" + r)), None)
+            self.assertIsNotNone(role, "%s: template %s has no known role" % (doc, name))
+            seen.add(role)
+            keys = {line.split(":")[0] for line in fm.splitlines() if not line.startswith(" ")}
+            self.assertEqual(keys - {"name", "description", "model", "disallowedTools", "briefing"},
+                             set(), "%s: %s carries other keys" % (doc, name))
+            self.assertRegex(fm, r"(?m)^description: \S", "%s: %s" % (doc, name))
+            self.assertRegex(fm, r"(?m)^briefing:\n  skills:\n    - \S", "%s: %s" % (doc, name))
+            tools, model = roles[role]
+            self.assertIn("model: %s\n" % model, fm + "\n", "%s: %s" % (doc, name))
+            dis = re.search(r"^disallowedTools: (.*)$", fm, re.M)
+            if tools == "read-only":
+                self.assertTrue(dis and {"Edit", "Write", "NotebookEdit"} <=
+                                set(re.split(r",\s*", dis.group(1))), "%s: %s" % (doc, name))
+            else:
+                self.assertIsNone(dis, "%s: %s is not read-only" % (doc, name))
+            self.assertTrue(body.startswith("You are the %s for **" % name), "%s: %s" % (doc, name))
+        self.assertEqual(seen, set(ROLES), "a role without a template")
+
+    def test_rules_template_fits_in_fifty_lines(self):
+        text = read(REFS / "team-rules.md")
+        block = re.search(r"^```markdown\n(<!-- ack:.*?)^```", text, re.S | re.M).group(1)
+        for head in ("## Lanes", "## What the main agent does itself", "## With superpowers"):
+            self.assertIn(head + "\n", block)
+        board = [b for b in FENCE.findall(read(REFS / "team-board.md"))
+                 if not b.startswith("#") and not b.startswith("|")]
+        self.assertGreaterEqual(len(board), 2, "team-board.md: no board sections")
+        filled = len(block.splitlines()) - 1 + max(len(b.splitlines()) for b in board)
+        self.assertLessEqual(filled, 50, "the project rules, filled, have %d lines" % filled)
+
+    def test_every_repo_and_check_line_is_documented(self):
+        team = "\n".join(read(REFS / n) for n in TEAM_REFS)
+        documented = set()
+        for span in code_spans(team):
+            if "<TAB>" in span:
+                fields = span.split("<TAB>")
+                documented.add(fields[0])
+                if fields[0] == "team":
+                    documented.add("team:" + fields[1])
+        head = header("ack-repo")
+        printed = set()          # line names: at a line start, after a wide gap, or quoted
+        for line in read(ROOT / "bin" / "ack-repo").splitlines()[1:]:
+            if not line.startswith("#"):
+                break
+            printed |= set(re.findall(r'(?:^\s+|\s{2,}|")([a-z]+)<TAB>', line[1:]))
+        for subs in re.findall(r"\bteam<TAB>([a-z|]+)<TAB>", head):
+            printed |= {"team:" + s for s in subs.split("|")}
+        self.assertGreater(len(printed), 16)
+        self.assertEqual(printed - documented, set(), "ack-repo lines no team reference explains")
+        emitted = set(re.findall(r"^\s*(?:\S.*)?\bemit ([a-z-]+) (?:ok|missing|warn)\b",
+                                 read(ROOT / "bin" / "ack-team"), re.M))
+        whats = {spans(row[0])[0] for _, row in tables(read(REFS / "team-rules.md"), "What")}
+        self.assertGreater(len(emitted), 8)
+        self.assertEqual(whats, emitted, "the What table of team-rules.md and ack-team differ")
+
+    def test_every_repo_and_team_option_is_on_its_help(self):
+        for script in ("ack-repo", "ack-team"):
+            r = self.run_cmd("bash", str(ROOT / "bin" / script), "--help")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            for doc in docs():
+                for span in code_spans(read(doc)):
+                    for rest in re.findall(r"\b%s\b([^`\n]*)" % script, span):
+                        for opt in re.findall(r"(?<![\w-])--[a-z][a-z-]*", rest):
+                            self.assertIn(opt, r.stdout, "%s: `%s %s`" % (doc.name, script, opt))
+
+    def test_every_repo_and_team_exit_code_is_in_its_header(self):
+        codes = {s: set(re.findall(r"(?:Exit codes:|,)\s*(\d+) ", header(s)))
+                 for s in ("ack-repo", "ack-team")}
+        self.assertEqual(codes["ack-team"], {"0", "1", "2"})
+        checked = 0
+        for name in TEAM_REFS:
+            for para in re.split(r"\n\s*\n", read(REFS / name)):
+                named = [s for s in codes if s in para]
+                if not named or "Exit" not in para:
+                    continue
+                have = set().union(*(codes[s] for s in named))
+                for n in re.findall(r"\b[Ee]xits? (\d+)|(?:\bor|;) (\d+)\b[ :(]", para):
+                    n = n[0] or n[1]
+                    self.assertIn(n, have, "%s names exit %s, which %s lacks" % (name, n, named))
+                    checked += 1
+        self.assertGreater(checked, 4)
+
+    def test_fixed_sentences_of_the_hand_over(self):
+        start = ("Start Claude in this folder. The session you talk to hands the work to the "
+                 "right agent.")
+        use = " ".join(read(REFS / "using-the-team.md").split())
+        self.assertIn(start, use)
+        self.assertIn(start, " ".join(read(REFS / "team-rules.md").split()))   # CLAUDE.md
+        for words in ("/remote-control", "claude --remote-control", "claude.ai/code",
+                      "Enable Remote Control for all sessions", "same claude.ai account",
+                      "subscription", "API key", "not with a starter for another service",
+                      "The kit does not switch it on"):
+            self.assertIn(words, use)
+        for hub in ("Start Claude always in `admin`; it steers the others.",
+                    "Start directly in `developer` only to talk with it alone;"):
+            self.assertIn("With a hub: \"" + hub, use)
 
     def readme_provider_names(self):
         text = read(README)
