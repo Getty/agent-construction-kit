@@ -1,12 +1,8 @@
 # Analysis, questions and plan
 
-Read first, then ask only what the repository, `ack-doctor` or a preset cannot tell. One
-question per message, each with your recommendation, in everyday words; explain a word
-like "worker" in half a sentence the first time you use it. At most seven questions
-before the plan. Nothing is written before the user says yes to the plan, except the
-repository and its second copy, each with its own yes. Call `ack-repo` and `ack-team`
-like `ack-doctor`: by their full path, with `bash` in front (SKILL.md). The decisions and
-their keys: [team-answer-sheet.md](team-answer-sheet.md).
+Read first, then ask only what the repository, `ack-doctor` or a preset cannot tell: at
+most seven questions before the plan, and a word like "worker" explained in half a
+sentence the first time. The decisions and their keys: [team-answer-sheet.md](team-answer-sheet.md).
 
 ## Contents
 
@@ -49,10 +45,10 @@ Run `ack-repo inspect` in the project folder; it only reads, offline. One fact p
 Then read, without asking: `README*`, `CONTRIBUTING*`, `CLAUDE.md`, `AGENTS.md`,
 `docs/adr/`, the files the `signal` lines name, the CI config: the build and test
 commands and their traps, the release path, written conventions, clearly separate parts
-("Workers by path" in [team-agents.md](team-agents.md)). Run `ack-doctor` if it has not
-run in this session: its `plugin:superpowers`, `plugin:mattpocock-skills` and `tool:karr`
-lines decide the base skills and the board question. Run `git config user.name` and
-`git config user.email`; an empty answer means question 4.
+("Workers by path" in [team-agents.md](team-agents.md)). The `plugin:superpowers`,
+`plugin:mattpocock-skills` and `tool:karr` lines of the latest `ack-doctor` run decide the
+base skills and the board question. Run `git config user.name` and `git config user.email`;
+an empty answer means question 4.
 
 ## An existing team
 
@@ -61,8 +57,10 @@ Agent files in `.claude/agents/` mean a team exists: `team<TAB>agents` above `0`
 Never build a second team beside it. Run `ack-team check` and say in plain words: "N
 things are missing: <each in a few words>. Shall I fix them? I recommend yes." Fix only
 what the check names, each file with its own yes, then "Verification" in
-[team-rules.md](team-rules.md). A rules file that starts with `<!-- ack: ... -->` keeps
-the earlier answers; ask the questions below only for what the user wants changed.
+[team-rules.md](team-rules.md), one commit of the fixed files after the user's yes, and the
+`/exit` line of the hand-over ([using-the-team.md](using-the-team.md)). A rules file that
+starts with `<!-- ack: ... -->` keeps the earlier answers; ask the questions below only
+for what the user wants changed.
 
 ## From one sentence to a structure
 
@@ -74,21 +72,18 @@ sentence (they need not know the words); they confirm or change it.
 | one project here ("I have a small web shop in this folder") | a project team |
 | clearly separate parts (`frontend/` and `backend/`, `packages/*`) | a project team, one worker per part |
 | `sibling` lines that share a core | a family ([team-family.md](team-family.md)) |
-| several areas ("a homelab, and I develop things") | the team for this folder now; a structure that steers several teams (a hub) comes with the next version of the kit |
-| an issue tracker as the board | say that this comes with a later version; use the file board |
 
 ## The questions, in order
 
-First a preset: a skill loaded in this session with a section `## Answer sheet` answers
-some questions; take its answers ([team-answer-sheet.md](team-answer-sheet.md)). Then
-skip each question that the repository, `ack-doctor` or the preset answers.
+Skip each question that the repository, `ack-doctor` or a preset answers.
 
 1. **Repository**, only with `git<TAB>missing`: "Agents, their rules and the board are
    files in a git repository, which keeps every change with its history. There is none
    here yet. May I create one? I recommend yes." (No: the team needs one; stop.) Then
    `ack-repo init` prints `git<TAB>created<TAB><dir>` and writes a `.gitignore` (local
    settings, key files), or `git<TAB>ok<TAB><dir>` for a bare one: nothing changed; ask
-   for the folder with the files.
+   for the folder with the files. A new repository: from here on treat it as
+   `commits<TAB>0` (the user's files get a first commit).
 2. **A second copy**, only without a `remote` line.
    - An `account` line with source `gh`: "You have an account at GitHub as `<name>`. I
      suggest a private copy of this project there. Shall I create it? Nothing is uploaded
@@ -102,12 +97,13 @@ skip each question that the repository, `ack-doctor` or the preset answers.
      letters other than `C:` (Windows). "I see a drive '<label>'. Shall I keep a second
      copy of this project there? I recommend it, and I would update that copy after
      every saved change, without asking each time. OK?" Several: name them, ask which.
-     None: "Do you have a USB drive, a second disk or a network drive for a copy?"
-     After a yes, `ack-repo disk-remote <drive folder>` creates `<project>.git` there; it
-     prints `remote<TAB>created<TAB><name><TAB><path>`, then `push<TAB>ok<TAB>all branches`
-     or `push<TAB>skipped<TAB>no commit yet` (normal). Exit 2 (folder missing, not
-     writable, inside the project) or 3 (the name exists, nothing changed): relay it, ask
-     for another folder. Exit 1: set up, only the push failed; the next push repeats it.
+     None: "Do you have a USB drive, a second disk or a network drive for a copy? Plug it
+     in and tell me; I will look again." After a yes, `ack-repo disk-remote <drive folder>`
+     creates `<project>.git` there and prints `remote<TAB>created<TAB><name><TAB><path>`,
+     then `push<TAB>ok<TAB>all branches` or `push<TAB>skipped<TAB>no commit yet` (normal).
+     Exit 2 (folder missing, not writable, inside the project) or 3 (the name exists,
+     nothing changed): relay it, ask for another folder. Exit 1 after `remote<TAB>created`:
+     only the push failed; the next push repeats it. Without it: nothing set up; relay it.
    - "Only on this computer" is allowed: confirm it once ("Then the history exists only
      on this disk; if the disk fails, it is gone. Keep it that way?"), never ask again.
 3. **A family**, only with `sibling` lines: "Next to this folder are `<a>` and `<b>`. Do
@@ -115,12 +111,14 @@ skip each question that the repository, `ack-doctor` or the preset answers.
    work to each other. I recommend that if they share code." Yes: `bauform` is `family`.
 4. **The name in the history**, only when `git config user.name` or `user.email` is
    empty: "Your saved versions carry a name and an e-mail; both become visible if the
-   project is ever published. Which shall I use?" Set after the plan's yes.
+   project is ever published. Which shall I use? I recommend your name and an e-mail you
+   don't mind others seeing; it is not checked." Set after the plan's yes.
 5. **How work is checked**, only when no `signal` file names a test command.
    - Code files (`*.py`, `*.js`, ...) without a build file: take the test runner from the
-     test files (`import pytest`, `import unittest`), run it once now, and the plan names
-     it. Not installed: "Your tests need the program <runner>, which is missing here. May
-     I install it? I recommend yes." No tests: no question; the first cards are for them.
+     test files (`import pytest`, `import unittest`). Present: run the tests once now; the
+     plan names the command. Missing: "Your tests need the program <runner>, which is
+     missing here. May I install it for this project only? I recommend yes." (build
+     item 3). No tests: no question; the first cards are for them.
    - No code files at all: "How can you tell that a piece of work here is right?"
 6. **The board**, only when karr is ready here: `tool:karr` is `ok`, or the table in
    [team-board.md](team-board.md) has a ready program for this system. "Each job becomes
@@ -141,8 +139,8 @@ any line. Besides the team itself, it names:
   looks like a key or password (`.env`, `*.pem`) go into `.gitignore`. With `dirty`
   files: they stay out of every commit of the team.
 - Ready skills: an installed superpowers or mattpocock-skills is used. Neither: "Two
-  free plugins, superpowers and mattpocock-skills, give the agents ready know-how for
-  test-first work and finding bugs; I would install them."
+  free add-ons for Claude (plugins), superpowers and mattpocock-skills, give the agents
+  ready know-how for test-first work and finding bugs; I would install them."
 - Who commits: `<prefix>-release-manager`, unless a preset or the user wants the session
   (`committer` `main`) or the user (`user`); the release manager is built either way.
 - The name and e-mail from question 4, the copy on a drive and its updates, the board,
@@ -158,10 +156,8 @@ Example for a new web shop `harbor`, with a copy on a USB drive:
 >   tests; `harbor-reviewer` checks each finished job and runs the tests, changes
 >   nothing; `harbor-release-manager` saves finished work (a commit).
 > - Their know-how: `harbor-core`, a short instruction file (a "skill") from your README
->   and code: what goes where, how the tests run; plus skills from superpowers, which
->   you have installed.
-> - Rules: careful work, the helpers do the work, nothing leaves this computer without
->   your word; one file.
+>   and code, plus skills from superpowers, which you have installed.
+> - Rules: careful work, the helpers do the work, nothing leaves without your word.
 > - A board: the file `BOARD.md`, with lists for to do, in progress, review and done.
 >   karr, a board program, can come later.
 > - Public issue trackers stay outside: anyone can write there, and a model cannot
@@ -174,11 +170,18 @@ Example for a new web shop `harbor`, with a copy on a USB drive:
 
 1. Question 4 asked: `git config user.name "<name>"`, `git config user.email "<e-mail>"`,
    without `--global`, so it holds for this repository only.
-2. `commits<TAB>0`: the user's files first. Write the plan's `.gitignore` lines; check
-   that `git status --short -uall` shows exactly the listed files (a key file: into
-   `.gitignore`, tell the user); `git add` them by path; `git commit -m "Add the project files"`.
+2. `commits<TAB>0`: the user's files first. Add the plan's lines below what `.gitignore`
+   already holds; `git status --short -uall` must show exactly the listed files (a key
+   file: into `.gitignore`, tell the user); `git add` them by path, then
+   `git commit -m "Add the project files"`.
 3. Plugins the plan installs: `claude plugin install superpowers@claude-plugins-official`,
-   the same for `mattpocock-skills`.
+   the same for `mattpocock-skills`; then `ack-doctor` again: its new `plugin:` lines
+   decide the base skills and "With superpowers". A missing test runner, for this project
+   only: Python `python3 -m venv .venv`, `.venv/bin/python -m pip install <runner>`,
+   `.venv/` into `.gitignore`, check command `.venv/bin/python -m <runner>` (Windows
+   `.venv\Scripts\python`); Node `npm install --save-dev <runner>`; others the ecosystem's
+   project-local way; never system-wide, `sudo` or `--break-system-packages`. No `venv`:
+   give the user the one command to type (Debian, Ubuntu `sudo apt install python3-venv`); wait.
 4. Skills and rules, before any agent names them. Per source in `quellen`:
    `skilletor add <name> <address> --project` (the kit's `skilletor add Getty/skills --project`
    names it `getty`). Bundles: `skilletor install bundle:house@getty --project`. `headless`
@@ -192,6 +195,5 @@ Example for a new web shop `harbor`, with a copy on a USB drive:
 9. One commit of the files you wrote and those skilletor reported (`commit it`), among
    them `.claude/skilletor.json`. `git status --short -uall` first: the user's `dirty`
    files stay out.
-10. A copy on a drive: `git push <name> <branch>`, as allowed (`<name>` as
-    `ack-repo disk-remote` printed it, `<branch>` from `git branch --show-current`).
-    Then the hand-over: [using-the-team.md](using-the-team.md).
+10. A copy on a drive: `git push <name> <branch>` (`<name>` as `ack-repo disk-remote`
+    printed it, `<branch>` from `git branch --show-current`). Then [using-the-team.md](using-the-team.md).

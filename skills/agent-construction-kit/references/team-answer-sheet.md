@@ -24,7 +24,7 @@ German word that presets use; the project rules keep the answers in their first 
 | `quellen` | `<name>=<address>`, comma-separated; added to the kit's | `getty=Getty/skills`; with karr also `karr=Getty/karr` | the skilletor sources the project installs from |
 | `rollen` | a table, see Presets | "Base skills" in [team-agents.md](team-agents.md) | per role, the base skills in its `briefing.skills` |
 | `bundles` | bundle names | `house` | rule bundles; a bare name comes from source `getty`, else `<bundle>@<source>` |
-| `provider` | provider names, or `none` | asked in the machine setup | which `claude_with_<name>` starters to offer there |
+| `provider` | provider names, or `none` | asked in the machine setup | which `claude_with_<name>` starters to offer. The team build installs none; the hand-over offers each one `ack-wrappers list` shows as `absent` ("Next steps" in [using-the-team.md](using-the-team.md)) |
 | `headless` | `on`, `off` | `off`, never asked | `on`: install skills `claude-headless` and `model-routing` and name them in the project rules; a plan line only when a preset sets it |
 
 ## Presets
@@ -38,21 +38,42 @@ take its answers and ask only the rest. Its author writes it like this:
 - board: karr
 - committer: release-manager
 - quellen: acme=Acme/skills, karr=Getty/karr
-- bundles: house, acme-house@acme
+- bundles: house
+- bundles when perl: + cpan-house@acme
+- headless when family: on
+- provider: deepseek
 
-| rollen | skills | only when |
+| rollen | skills | when |
 |---|---|---|
 | worker | `acme-style` | |
-| doc-writer | `acme-docs` | the repository is a library |
+| reviewer | + `acme-review` | |
+| doc-writer | `acme-docs` | "the repository is a library" |
 ```
 
 - One line `- <key>: <value>` per key, lists comma-separated; a key left out is asked or
   set as without a preset. A source without `=<address>` must already be in
   `skilletor source list`; otherwise ask the user for its address.
-- `rollen` is a table whose first header is `rollen`. A row replaces the base skills of
-  that role and nothing else: `<prefix>-core`, and with karr its card skill, are added
-  to every role in any case. Roles without a row keep the kit's base skills. "only when"
-  is a condition you check in the repository; not met, the row is skipped.
+- A line `- <key> when <condition>: <value>` applies only when the condition is met:
+  - `family`: `bauform` is `family` (settle `bauform` first; its own lines take no
+    `family` or `hub`);
+  - `hub`: a hub steers the team; never met in this version;
+  - a `signal` kind (`perl`, `node`, `python`, `go`, `rust`, `make`, `ci`): met when
+    `ack-repo inspect` printed a `signal` line of that kind;
+  - a test in words in double quotes: you check it in the repository.
+
+  Any other condition: ignore the line, with one line to the user: "The preset asks for
+  `<condition>`, which this version of the kit cannot check; I left that line out."
+- A key's value comes from its plain line, replaced by each met `when` line in order (the
+  last wins); then each line, plain or met, whose value starts with `+` adds its items to
+  that value (to the kit's, if no line set one). `+` works only for the list keys
+  `quellen`, `bundles` and `provider`; on another key the line is left out, with the note.
+- `rollen` is a table whose first header is `rollen`, then `skills` and `when`; a row
+  applies when its `when` cell is empty or met, under the rules above. A row replaces
+  that role's base skills; a row whose skills start with `+` adds to them. Several rows
+  for one role: the replacing rows together replace, then the `+` rows add. Roles
+  without a row keep the kit's base skills. Each role keeps `<prefix>-core` (coordinator:
+  `<family>-coordination`) and, with karr, the card skill [team-board.md](team-board.md)
+  gives it, whatever the rows say.
 - An unknown key is ignored, with one line to the user: "The preset names `<key>`, which
   this version of the kit does not know; I left it out." A value this version cannot
   build (a hub, an issue tracker as board): the kit's value, and one line saying so.

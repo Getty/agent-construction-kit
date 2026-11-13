@@ -36,10 +36,12 @@ the work to the right agent." Name what `ack-team check` reported as `warn` in o
 sentence each, and what you left out on purpose (a second copy declined, no tests yet).
 The last lines follow the second copy:
 
-- A copy at GitHub or a similar service: "It is not uploaded yet: shall I?" After a yes,
-  `git push -u origin <branch>`.
-- With karr: "The board's cards are already in that copy, as you allowed; the project's
-  files are not uploaded yet: shall I?"
+- A copy at GitHub or a similar service, file board: "It is not uploaded yet: shall I?"
+  After a yes, `git push -u origin <branch>`.
+- The same with karr, which sends only its cards: "The board's cards are already in that
+  copy, as you allowed. Your files, the team's files and their history are not uploaded
+  yet: shall I?"
+- A copy on a drive: "Everything is saved here and on <drive>" (with karr the cards too).
 - Only on this computer: "It is saved on this computer only."
 
 ## Giving work
@@ -84,7 +86,7 @@ skipped), not with a starter for another service (`claude_with_<name>`).
 
 ## Next steps
 
-After the hand-over, in a sentence or two each, only these:
+After the hand-over, a sentence or two each, for what applies; nothing else:
 
 - The analysis saw several repositories or areas: "The next version of the kit can
   steer several teams from one place (a hub); this team would become one of them."
@@ -94,6 +96,14 @@ After the hand-over, in a sentence or two each, only these:
   A project agent should hand such work over instead of changing the system on the
   side. That team comes with the hub, in the next version of the kit."
 - On Linux or macOS such a team for the computer only when the user asks about it.
+- Only if the user asked for it, an issue tracker as the board: "That comes with a later
+  version of the kit; until then you bring single entries in as cards."
+- Only if the user asked about their machines or services (a homelab, an admin setup): "A
+  later version of the kit can look, with your permission, at which computers and services
+  you work with (your SSH settings, the hosts you know) and propose a structure for them."
+- A preset named starters (`provider`): nothing of that was installed during the build.
+  Name each one whose state `ack-wrappers list` shows as `absent` and offer to set it up
+  ([machine.md](machine.md), step 2).
 
 ## With a hub
 

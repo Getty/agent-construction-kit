@@ -56,7 +56,8 @@ How a card moves:
 3. The agent reports (what changed, the check with its result): the row goes to
    `Review`, the result into `Notes`.
 4. The reviewer says ready: the committer commits and moves the row to `Done`, the
-   commit hash into `Notes`. Changes needed: back to `In progress`, the finding in `Notes`.
+   commit hash into `Notes`; that edit of `BOARD.md` goes into the next commit, never
+   amended into this one. Changes needed: back to `In progress`, the finding in `Notes`.
 
 Only the main agent and the committer write the file, one at a time, since two writers
 at once lose rows; with `committer` `user`, the main agent moves the row to `Done` after
@@ -71,7 +72,7 @@ The `<card lines>` of the templates in [team-agents.md](team-agents.md), file bo
 |---|---|
 | worker, test-writer, doc-writer, adr-auditor | "Your card is the one you were handed, in `BOARD.md`. Never edit that file: your report carries the state, the main agent moves the card." |
 | reviewer | "Your verdict goes into your report; the main agent moves the card." |
-| release-manager | "move the card's row from `Review` to `Done` in `BOARD.md`, the commit hash in `Notes`" |
+| release-manager | "move the card's row from `Review` to `Done` in `BOARD.md`, the commit hash in `Notes`; that edit goes into your next commit, never `git commit --amend`" |
 | scout | none |
 
 ## The board section of the project rules
@@ -81,8 +82,9 @@ Into the section `## Board` of [team-rules.md](team-rules.md)'s template, file b
 ```markdown
 `BOARD.md` holds the cards (`c1`, `c2`, …); a card moves by moving its row. Only the main
 agent and <the committer> write it, one at a time, since two writers lose rows; workers
-report their state. A card is done only after its commit, its hash in Notes. Write ids
-as `c12`, never `#12`: hosting services link that to their issue 12.
+report their state. A card is done only after its commit, its hash in Notes; that edit
+goes into the next commit, never amended. Write ids as `c12`, never `#12`: hosting
+services link that to their issue 12.
 ```
 
 ## karr

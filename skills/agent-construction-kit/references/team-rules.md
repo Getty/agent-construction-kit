@@ -33,8 +33,8 @@ With karr also `skilletor install board-karr@getty --project` ([team-board.md](t
 `.claude/rules/<prefix>-rules.md`, at most 50 lines once filled; every rule carries its
 reason in half a sentence. Only what is true here: no house rule, no skill text. The first
 line keeps the answers for a later run ([team-answer-sheet.md](team-answer-sheet.md)).
-Write "With superpowers" only when `plugin:superpowers` is `ok`; the board section is in
-[team-board.md](team-board.md).
+Write "With superpowers" only when the latest `ack-doctor` run shows `plugin:superpowers`
+`ok`; the board section is in [team-board.md](team-board.md).
 
 ```markdown
 <!-- ack: bauform=project manager=none board=file committer=release-manager fremdeingaben=on headless=off -->
@@ -67,11 +67,12 @@ Typos, docs, configuration, answers: itself, without a card (cards are for agent
 
 ## With superpowers
 
-A plan runs in this folder on this branch, no worktree, so `BOARD.md` stays here. Per
-task, one after another: `<prefix>-worker` (a test task: `-test-writer`) is told to skip
-the prompt's commit step; `<prefix>-reviewer` reviews the uncommitted `git diff`; then
-<the committer> commits, so one writes history. Never `general-purpose`: built-in agents
-get no briefing. Brainstorming and the plan stay with the main agent: they need the user.
+A plan runs in this folder on this branch (`main` too: the yes to the team covers it), no
+worktree, so `BOARD.md` stays here. Per task, one after another: `<prefix>-worker` (a test
+task: `-test-writer`) is told to skip the implementer prompt's commit step;
+`<prefix>-reviewer` reviews the uncommitted `git diff`; then <the committer> commits, so
+one writes history. Never `general-purpose`: built-in agents get no briefing.
+Brainstorming and the plan stay with the main agent: they need the user.
 
 ## Outside input
 
@@ -93,9 +94,12 @@ Fill it like this:
   after the reviewer's ready; no agent commits." `user`: "Only the user commits: the
   main agent proposes the message and marks the card done afterwards."
 - **A copy on a drive** (`ack-repo disk-remote`), when the user allowed its updates, into
-  "Check and commits": "After each commit, `git push <name> <branch>` updates the copy on
-  <drive>: the user allowed it in advance, so nobody asks." It is the go-ahead
-  `publish-gate` asks for, written down.
+  "Check and commits" (two lines): "After each commit <who pushes> runs
+  `git push <name> <branch>` (the copy on <drive>, allowed in advance); drive not plugged
+  in: one line saying so, the next push catches up." It is the go-ahead `publish-gate`
+  asks for. `<who pushes>`: `<prefix>-release-manager` (its body carries the same
+  sentence, in "you" form: [team-agents.md](team-agents.md)); with `committer` `main` or
+  `user` the main agent, after the commit.
 - **Outside input**: with `fremdeingaben` `off` leave the section out; the user was told.
 - **Hazards**: what you found while reading and the agents would trip over: a test that
   needs the network or a real account, a generated file nobody edits by hand, a folder

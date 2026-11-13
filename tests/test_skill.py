@@ -565,6 +565,67 @@ class SkillTest(Sandbox):
                  if "Built when" in head}
         self.assertEqual(built["release-manager"], "always")
 
+    def test_a_missing_runner_is_installed_for_the_project_after_the_yes(self):
+        analysis = " ".join(read(REFS / "team-analysis.md").split())
+        before, _, build = analysis.partition("## After the yes: build order")
+        self.assertIn("May I install it for this project only? I recommend yes.", before)
+        self.assertNotIn("install <runner>", before, "a runner installed before the plan's yes")
+        for words in ("`python3 -m venv .venv`", "`.venv/` into `.gitignore`",
+                      "`npm install --save-dev <runner>`",
+                      "never system-wide, `sudo` or `--break-system-packages`",
+                      "then `ack-doctor` again: its new `plugin:` lines decide"):
+            self.assertIn(words, build)
+        self.assertIn("A new repository: from here on treat it as `commits<TAB>0`", before)
+        for name in TEAM_REFS:
+            for sentence in re.split(r"(?<=[.;])\s", " ".join(read(REFS / name).split())):
+                if "break-system-packages" in sentence:
+                    self.assertIn("never", sentence, "%s: %r" % (name, sentence))
+
+    def test_the_drive_push_and_the_board_edit_are_instructions(self):
+        def flat(name):
+            return " ".join(read(REFS / name).split())
+        rules = flat("team-rules.md")
+        for words in ("After each commit <who pushes> runs `git push <name> <branch>`",
+                      "the next push catches up", "(`main` too: the yes to the team covers it)",
+                      "the implementer prompt's commit step"):
+            self.assertIn(words, rules)
+        self.assertIn("<The drive push, if any: team-rules.md.>", flat("team-agents.md"))
+        board = flat("team-board.md")
+        self.assertIn("never `git commit --amend`", board)
+        section = [b for b in FENCE.findall(read(REFS / "team-board.md")) if "`BOARD.md` holds" in b]
+        self.assertTrue(section and "goes into the next commit, never amended" in
+                        " ".join(section[0].split()), "the file board's rules section")
+
+    def test_preset_contract_conditions_and_additions(self):
+        text = read(REFS / "team-answer-sheet.md")
+        preset = re.search(r"^```markdown\n## Answer sheet\n(.*?)^```", text, re.S | re.M).group(1)
+        kinds = re.search(r"signal<TAB>KIND<TAB>FILE +KIND = ([\w|]+)", header("ack-repo"))
+        kinds = set(kinds.group(1).split("|"))
+        flat = " ".join(FENCE.sub("", text).split())
+        named = re.search(r"a `signal` kind \(([^)]*)\)", flat)
+        self.assertIsNotNone(named, "the contract names no signal kinds")
+        self.assertEqual(set(spans(named.group(1))), kinds)
+        conditions = 0
+        for key, cond in re.findall(r"^- ([a-z_]+) when ([^:]+):", preset, re.M):
+            self.assertIn(key, ANSWER_KEYS)
+            self.assertTrue(cond in kinds or cond in ("family", "hub") or
+                            re.fullmatch(r'"[^"]+"', cond), "preset example: when %s" % cond)
+            conditions += 1
+        self.assertGreater(conditions, 0, "preset example: no when line")
+        head, rows = None, []
+        for head, row in tables(preset, "rollen"):
+            rows.append(row)
+        self.assertEqual(head, ["rollen", "skills", "when"])
+        self.assertTrue(any(r[1].startswith("+") for r in rows), "no + row in the example")
+        for words in ("cannot check; I left that line out.", "the replacing rows together "
+                      "replace, then the `+` rows add", "`quellen`, `bundles` and `provider`",
+                      "never met in this version", "`<family>-coordination`"):
+            self.assertIn(words, flat)
+        provider = [row[3] for _, row in tables(text, "Key") if spans(row[0]) == ["provider"]]
+        self.assertTrue(provider and "installs none" in provider[0] and "`absent`" in provider[0])
+        self.assertIn("`ack-wrappers list` shows as `absent`",
+                      " ".join(read(REFS / "using-the-team.md").split()))
+
     def readme_provider_names(self):
         text = read(README)
         m = re.search(r"^## Providers\n(.*?)(?=^## |\Z)", text, re.S | re.M)
