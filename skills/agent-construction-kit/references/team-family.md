@@ -22,13 +22,14 @@ The core holds what every member needs, in its own `.claude/skills/`: the skill
 `<family>-conventions`. The other repositories install them from the core through
 skilletor, which reads a repository's own `.claude/skills/` like a published source:
 
-- `skilletor add <family> <core address> --project`, with the URL that
-  `git -C <core folder> remote get-url origin` prints (`https://github.com/acme/harbor-core.git`).
+- `skilletor add <family> <core address> --project`, with the `<url>` of the `remote`
+  line for `origin` that `ack-repo inspect <core folder>` prints, credentials already
+  stripped (`https://github.com/acme/harbor-core.git`).
 - `skilletor install <family>-coordination@<family> --project`, and the same for
   `<family>-conventions` if it exists.
 
 A fresh clone on another machine asks once: `skilletor trust <family>`. A core without a
-hosted remote (none, or only a copy on a drive, which prints a path) has no address
+hosted remote (no `remote` line, or only one of kind `disk`: a copy on a drive) has no address
 another machine could use; for this machine only, write it into
 `.claude/skilletor.local.json` (not committed): `"sources"` with
 `"<family>": { "local": "<core folder>" }`, and the same `install` entry, then `skilletor sync`.

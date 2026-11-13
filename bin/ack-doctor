@@ -120,9 +120,9 @@ fi
 # ---------------------------------------------------------------- node, python
 # Not needed for the starters, needed to build and run an agent team: skilletor's launcher
 # wants Node.js 18+, the briefing hook is a Python 3 script. Looked up the way the
-# launchers do: node, and python3 (on Windows python3.exe, python.exe, then py -3). A Windows
-# Store stub exists but prints no version, so only an answer to --version counts.
-case "$OSTYPE" in msys*|cygwin*) WINDOWS=1 ;; *) WINDOWS=0 ;; esac
+# launchers do: node, and python3 (on Windows python3.exe, python.exe, then py -3:
+# ack_find_python, which ack-team uses too). A Windows Store stub exists but prints no
+# version, so only an answer to --version counts.
 
 nodebin=""
 if nodebin="$(type -P node 2>/dev/null)" && [ -n "$nodebin" ] &&
@@ -140,19 +140,8 @@ else
   emit runtime:node warn "Node.js is not installed or not on PATH, and building and running an agent team needs it (skilletor). Install it: Windows: winget install OpenJS.NodeJS.LTS; macOS: brew install node; Linux: your package manager, for example sudo apt install nodejs"
 fi
 
-pybin="" pv=""
-for cand in python3 python py; do
-  [ "$cand" = python3 ] || [ "$WINDOWS" = 1 ] || continue
-  b="$(type -P "$cand" 2>/dev/null)" && [ -n "$b" ] || continue
-  if [ "$cand" = py ]; then ack_run_bounded 15 "$b" -3 --version; else ack_run_bounded 15 "$b" --version; fi
-  pyrc=$?
-  out="${ACK_BOUNDED_OUT%%$'\n'*}"; out="${out//$'\r'/}"
-  case "$out" in
-    'Python 3'*) if [ "$pyrc" = 0 ]; then pybin="$b"; pv="$out"; break; fi ;;
-  esac
-done
-if [ -n "$pybin" ]; then
-  emit runtime:python ok "$pybin ($pv)"
+if ack_find_python; then
+  emit runtime:python ok "$ACK_PYTHON ($ACK_PYTHON_VERSION)"
 else
   emit runtime:python warn "Python 3 is not installed or not on PATH, and building and running an agent team needs it (the briefing hook is a Python script). Install it: Windows: winget install Python.Python.3.12 (the Microsoft Store stub does not count); macOS: brew install python; Linux: your package manager, for example sudo apt install python3"
 fi

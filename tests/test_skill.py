@@ -774,6 +774,37 @@ class SkillTest(Sandbox):
             for gone in ("agent-delegation@", "publish-gate@", "engineering-discipline@"):
                 self.assertNotIn(gone, text, "%s: %s" % (doc.name, gone))
 
+    def test_the_family_source_address_comes_from_inspect(self):
+        for doc in docs():
+            self.assertNotIn("get-url", read(doc), doc.name)     # it would print credentials
+        family = " ".join(read(REFS / "team-family.md").split())
+        self.assertIn("the `<url>` of the `remote` line for `origin` that `ack-repo inspect "
+                      "<core folder>` prints, credentials already stripped", family)
+
+    def test_step_1_is_skipped_only_with_node_and_python_too(self):
+        step1 = re.search(r"^## Step 1:.*?\n(.*?)(?=^## )", read(SKILL), re.S | re.M).group(1)
+        team = " ".join(re.search(r"^- Team:.*?(?=^- |\Z)", step1, re.S | re.M).group(0).split())
+        self.assertIn("all `ok`: skip this step", team)
+        skip = team.split("all `ok`: skip this step")[0]
+        for name in ("claude", "git", "plugin:briefing", "runtime:node", "runtime:python"):
+            self.assertIn("`%s`" % name, skip)
+
+    def test_the_hook_probe_counts_only_a_missing_line(self):
+        rules = " ".join(read(REFS / "team-rules.md").split())
+        for words in ("Any other result means the team is not checked: never hand it over as "
+                      "checked.", "`warn`, or no `hook` line: briefing did not run; tell the "
+                      "user so, naming the `runtime:python` line of `ack-doctor`"):
+            self.assertIn(words, rules)
+
+    def test_a_folder_in_another_repository_gets_one_of_its_own(self):
+        analysis = " ".join(read(REFS / "team-analysis.md").split())
+        for words in ("`git<TAB>inside<TAB><top>`", "`git<TAB>home<TAB><top>`",
+                      "never build in it", "Then `ack-repo init --own`",
+                      "`git<TAB>refused<TAB><dir><TAB><reason>`", "stop until it is fixed"):
+            self.assertIn(words, analysis)
+        rules = " ".join(read(REFS / "team-rules.md").split())
+        self.assertIn('"git cannot read the repository: <reason>"', rules)
+
     def readme_provider_names(self):
         text = read(README)
         m = re.search(r"^## Providers\n(.*?)(?=^## |\Z)", text, re.S | re.M)

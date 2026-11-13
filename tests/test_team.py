@@ -1360,6 +1360,81 @@ class TeamTest(Sandbox):
         self.assertIn("no Python 3 was found", row[3])
         self.assertIn("runtime:python", row[3])
 
+    # ---- final fix round: the hook under Git for Windows, git that refuses
+
+    def tools_without_python(self):
+        tools = self.root / "toolbin"
+        if not tools.exists():
+            tools.mkdir()
+            for src in ("/usr/bin", "/bin"):
+                for n in os.listdir(src) if os.path.isdir(src) else ():
+                    if not n.startswith("python") and not (tools / n).exists():
+                        try:
+                            os.symlink(os.path.join(src, n), str(tools / n))
+                        except OSError:
+                            pass
+        return str(tools)
+
+    def hook_dir(self, script, exe=None):
+        hd = self.root / "hookdir"
+        hd.mkdir()
+        hook = hd / "briefing-preload"
+        self.put(hd, "briefing-preload", script)
+        hook.chmod(0o755)
+        if exe:
+            shutil.copy(exe, str(hd / "briefing-preload.exe"))
+            (hd / "briefing-preload.exe").chmod(0o755)
+        return hook
+
+    @unittest.skipIf(os.name == "nt", "the stand-in .exe is a shell script")
+    def test_windows_runs_the_exe_beside_the_hook(self):
+        d = self.team()
+        with open(HOOK_DENY) as f:
+            hook = self.hook_dir(f.read(), exe=HOOK_OK)
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(hook), "OSTYPE": "msys"})
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]])
+        # elsewhere the script itself runs
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(hook), "OSTYPE": "linux-gnu"})
+        self.assertEqual(r.returncode, 1, r.stdout)
+
+    @unittest.skipIf(os.name == "nt", "the Windows host keeps its own python on PATH")
+    def test_windows_runs_a_python_hook_with_the_python_it_finds(self):
+        d = self.team()
+        with open(HOOK_OK) as f:
+            body = f.read().split("\n", 1)[1]
+        hook = self.hook_dir("#!/usr/bin/env python3\n" + body)
+        log = self.root / "py.log"
+        self.write_fake("py", '#!/bin/sh\nprintf "%s\\n" "$*" >> "$ACK_FAKE_PY_LOG"\n'
+                              'if [ "$1" = -3 ] && [ "$2" = --version ]; then echo "Python 3.12.1"; exit 0; fi\n'
+                              '[ "$1" = -3 ] && shift\nexec sh "$@"\n')
+        # the Microsoft Store stub: a python3 that prints no version
+        self.write_fake("python3", "#!/bin/sh\nexit 9009\n")
+        env = {"ACK_BRIEFING_HOOK": str(hook), "OSTYPE": "msys", "ACK_FAKE_PY_LOG": str(log),
+               "PATH": "%s:%s" % (self.fakebin, self.tools_without_python())}
+        r = self.at("check", cwd=d, env=env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]])
+        runs = log.read_text().splitlines()
+        self.assertEqual(runs[0], "-3 --version")
+        self.assertEqual(runs[1:], ["-3 " + str(hook)] * 4)
+
+    def write_fake(self, name, text):
+        p = self.fakebin / name
+        with open(str(p), "w", newline="") as f:
+            f.write(text)
+        p.chmod(0o755)
+        return p
+
+    def test_git_that_refuses_to_read_the_repository_names_its_reason(self):
+        d = self.team()
+        r = self.at("check", cwd=d, env={"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1"})
+        self.assertEqual(r.returncode, 1, r.stdout)
+        row = self.one(r, "git", "missing", ".")
+        self.assertTrue(row[3].startswith("git cannot read the repository: detected dubious "
+                                          "ownership"), row)
+        self.assertNotIn("fatal", r.stdout + r.stderr)
+
     # ---- usage
 
     def test_directory_that_does_not_exist(self):

@@ -132,9 +132,8 @@ it. The team needs at least:
 
 Every enabled plugin outside `claude-plugins-official` needs its marketplace in
 `extraKnownMarketplaces`. A plugin whose skills an agent names goes into `enabledPlugins`
-(`superpowers@claude-plugins-official`), so the project states what its agents need. No
-`permissions` lists: they make Claude ask at every other step, and `disallowedTools`
-fences the read-only roles. Keep what the user had there.
+(`superpowers@claude-plugins-official`). No `permissions` lists: they make Claude ask at
+every other step, and `disallowedTools` fences the read-only roles. Keep the user's lines.
 
 ## The section in `CLAUDE.md`
 
@@ -180,7 +179,7 @@ and run again until no line is `missing`; tell the user each `warn` in one sente
 | `settings` | `.claude/settings.json`: readable, every marketplace declared, briefing enabled | merge as above |
 | `board` | karr refs, or `BOARD.md` with the four headings | add what the text names |
 | `claude-md` | `CLAUDE.md` names every agent | add the name to the section |
-| `git` | a repository, and a remote | no remote: fine when the user chose "only on this computer" |
+| `git` | a repository, and a remote | no remote: fine when the user chose "only on this computer". `missing` with "git cannot read the repository: <reason>": git's own reason (dubious ownership, a broken `.git`); tell the user, change nothing until it is fixed |
 | `hook` | runs the briefing hook as if each agent were started; the first worker (else the first agent) must also get a briefing | every agent passes: ONE line `hook<TAB>ok<TAB><first worker>`, standing for all of them. `missing`: one line per agent the hook refuses, or for the first worker when it hands an abort; the text is briefing's reason: fix that entry. `warn` (one line; the hook part stops there): hook not found (`claude plugin install briefing@getty`), no answer in time (run again), or it briefs nothing for the first worker (give it `briefing.skills`) |
 
 That the hook refuses a broken agent is checked once by hand, in a scratch folder:
@@ -192,8 +191,9 @@ bash "<skill base dir>/../../bin/ack-team" check "$d" | grep '^hook'; rm -rf "$d
 ```
 
 Expected: a line `hook<TAB>missing<TAB>probe-worker<TAB>` whose text, briefing's reason,
-names `no-such-skill`. A `hook` line `ok` here means the hook lets broken agents start:
-report it, and do not hand the team over as checked.
+names `no-such-skill`. Any other result means the team is not checked: never hand it over
+as checked. `ok`: the hook lets broken agents start; report it. `warn`, or no `hook` line:
+briefing did not run; tell the user so, naming the `runtime:python` line of `ack-doctor`.
 
-Claude Code reads agent files when a session starts: the new agents can be started only
-in a new session. Say that in the hand-over ([using-the-team.md](using-the-team.md)).
+New agents start only in a new session (Claude Code reads agent files when a session
+starts); the hand-over says so ([using-the-team.md](using-the-team.md)).

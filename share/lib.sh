@@ -336,6 +336,57 @@ ack_find_claude() {
   printf '%s\n' "$p"
 }
 
+# ack_find_python: a Python 3 the way the launchers look for one: python3; on Git for
+# Windows and Cygwin also python, then py -3. A Microsoft Store stub exists but prints no
+# version, so only "Python 3..." from --version with exit 0 within 15 s counts. Sets
+# ACK_PYTHON (the program), ACK_PYTHON_ARGS ("-3" for py, else empty) and
+# ACK_PYTHON_VERSION; returns 1 when there is none. Resets the INT, TERM and HUP traps.
+ack_find_python() {
+  local cand b rc out
+  ACK_PYTHON="" ACK_PYTHON_ARGS="" ACK_PYTHON_VERSION=""
+  for cand in python3 python py; do
+    [ "$cand" = python3 ] || case "$OSTYPE" in msys*|cygwin*) ;; *) continue ;; esac
+    b="$(type -P "$cand" 2>/dev/null)" && [ -n "$b" ] || continue
+    if [ "$cand" = py ]; then ack_run_bounded 15 "$b" -3 --version; else ack_run_bounded 15 "$b" --version; fi
+    rc=$?
+    out="${ACK_BOUNDED_OUT%%$'\n'*}"; out="${out//$'\r'/}"
+    case "$out" in
+      'Python 3'*)
+        if [ "$rc" = 0 ]; then
+          ACK_PYTHON="$b" ACK_PYTHON_VERSION="$out"
+          [ "$cand" = py ] && ACK_PYTHON_ARGS=-3
+          return 0
+        fi ;;
+    esac
+  done
+  return 1
+}
+
+# ack_git_refused DIR: a .git (folder, file or link) exists at DIR or above, but git
+# refuses to read it (dubious ownership, a broken gitfile, a dangling link). DIR's own
+# .git always counts; one above only when git names another reason than "not a git
+# repository" (git skips such a folder and looks no further). REPLY is git's reason, its
+# first line without "fatal: "; ACK_GIT_AT is the folder that holds that .git. Returns 1
+# when git reads the repository or there is none. DIR is absolute.
+ack_git_refused() {
+  local d="$1" err p
+  REPLY="" ACK_GIT_AT=""
+  err="$(cd "$d" 2>/dev/null && git rev-parse --git-dir 2>&1 >/dev/null)" && return 1
+  err="${err%%$'\n'*}"; err="${err//$'\r'/}"; err="${err#fatal: }"
+  p="$d"
+  while :; do
+    if [ -e "$p/.git" ] || [ -L "$p/.git" ]; then
+      [ "$p" = "$d" ] && break
+      case "$err" in "not a git repository"*) return 1 ;; esac
+      break
+    fi
+    [ -n "$p" ] && [ "$p" != / ] || return 1
+    p="${p%/*}"
+  done
+  REPLY="${err:-git cannot read it}" ACK_GIT_AT="${p:-/}"
+  return 0
+}
+
 # ---------------------------------------------------------------- proxy
 
 # ack_find_proxy -> REPLY = path of claude-code-proxy, returns 1 when none.

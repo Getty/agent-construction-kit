@@ -31,10 +31,16 @@ Revision history for agent-construction-kit
     - Add ack-repo: inspect reads a folder and changes nothing (git, branch,
       remotes, tests, sibling projects, an existing team, accounts of git
       services), init creates the repository, disk-remote puts a copy on a
-      second drive.
+      second drive. A folder inside another repository, or below a home
+      folder kept in git, is reported as such and gets a repository of its
+      own with init --own; init never runs on the home folder. A .git that
+      git refuses to read (dubious ownership, a broken link) is reported with
+      git's reason, and init then writes nothing.
     - Add ack-team check, which verifies a team: agent files, the skills they
-      name, rules, settings, board, CLAUDE.md, git, and one run of the
-      briefing hook per agent.
+      name, rules, settings, board, CLAUDE.md, git (with git's reason when it
+      refuses the repository), and one run of the briefing hook per agent. On
+      Git for Windows the hook's briefing-preload.exe runs, or the script
+      under the Python 3 that ack-doctor finds.
     - A board without installing anything: BOARD.md, a table per column. karr
       stays the recommendation where it is already installed.
     - A preset (a skill with an answer sheet) can fix answers and add skills

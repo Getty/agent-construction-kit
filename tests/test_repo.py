@@ -722,6 +722,170 @@ class RepoTest(Sandbox):
         sib = sorted(os.path.basename(l[1]) for l in self.fact(r, "sibling"))
         self.assertEqual(sib, ["node.acme-ui", "p5_acme-core", "py_acme-lib"])
 
+    # ---- a folder inside another repository; a repository git refuses -------
+
+    def same(self, a, b):
+        return os.path.normcase(os.path.realpath(str(a))) == os.path.normcase(os.path.realpath(str(b)))
+
+    def two_lines(self, r):
+        lines = r.stderr.splitlines()
+        self.assertEqual(len(lines), 2, r.stderr)
+        self.assertTrue(all(l.startswith("ack-repo: ") for l in lines), r.stderr)
+        self.assertNotIn("fatal:", r.stderr)
+        return lines
+
+    def test_inspect_a_folder_inside_a_repository(self):
+        top = self.repo("parent")
+        self.git(top, "remote", "add", "origin", "https://github.com/o/parent.git")
+        self.git(top, "update-ref", "refs/karr/board", "HEAD")
+        d = top / "proj"
+        self.put(d, "package.json", "{}\n")
+        r = self.ar("inspect", str(d))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        g = self.fact(r, "git")
+        self.assertEqual([x[1] for x in g], ["inside"], r.stdout)
+        self.assertTrue(self.same(g[0][2], top), g)
+        for key in ("commits", "branch", "dirty", "remote"):
+            self.assertEqual(self.fact(r, key), [], key)
+        # the rest is read from the folder itself, not from the parent
+        self.assertEqual(self.fact(r, "signal"), [["signal", "node", "package.json"]])
+        self.assertIn(["team", "board", "none"], self.lines(r))
+        self.assertEqual(self.fact(r, "prefix"), [["prefix", "proj"]])
+
+    def test_inspect_a_home_folder_kept_in_git(self):
+        self.git(self.home, "init", "-q")
+        d = self.home / "proj"
+        d.mkdir()
+        for target in (self.home, d):
+            r = self.ar("inspect", str(target))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            g = self.fact(r, "git")
+            self.assertEqual([x[1] for x in g], ["home"], r.stdout)
+            self.assertTrue(self.same(g[0][2], self.home), g)
+            self.assertEqual(self.fact(r, "dirty"), [])
+
+    def test_init_inside_a_repository_changes_nothing_without_own(self):
+        top = self.repo("parent")
+        d = top / "proj"
+        d.mkdir()
+        r = self.ar("init", str(d))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([x[1] for x in self.fact(r, "git")], ["inside"])
+        self.assertEqual(os.listdir(str(d)), [])
+
+    def test_init_own_makes_a_repository_of_its_own(self):
+        top = self.repo("parent")
+        d = top / "proj"
+        self.put(d, "notes.txt")
+        r = self.ar("init", "--own", str(d))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        g = self.fact(r, "git")
+        self.assertEqual([x[1] for x in g], ["created"])
+        self.assertTrue(self.same(g[0][2], d), g)
+        self.assertTrue(self.same(self.git(d, "rev-parse", "--show-toplevel"), d))
+        self.assertEqual(self.git(d, "symbolic-ref", "--short", "HEAD"), "main")
+        self.assertTrue((d / ".gitignore").is_file())
+        # the parent repository is not touched
+        self.assertEqual(self.git(top, "rev-list", "--count", "HEAD"), "1")
+        # once it has one, --own and the plain form report it
+        for args in (("init", "--own", str(d)), ("init", str(d)), ("inspect", str(d))):
+            self.assertEqual([x[1] for x in self.fact(self.ar(*args), "git")], ["ok"], args)
+
+    def test_init_own_refuses_when_the_parent_tracks_files_there(self):
+        top = self.repo("parent")
+        self.put(top, "proj/a.txt")
+        self.git(top, "add", "proj/a.txt")
+        self.git(top, "commit", "-q", "-m", "a")
+        r = self.ar("init", "--own", str(top / "proj"))
+        self.assertEqual(r.returncode, 3)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("tracks", self.two_lines(r)[0])
+        self.assertEqual(sorted(os.listdir(str(top / "proj"))), ["a.txt"])
+
+    def test_init_own_below_a_home_folder_kept_in_git(self):
+        self.git(self.home, "init", "-q")
+        d = self.home / "proj"
+        d.mkdir()
+        r = self.ar("init", str(d))
+        self.assertEqual([x[1] for x in self.fact(r, "git")], ["home"])
+        self.assertFalse((d / ".git").exists())
+        r = self.ar("init", "--own", str(d))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([x[1] for x in self.fact(r, "git")], ["created"])
+
+    def test_init_refuses_the_home_folder(self):
+        for args in (("init", str(self.home)), ("init", "--own", str(self.home)), ("init",)):
+            r = self.ar(*args, cwd=self.home)
+            self.assertEqual(r.returncode, 2, args)
+            self.assertEqual(r.stdout, "")
+            self.assertIn("home folder", self.two_lines(r)[0])
+            self.assertEqual(os.listdir(str(self.home)), [])
+
+    def test_init_own_on_a_plain_folder_is_init(self):
+        d = self.work / "plain"
+        d.mkdir()
+        r = self.ar("init", "--own", str(d))
+        self.assertEqual([x[1] for x in self.fact(r, "git")], ["created"])
+
+    REFUSE = {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1"}
+
+    def test_inspect_a_repository_git_refuses_to_read(self):
+        d = self.repo()
+        for target in (d, d / "sub"):
+            target.mkdir(exist_ok=True)
+            r = self.ar("inspect", str(target), env=self.REFUSE)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stderr, "")
+            g = self.fact(r, "git")
+            self.assertEqual([x[1] for x in g], ["refused"], r.stdout)
+            self.assertTrue(self.same(g[0][2], d), g)
+            self.assertTrue(g[0][3].startswith("detected dubious ownership"), g)
+            for key in ("commits", "branch", "dirty", "remote"):
+                self.assertEqual(self.fact(r, key), [], key)
+
+    def test_inspect_a_dot_git_that_is_no_repository(self):
+        d = self.work / "proj"
+        d.mkdir()
+        (d / ".git").write_text("junk\n")
+        r = self.ar("inspect", str(d))
+        g = self.fact(r, "git")
+        self.assertEqual([x[1] for x in g], ["refused"], r.stdout)
+        self.assertIn("gitfile", g[0][3])
+        self.assertEqual(r.stderr, "")
+
+    def test_an_empty_dot_git_in_a_parent_folder_is_no_repository(self):
+        (self.work / ".git").mkdir()
+        d = self.work / "proj"
+        d.mkdir()
+        self.assertEqual([x[1] for x in self.fact(self.ar("inspect", str(d)), "git")], ["missing"])
+        self.assertEqual([x[1] for x in self.fact(self.ar("init", str(d)), "git")], ["created"])
+
+    def test_init_refuses_a_repository_git_refuses_to_read(self):
+        d = self.repo(commit=False)
+        config = (d / ".git" / "config").read_bytes()
+        r = self.ar("init", str(d), env=self.REFUSE)
+        self.assertEqual(r.returncode, 3)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("dubious ownership", self.two_lines(r)[0])
+        self.assertFalse((d / ".gitignore").exists())
+        self.assertEqual((d / ".git" / "config").read_bytes(), config)
+
+    @unittest.skipIf(NT, "symlinks need extra rights on Windows")
+    def test_init_refuses_a_dangling_dot_git_link(self):
+        d = self.work / "proj"
+        d.mkdir()
+        gone = self.work / "gone"
+        os.symlink(str(gone), str(d / ".git"))
+        for args in (("inspect", str(d)), ("init", str(d)), ("init", "--own", str(d))):
+            r = self.ar(*args)
+            if args[0] == "inspect":
+                self.assertEqual([x[1] for x in self.fact(r, "git")], ["refused"], r.stdout)
+            else:
+                self.assertEqual(r.returncode, 3, args)
+                self.two_lines(r)
+        self.assertFalse(os.path.lexists(str(gone)))
+        self.assertEqual(os.listdir(str(d)), [".git"])
+
     # ---- usage -------------------------------------------------------------
 
     def test_help_prints_the_header(self):
@@ -730,6 +894,7 @@ class RepoTest(Sandbox):
         self.assertIn("ack-repo inspect", r.stdout)
         self.assertIn("disk-remote", r.stdout)
         self.assertIn("--dir DIR", r.stdout)
+        self.assertIn("ack-repo init [--own] [DIR]", r.stdout)
 
     def test_unknown_subcommand_and_no_subcommand(self):
         for args in (("frobnicate",), ()):

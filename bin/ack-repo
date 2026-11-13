@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # ack-repo: read a directory's git state, create a repository, create a disk remote.
 #   ack-repo inspect [DIR]
-#   ack-repo init [DIR]
+#   ack-repo init [--own] [DIR]
 #   ack-repo disk-remote <TARGET-DIR> [--name NAME] [--dir DIR]
 # DIR defaults to the current directory. Output is tab separated, one fact per line:
 #   git<TAB>ok|missing<TAB>TOPLEVEL-or-DIR       missing = not a repository
+#   git<TAB>inside|home<TAB>TOPLEVEL             DIR lies below the top folder of a repository,
+#                                                or that top folder is the home folder; then
+#                                                no commits/branch/dirty/remote lines, and
+#                                                the rest is read from DIR itself
+#   git<TAB>refused<TAB>FOLDER<TAB>REASON        FOLDER holds a .git git refuses to read;
+#                                                REASON is git's (dubious ownership, ...)
 #   commits<TAB>N   branch<TAB>NAME   dirty<TAB>N      (only for a repository; NAME is
 #                                                "detached" on a detached HEAD; dirty counts
 #                                                changed and untracked files, each one)
@@ -26,15 +32,19 @@
 # A bare repository has no work tree, so inspect reports it as "git<TAB>missing".
 # inspect only reads. init runs "git init" on branch main and writes a .gitignore when
 # there is none; it prints "git<TAB>created<TAB>DIR", or "git<TAB>ok<TAB>DIR" when DIR is
-# already inside a repository, or is a bare repository or a .git directory (then nothing
-# changes, no commit either).
+# already the top folder of a repository, a bare repository or a .git directory, or
+# "git<TAB>inside|home<TAB>TOPLEVEL" (as inspect) when DIR lies in another repository;
+# then nothing changes, no commit either. With --own, init creates DIR's own repository
+# inside that other one (which then sees DIR as an untracked folder), unless that one
+# tracks files in DIR. init refuses the home folder and a .git git refuses to read.
 # disk-remote creates TARGET-DIR/<repo>.git as a bare repository, adds it as remote NAME
 # (default origin; backup when origin is taken) and pushes all branches. It prints
 # "remote<TAB>created<TAB>NAME<TAB>PATH" and "push<TAB>ok|skipped<TAB>REASON" (skipped
 # while there is no commit). --dir DIR selects the repository (default: current directory).
 # Exit codes: 0 ok, 1 the push failed, 2 usage error or unusable target (missing, not
-# writable, inside the repository, DIR is no repository), 3 something of that name
-# already exists (nothing changed).
+# writable, inside the repository, DIR is no repository, init on the home folder), 3
+# something is in the way: that name already exists, git refuses the .git there, or the
+# other repository tracks files in DIR (nothing changed).
 # Errors are two lines on stderr: "ack-repo: <what>" and "ack-repo: <what to do>".
 
 _help() {
@@ -89,6 +99,35 @@ _toplevel() {
   REPLY="$(cd "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$REPLY" ]
 }
 
+# _same_dir A B: both name the same directory (physical paths; case-blind on macOS and
+# Windows, whose disks usually are)
+_same_dir() {
+  local a b
+  _physdir "$1" && a="$REPLY" || return 1
+  _physdir "$2" && b="$REPLY" || return 1
+  case "$OSTYPE" in
+    darwin*|msys*|cygwin*)
+      a="$(printf '%s' "$a" | tr 'A-Z' 'a-z')"; b="$(printf '%s' "$b" | tr 'A-Z' 'a-z')" ;;
+  esac
+  [ "$a" = "$b" ]
+}
+
+# _where DIR -> WHERE and REPLY (the top folder) for a DIR in a work tree: WHERE is ok
+# when DIR is the top folder, home when the top folder is the home folder, inside when
+# DIR lies below the top folder. Fails outside a work tree.
+_where() {
+  local top pre
+  _toplevel "$1" || return 1
+  top="$REPLY" WHERE=ok
+  if _same_dir "$top" "$HOME"; then
+    WHERE=home
+  else
+    pre="$(cd "$1" 2>/dev/null && git rev-parse --show-prefix 2>/dev/null)"
+    [ -z "$pre" ] || WHERE=inside
+  fi
+  REPLY="$top"
+}
+
 # _count N -> REPLY without the padding some wc versions add
 _count() { REPLY="${1//[[:space:]]/}"; [ -n "$REPLY" ] || REPLY=0; }
 
@@ -140,8 +179,15 @@ cmd_inspect() {
   [ $# -le 1 ] || usage_err "inspect takes at most one directory."
   [ -d "$dir" ] || fail 2 "'$dir' is not a directory." "pass an existing directory."
   _absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
-  base="$REPLY"
-  if _toplevel "$base"; then
+  base="$REPLY" top=""
+  _where "$base" || WHERE=""
+  # inside or home: another repository's folder, so the rest comes from DIR itself (and
+  # no status runs over a whole home folder)
+  if [ "$WHERE" = home ]; then
+    printf 'git%shome%s%s\n' "$TAB" "$TAB" "$REPLY"
+  elif [ "$WHERE" = inside ]; then
+    printf 'git%sinside%s%s\n' "$TAB" "$TAB" "$REPLY"
+  elif [ "$WHERE" = ok ]; then
     top="$REPLY"; base="$top"
     printf 'git%sok%s%s\n' "$TAB" "$TAB" "$top"
     if git -C "$top" rev-parse --verify -q HEAD >/dev/null 2>&1; then
@@ -163,6 +209,8 @@ cmd_inspect() {
     done <<EOT
 $(git -C "$top" remote 2>/dev/null)
 EOT
+  elif ack_git_refused "$base"; then
+    printf 'git%srefused%s%s%s%s\n' "$TAB" "$TAB" "$ACK_GIT_AT" "$TAB" "$REPLY"
   else
     printf 'git%smissing%s%s\n' "$TAB" "$TAB" "$base"
   fi
@@ -337,21 +385,46 @@ _accounts() {
 # ---------------------------------------------------------------- init
 
 cmd_init() {
-  local dir="${1:-.}" top
-  [ $# -le 1 ] || usage_err "init takes at most one directory."
+  local dir="" own=0 top
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --own) own=1 ;;
+      -*) [ -d "$1" ] || usage_err "unknown option '$1'."
+          [ -z "$dir" ] || usage_err "init takes at most one directory."; dir="$1" ;;
+      *) [ -z "$dir" ] || usage_err "init takes at most one directory."; dir="$1" ;;
+    esac
+    shift
+  done
+  dir="${dir:-.}"
   [ -d "$dir" ] || fail 2 "'$dir' is not a directory." "create it or pass an existing directory."
   _absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
   dir="$REPLY"
-  if _toplevel "$dir"; then
-    printf 'git%sok%s%s\n' "$TAB" "$TAB" "$REPLY"
-    return 0
+  if ack_git_refused "$dir"; then
+    fail 3 "git refuses to read the repository at '$ACK_GIT_AT': $REPLY." \
+      "run 'git -C \"$ACK_GIT_AT\" status' to see how git says to fix it; nothing was changed."
   fi
-  # a bare repository or a .git directory has no work tree but is a repository all the same
-  if git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
+  if _same_dir "$dir" "$HOME"; then
+    fail 2 "'$dir' is your home folder, which is no project." \
+      "create a folder for the project and run ack-repo init there."
+  fi
+  if _where "$dir"; then
+    top="$REPLY"
+    case "$WHERE" in
+      ok) printf 'git%sok%s%s\n' "$TAB" "$TAB" "$top"; return 0 ;;
+      home) [ "$own" = 1 ] || { printf 'git%shome%s%s\n' "$TAB" "$TAB" "$top"; return 0; } ;;
+      *) [ "$own" = 1 ] || { printf 'git%sinside%s%s\n' "$TAB" "$TAB" "$top"; return 0; } ;;
+    esac
+    # --own: a repository of its own inside the other one, unless that one tracks files here
+    if [ -n "$(cd "$dir" 2>/dev/null && git ls-files 2>/dev/null | head -n 1)" ]; then
+      fail 3 "the repository at '$top' already tracks files in '$dir'." \
+        "a repository of its own would split them off: ask the user where they belong; nothing was changed."
+    fi
+  elif git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
+    # a bare repository or a .git directory has no work tree but is a repository all the same
     printf 'git%sok%s%s\n' "$TAB" "$TAB" "$dir"
     return 0
   fi
-  git init -q "$dir" >/dev/null 2>&1 && git -C "$dir" symbolic-ref HEAD refs/heads/main ||
+  git init -q "$dir" >/dev/null 2>&1 && git -C "$dir" symbolic-ref HEAD refs/heads/main >/dev/null 2>&1 ||
     fail 1 "git init failed in '$dir'." "check that the directory is writable."
   if [ ! -e "$dir/.gitignore" ] && [ ! -L "$dir/.gitignore" ]; then
     printf '%s\n' '.claude/settings.local.json' '.env' '*.key' > "$dir/.gitignore" ||

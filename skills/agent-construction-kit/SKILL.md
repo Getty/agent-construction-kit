@@ -75,10 +75,10 @@ model): `via <host>` means another provider, no `via` Anthropic; your system pro
   agents for one of your projects? I recommend it." For this folder: if a plugin was
   installed, the user types `/reload-plugins` first; then Step 2. Another folder: they
   type `/exit`, start Claude there (`cd "<folder>"`, then `claude`), ask for the team.
-- Team: `claude`, `git`, `marketplace:getty`, `plugin:briefing`, `plugin:skilletor` all
-  `ok`: skip this step; starters only if the user asks. Else fix only those by step 1 of
-  machine.md, the add-ons in one question ("The team needs two free add-ons for Claude
-  Code. May I install them? I recommend yes."); after an install, the user types `/reload-plugins`.
+- Team: `claude`, `git`, `marketplace:getty`, `plugin:briefing`, `plugin:skilletor`,
+  `runtime:node`, `runtime:python` all `ok`: skip this step; starters only if the user
+  asks. Else fix only those by step 1 of machine.md, the add-ons in one question ("The
+  team needs two free add-ons for Claude Code. May I install them? I recommend yes."); after an install, the user types `/reload-plugins`.
 
 ## Step 2: the repository
 

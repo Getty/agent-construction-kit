@@ -30,13 +30,17 @@
 #              In progress, Review, Done (each the heading's whole text, outside code
 #              fences; warn when one is absent); else missing.
 #   claude-md  warn unless CLAUDE.md exists and names every agent (as a whole name).
-#   git        missing without a repository; warn without a remote.
+#   git        missing without a repository (when a .git is there but git refuses to
+#              read it, the text is git's reason); warn without a remote.
 #   hook       runs the briefing plugin's hook once per agent as if it were spawned: a
 #              denial is missing (the reason is the text). The first worker (else the
 #              first agent) must also be briefed: ok, missing when the hook hands it an
 #              abort text, warn when it adds nothing. A hook that is not found, cannot be
 #              run, fails or does not answer within ACK_HOOK_WAIT seconds (default 10) is
 #              one warn. ACK_BRIEFING_HOOK names the hook script instead of the cache's.
+#              On Git for Windows and Cygwin the briefing-preload.exe beside the script
+#              runs; without one, a Python script runs under the Python 3 ack-doctor
+#              finds (python3, python or py -3), not through its shebang line.
 # Exit codes: 0 no line is missing, 1 a line is missing, 2 usage error or unusable DIR.
 # Errors are two lines on stderr: "ack-team: <what>" and "ack-team: <what to do>".
 
@@ -766,7 +770,11 @@ check_claude_md() {
 
 check_git() {
   if [ -z "$GITTOP" ]; then
-    emit git missing "." "not a git repository"
+    if command -v git >/dev/null 2>&1 && ack_git_refused "$DIR"; then
+      emit git missing "." "git cannot read the repository: $REPLY"
+    else
+      emit git missing "." "not a git repository"
+    fi
   elif [ -z "$(git -C "$DIR" remote 2>/dev/null)" ]; then
     emit git warn "." "no remote: the history exists only on this machine"
   else
@@ -876,17 +884,42 @@ _interpreter_ok() {
   return 0
 }
 
-# _hook_run HOOK INPUT: feeds INPUT to the hook on stdin, waiting at most ACK_HOOK_WAIT
-# whole seconds (default 10; 0 or a non-number means the default, and the wait counts
-# the sleeps, so a slow machine waits longer, never less). Sets HR_STATE (ok | timeout |
-# noexec | fail), HR_OUT (stdout) and HR_ERR (the first line of stderr).
+# _hook_command HOOK -> HOOK_CMD (an array): how the hook is started. Git for Windows
+# runs "#!/usr/bin/env python3" only where python3 exists, and a Windows Python is often
+# "python" or "py -3" alone: there the briefing-preload.exe beside the script runs, else
+# a Python script runs under the Python ack_find_python finds. Elsewhere, and without
+# either, the script itself. Looked up once per hook, before _hook_run sets its traps
+# (ack_find_python resets them).
+_hook_command() {
+  [ "${HOOK_CMD_FOR-}" = "$1" ] && [ "${#HOOK_CMD[@]}" -gt 0 ] && return 0
+  HOOK_CMD_FOR="$1" HOOK_CMD=("$1")
+  case "$OSTYPE" in msys*|cygwin*) ;; *) return 0 ;; esac
+  if [ -f "$1.exe" ]; then
+    HOOK_CMD=("$1.exe")
+  elif _wants_python "$1" && ack_find_python; then
+    if [ -n "$ACK_PYTHON_ARGS" ]; then
+      HOOK_CMD=("$ACK_PYTHON" "$ACK_PYTHON_ARGS" "$1")
+    else
+      HOOK_CMD=("$ACK_PYTHON" "$1")
+    fi
+  fi
+  return 0
+}
+
+# _hook_run HOOK INPUT: feeds INPUT to the hook (started as HOOK_CMD says) on stdin,
+# waiting at most ACK_HOOK_WAIT whole seconds (default 10; 0 or a non-number means the
+# default, and the wait counts the sleeps, so a slow machine waits longer, never less).
+# Sets HR_STATE (ok | timeout | noexec | fail), HR_OUT (stdout) and HR_ERR (the first
+# line of stderr).
 _hook_run() {
   local hook="$1" input="$2" secs="${ACK_HOOK_WAIT:-10}" ticks=0 rc
   HR_STATE=ok HR_OUT="" HR_ERR="" HR_HOOK="$hook"
   case "$secs" in ''|*[!0-9]*) secs=10 ;; esac
   [ "$((10#$secs))" -gt 0 ] || secs=10
   secs=$((10#$secs))
-  if [ ! -x "$hook" ] || ! _interpreter_ok "$hook" || ! HOOK_TMP="$(mktemp -d)"; then
+  _hook_command "$hook"
+  if [ ! -x "${HOOK_CMD[0]}" ] || { [ "${#HOOK_CMD[@]}" = 1 ] && ! _interpreter_ok "${HOOK_CMD[0]}"; } ||
+     ! HOOK_TMP="$(mktemp -d)"; then
     HOOK_TMP=""; HR_STATE=noexec; return 0
   fi
   trap '_hook_signal 143' TERM
@@ -894,7 +927,8 @@ _hook_run() {
   trap '_hook_signal 129' HUP
   printf '%s\n' "$input" > "$HOOK_TMP/in"
   set -m
-  sh -c 'exec "$1" < "$2" > "$3" 2> "$4"' sh "$hook" "$HOOK_TMP/in" "$HOOK_TMP/out" "$HOOK_TMP/err" &
+  sh -c 'i=$1 o=$2 e=$3; shift 3; exec "$@" < "$i" > "$o" 2> "$e"' sh \
+    "$HOOK_TMP/in" "$HOOK_TMP/out" "$HOOK_TMP/err" "${HOOK_CMD[@]}" &
   HOOK_PID=$!
   set +m
   while kill -0 "$HOOK_PID" 2>/dev/null && [ "$ticks" -lt $((secs * 10)) ]; do
@@ -932,18 +966,8 @@ _wants_python() {
   return 1
 }
 
-# _have_python: a Python 3 the way the hook's launcher finds one (python3; on Windows
-# also python and py)
-_have_python() {
-  local c b out
-  for c in python3 python py; do
-    [ "$c" = python3 ] || case "$OSTYPE" in msys*|cygwin*) ;; *) continue ;; esac
-    b="$(type -P "$c" 2>/dev/null)" && [ -n "$b" ] || continue
-    out="$("$b" --version 2>/dev/null </dev/null)"
-    case "$out" in 'Python 3'*) return 0 ;; esac
-  done
-  return 1
-}
+# _have_python: a Python 3 found as ack-doctor finds one (ack_find_python)
+_have_python() { ack_find_python; }
 
 # _hook_trouble AGENT: after a failed _hook_run, print the warn line; returns 1 when
 # there was trouble

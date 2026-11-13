@@ -17,10 +17,17 @@ sentence the first time. The decisions and their keys: [team-answer-sheet.md](te
 
 Run `ack-repo inspect` in the project folder; it only reads, offline. One fact per line:
 
-- `git<TAB>ok<TAB><dir>`: a repository whose top folder is `<dir>`. If `<dir>` is a parent
-  of the folder the user means (a home folder kept in git, say), ask which folder the
-  team belongs to, before anything else. `git<TAB>missing<TAB><dir>`: none yet, or a bare
-  one (a store for copies, without files to work on).
+- `git<TAB>ok<TAB><dir>`: this folder is the top folder of a repository.
+  `git<TAB>missing<TAB><dir>`: none yet, or a bare one (a store for copies, without files
+  to work on).
+- `git<TAB>inside<TAB><top>`: the folder lies inside the repository `<top>`. Before anything
+  else ask whether the team belongs to `<top>` (then the user starts Claude there, as in
+  Step 1 of SKILL.md) or to this folder alone (question 1). `git<TAB>home<TAB><top>`: that
+  repository is the user's home folder kept in git; never build in it: question 1. Neither
+  prints `commits`, `branch`, `dirty` or `remote` lines; the other lines are this folder's.
+- `git<TAB>refused<TAB><dir><TAB><reason>`: `<dir>` holds a `.git` that git refuses to read;
+  `<reason>` is git's (dubious ownership, a broken `.git`). Tell the user in plain words
+  and stop until it is fixed: nothing is built, and `ack-repo init` writes nothing there.
 - `branch<TAB><name>`: `detached` means no branch is checked out; ask which branch the
   team commits to. `dirty<TAB><n>`: files changed or untracked now; keep the list
   `git status --short -uall` prints: they stay the user's (build item 9), named in the plan.
@@ -75,13 +82,17 @@ what you read, with its reason in one sentence; they confirm or change it.
 
 First load the presets this session lists ("Presets" in [team-answer-sheet.md](team-answer-sheet.md)).
 
-1. **Repository**, only with `git<TAB>missing`: "Agents, their rules and the board are
-   files in a git repository, which keeps every change with its history. There is none
-   here yet. May I create one? I recommend yes." (No: the team needs one; stop.) Then
-   `ack-repo init` prints `git<TAB>created<TAB><dir>` and writes a `.gitignore` (local
-   settings, key files), or `git<TAB>ok<TAB><dir>` for a bare one: nothing changed; ask
-   for the folder with the files. A new repository: from here on treat it as
-   `commits<TAB>0` (the user's files get a first commit).
+1. **Repository**, only with `git<TAB>missing`, `home`, or `inside` for this folder alone.
+   `missing`: "Agents, their rules and the board are files in a git repository, which
+   keeps every change with its history. There is none here yet. May I create one? I
+   recommend yes." (No: the team needs one; stop.) Then `ack-repo init` prints
+   `git<TAB>created<TAB><dir>` and writes a `.gitignore` (local settings, key files), or
+   `git<TAB>ok<TAB><dir>` for a bare one: nothing changed; ask for the folder with the
+   files. `inside` or `home`: "This folder is part of a larger repository, `<top>`. The team
+   needs one of its own here; your files stay where they are. May I create it? I recommend
+   yes." Then `ack-repo init --own`; exit 3 means `<top>` already tracks files here: say
+   so and stop. A new repository: from here on treat it as `commits<TAB>0` (the user's
+   files get a first commit).
 2. **A second copy**, only without a `remote` line: [team-second-copy.md](team-second-copy.md).
 3. **A family**, only with `sibling` lines: "Next to this folder are `<a>` and `<b>`. Do
    they belong together around a common core? Then each gets its own team, and they pass
