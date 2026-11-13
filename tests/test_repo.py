@@ -374,10 +374,6 @@ class RepoTest(Sandbox):
 
     # ---- disk-remote -------------------------------------------------------
 
-    def abs_posix(self, p):
-        """The path as git and bash see it (Git for Windows: /tmp/... style, as printed)."""
-        return self.shown(p) if NT else p.as_posix()
-
     def disk(self, name="disk target"):
         d = self.root / name
         d.mkdir()
@@ -581,11 +577,16 @@ class RepoTest(Sandbox):
     def test_disk_remote_push_failure_exits_1_and_keeps_what_it_made(self):
         d = self.repo("proj")
         t = self.disk()
-        # pushInsteadOf sends every push to the disk remote to a dead place, so the
-        # remote can be added but the push fails
+        # a template with a rejecting pre-receive hook lands in every repository git
+        # creates, so the bare one refuses the push (no path matching: it must hold on
+        # Windows too, where git and bash spell paths differently)
+        tmpl = self.root / "template"
+        (tmpl / "hooks").mkdir(parents=True)
+        with open(str(tmpl / "hooks" / "pre-receive"), "w", newline="") as f:
+            f.write("#!/bin/sh\necho refused >&2\nexit 1\n")
+        (tmpl / "hooks" / "pre-receive").chmod(0o755)
         with open(self.env["GIT_CONFIG_GLOBAL"], "w") as f:
-            f.write('[url "%s/"]\n\tpushInsteadOf = %s/\n'
-                    % ((self.root / "no such place").as_posix(), self.abs_posix(t)))
+            f.write("[init]\n\ttemplateDir = %s\n" % tmpl.as_posix())
         r = self.ar("disk-remote", str(t), cwd=d)
         self.assertEqual(r.returncode, 1)
         self.assertEqual(len(self.fact(r, "remote")), 1)
