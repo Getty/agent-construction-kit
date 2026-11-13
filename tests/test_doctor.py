@@ -396,5 +396,94 @@ class DoctorTest(Sandbox):
             self.assertIn(cols[1], ("ok", "missing", "warn", "info"), l)
 
 
+class RuntimeTest(Sandbox):
+    """node (skilletor) and python (the briefing hook): warn, never missing."""
+
+    NODE = "#!/bin/sh\n[ \"$1\" = --version ] && echo %s\nexit 0\n"
+    PYTHON = "#!/bin/sh\n[ \"$1\" = --version ] && echo \"%s\"\nexit 0\n"
+    STUB = "#!/bin/sh\nexit 9009\n"
+
+    def setUp(self):
+        super().setUp()
+        self.fake("claude", FAKE_CLAUDE)
+        self.write("plugins.json", "[]\n")
+        self.write("marketplaces.txt", "")
+
+    def line(self, r, name):
+        hits = [l.split("\t") for l in r.stdout.splitlines() if l.startswith(name + "\t")]
+        self.assertEqual(len(hits), 1, r.stdout)
+        return hits[0]
+
+    def without(self, *names):
+        """A PATH holding fakebin and links to every other tool of the sandbox PATH."""
+        d = self.root / "toolbin"
+        d.mkdir(exist_ok=True)
+        for src in ("/usr/bin", "/bin"):
+            if not os.path.isdir(src):
+                continue
+            for n in os.listdir(src):
+                if n in names or n.startswith(("python", "node", "nodejs")) or (d / n).exists():
+                    continue
+                try:
+                    os.symlink(os.path.join(src, n), str(d / n))
+                except OSError:
+                    pass
+        return "%s:%s" % (self.fakebin, d)
+
+    def test_present_and_new_enough(self):
+        self.fake("node", self.NODE % "v20.11.1")
+        self.fake("python3", self.PYTHON % "Python 3.12.1")
+        r = self.run_cmd("bash", AD)
+        n, p = self.line(r, "runtime:node"), self.line(r, "runtime:python")
+        self.assertEqual(n[1], "ok")
+        self.assertIn("v20.11.1", n[2])
+        self.assertEqual(p[1], "ok")
+        self.assertIn("Python 3.12.1", p[2])
+
+    def test_node_18_is_enough(self):
+        self.fake("node", self.NODE % "v18.0.0")
+        self.fake("python3", self.PYTHON % "Python 3.9.0")
+        self.assertEqual(self.line(self.run_cmd("bash", AD), "runtime:node")[1], "ok")
+
+    def test_node_16_warns(self):
+        self.fake("node", self.NODE % "v16.20.2")
+        self.fake("python3", self.PYTHON % "Python 3.12.1")
+        r = self.run_cmd("bash", AD)
+        n = self.line(r, "runtime:node")
+        self.assertEqual(n[1], "warn")
+        self.assertIn("18 or newer", n[2])
+        self.assertIn("v16.20.2", n[2])
+
+    @unittest.skipIf(os.name == "nt", "the Windows host keeps its own node and python on PATH")
+    def test_absent_warns_and_says_why_and_how(self):
+        env = {"PATH": self.without("node", "nodejs", "python3", "python", "py")}
+        r = self.run_cmd("bash", AD, env=env)
+        for name, word in (("runtime:node", "Node.js"), ("runtime:python", "Python 3")):
+            row = self.line(r, name)
+            self.assertEqual(row[1], "warn", r.stdout)
+            self.assertIn(word, row[2])
+            self.assertIn("agent team", row[2])
+            self.assertIn("winget", row[2])
+            self.assertIn("brew", row[2])
+        # a warn never turns the exit code: the same lines with the tools present
+        self.fake("node", self.NODE % "v20.0.0")
+        self.fake("python3", self.PYTHON % "Python 3.12.1")
+        self.assertEqual(self.run_cmd("bash", AD).returncode, r.returncode)
+
+    @unittest.skipIf(os.name == "nt", "the Windows host keeps its own node and python on PATH")
+    def test_store_stub_that_prints_nothing_does_not_count(self):
+        self.fake("python3", self.STUB)
+        self.fake("node", self.STUB)
+        env = {"PATH": self.without("node", "nodejs", "python3", "python", "py")}
+        r = self.run_cmd("bash", AD, env=env)
+        self.assertEqual(self.line(r, "runtime:python")[1], "warn")
+        self.assertEqual(self.line(r, "runtime:node")[1], "warn")
+
+    def test_python_2_does_not_count(self):
+        self.fake("python3", self.PYTHON % "Python 2.7.18")
+        self.fake("node", self.NODE % "v20.0.0")
+        self.assertEqual(self.line(self.run_cmd("bash", AD), "runtime:python")[1], "warn")
+
+
 if __name__ == "__main__":
     unittest.main()

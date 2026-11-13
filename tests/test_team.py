@@ -1337,6 +1337,29 @@ class TeamTest(Sandbox):
         r = self.at("check", cwd=d)
         self.assertEqual(self.of(r, "agent")[0][1], "ok", r.stdout)
 
+    @unittest.skipIf(os.name == "nt", "the Windows host keeps its own python on PATH")
+    def test_python_hook_without_python_says_so(self):
+        d = self.team()
+        hook = self.root / "py-hook"
+        hook.write_text("#!/usr/bin/env python3\nprint(1)\n")
+        hook.chmod(0o755)
+        tools = self.root / "toolbin"
+        tools.mkdir()
+        for src in ("/usr/bin", "/bin"):
+            for n in os.listdir(src) if os.path.isdir(src) else ():
+                if not n.startswith("python") and not (tools / n).exists():
+                    try:
+                        os.symlink(os.path.join(src, n), str(tools / n))
+                    except OSError:
+                        pass
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(hook),
+                                         "PATH": "%s:%s" % (self.fakebin, tools)})
+        self.assertEqual(r.returncode, 0, r.stdout)
+        row = self.of(r, "hook")[0]
+        self.assertEqual(row[1], "warn")
+        self.assertIn("no Python 3 was found", row[3])
+        self.assertIn("runtime:python", row[3])
+
     # ---- usage
 
     def test_directory_that_does_not_exist(self):

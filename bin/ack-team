@@ -882,7 +882,7 @@ _interpreter_ok() {
 # noexec | fail), HR_OUT (stdout) and HR_ERR (the first line of stderr).
 _hook_run() {
   local hook="$1" input="$2" secs="${ACK_HOOK_WAIT:-10}" ticks=0 rc
-  HR_STATE=ok HR_OUT="" HR_ERR=""
+  HR_STATE=ok HR_OUT="" HR_ERR="" HR_HOOK="$hook"
   case "$secs" in ''|*[!0-9]*) secs=10 ;; esac
   [ "$((10#$secs))" -gt 0 ] || secs=10
   secs=$((10#$secs))
@@ -924,13 +924,39 @@ _hook_run() {
   return 0
 }
 
+# _wants_python FILE: the script starts with a python shebang (the briefing hook does)
+_wants_python() {
+  local first
+  IFS= read -r first < "$1" 2>/dev/null
+  case "$first" in '#!'*python*) return 0 ;; esac
+  return 1
+}
+
+# _have_python: a Python 3 the way the hook's launcher finds one (python3; on Windows
+# also python and py)
+_have_python() {
+  local c b out
+  for c in python3 python py; do
+    [ "$c" = python3 ] || case "$OSTYPE" in msys*|cygwin*) ;; *) continue ;; esac
+    b="$(type -P "$c" 2>/dev/null)" && [ -n "$b" ] || continue
+    out="$("$b" --version 2>/dev/null </dev/null)"
+    case "$out" in 'Python 3'*) return 0 ;; esac
+  done
+  return 1
+}
+
 # _hook_trouble AGENT: after a failed _hook_run, print the warn line; returns 1 when
 # there was trouble
 _hook_trouble() {
   case "$HR_STATE" in
     ok) return 1 ;;
     timeout) emit hook warn "$1" "the hook did not answer" ;;
-    noexec) emit hook warn "$1" "the hook could not be run" ;;
+    noexec)
+      if _wants_python "$HR_HOOK" && ! _have_python; then
+        emit hook warn "$1" "the hook could not be run: it is a Python 3 script and no Python 3 was found; ack-doctor shows the runtime:python line with how to install it"
+      else
+        emit hook warn "$1" "the hook could not be run"
+      fi ;;
     *) emit hook warn "$1" "${HR_ERR:-the hook could not be run}" ;;
   esac
   return 0

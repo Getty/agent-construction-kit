@@ -24,8 +24,17 @@ and offer the recommended ones each in its own message (other statuses:
 | `plugin:skilletor` | `claude plugin install skilletor@getty` |
 | `git` | macOS: `xcode-select --install`. Linux: the user runs `sudo apt install git` (or their system's equivalent) in a terminal window, as it asks for their password |
 | `claude` | not on PATH: Claude Code's installer, below the table |
+| `runtime:node` | when warn: Node.js 18 or newer: macOS `brew install node`, Windows `winget install OpenJS.NodeJS.LTS`, Linux the user runs their package manager (`sudo apt install nodejs`) |
+| `runtime:python` | when warn: Python 3: macOS `brew install python`, Windows `winget install Python.Python.3.12`, Linux `sudo apt install python3`; on Windows the Microsoft Store stub does not count |
 | `plugin:superpowers` (recommended) | `claude plugin install superpowers@claude-plugins-official`: planning, test-first work, review |
 | `plugin:mattpocock-skills` (recommended) | `claude plugin install mattpocock-skills@claude-plugins-official`: skills for everyday coding |
+
+The two `runtime:` lines are `warn`, never `missing`: the starters work without them. They
+matter only before a team is built: `skilletor` needs Node.js, the briefing hook needs
+Python 3, and without that the agents start unbriefed or are refused. Offer the command
+for the user's system and run it only after their yes (an installer changes the machine);
+do not hold the machine setup back for them, and bring them up again when the team work
+starts (`ack-team check` then says `the hook could not be run: ... no Python 3 was found`).
 
 Claude Code's installer: `curl -fsSL https://claude.ai/install.sh | bash`; on Windows
 `powershell -Command "irm https://claude.ai/install.ps1 | iex"`. Re-run `ack-doctor` until
