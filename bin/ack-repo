@@ -191,9 +191,12 @@ EOT
   # tests
   for d in t tests test spec __tests__; do
     [ -d "$base/$d" ] || continue
-    _count "$(find "$base/$d" -type f 2>/dev/null | wc -l)"; n="$REPLY"
-    nested=flat
-    [ -n "$(find "$base/$d" -mindepth 2 -type f 2>/dev/null | head -n 1)" ] && nested=nested
+    # cache and build files are no tests; one find, one awk: file count and "any file below a subdirectory"
+    out="$(find "$base/$d" \( -name __pycache__ -o -name node_modules -o -name .git \) -prune -o \
+      -type f ! -name '*.pyc' -print 2>/dev/null |
+      awk -v p="$base/$d/" '{ n++; if (index(substr($0, length(p) + 1), "/")) f = 1 } END { print n + 0, f + 0 }')"
+    n="${out%% *}"; nested=flat
+    [ "${out#* }" = 1 ] && nested=nested
     printf 'tests%s%s%s%s%s%s\n' "$TAB" "$d" "$TAB" "$n" "$TAB" "$nested"
   done
 
@@ -206,7 +209,8 @@ EOT
   n=0
   for f in "$base/.claude/skills"/*; do { [ -e "$f" ] || [ -L "$f" ]; } && n=$((n + 1)); done
   printf 'team%sskills%s%s\n' "$TAB" "$TAB" "$n"
-  if [ -e "$base/skilletor.json" ]; then
+  if [ -e "$base/.claude/skilletor.json" ] || [ -e "$base/.claude/skilletor.local.json" ] ||
+     [ -e "$base/skilletor.json" ]; then
     printf 'team%sskilletor%syes\n' "$TAB" "$TAB"
   else
     printf 'team%sskilletor%sno\n' "$TAB" "$TAB"
@@ -238,7 +242,7 @@ EOT
       [ "$s" != "$base" ] || continue
       sn="${s##*/}"
       case "$sn" in
-        $pat*|[Pp]5-$pat*|[Nn][Oo][Dd][Ee]-$pat*|[Pp][Yy]-$pat*) ;;
+        $pat*|[Pp]5[-_.]$pat*|[Nn][Oo][Dd][Ee][-_.]$pat*|[Pp][Yy][-_.]$pat*) ;;
         *) continue ;;
       esac
       [ -d "$s" ] && [ -e "$s/.git" ] || continue
@@ -264,14 +268,14 @@ _yaml_user() {
     inb {
       if (cind < 0) cind = ind
       if (ind == cind && t ~ /^user:/) {
-        v = substr(t, 6); gsub(/^[ \t"\x27]+|[ \t"\x27]+$/, "", v); print "u " v; exit
+        v = substr(t, 6); sub(/[ \t]+#.*$/, "", v); gsub(/^[ \t"\x27]+|[ \t"\x27]+$/, "", v); print "u " v; exit
       }
     }' "$1" 2>/dev/null)"
   v="${v#u }"
   [ -n "$v" ] || return 1
   REPLY="$v"
   case "$v" in
-    gh?_*|github_pat_*|glpat-*|*[!A-Za-z0-9._-]*) REPLY="" ;;
+    gh[pousr]_*|github_pat_*|glpat-*|*[!A-Za-z0-9._-]*) REPLY="" ;;
   esac
   [ "${#v}" -le 39 ] || REPLY=""
   return 0

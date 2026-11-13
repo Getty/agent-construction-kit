@@ -674,6 +674,54 @@ class RepoTest(Sandbox):
         r, acc = self.accounts()
         self.assertEqual(acc, [])
 
+    # ---- fix round 2 -------------------------------------------------------
+
+    def test_inspect_skilletor_in_the_claude_directory(self):
+        for rel in (".claude/skilletor.json", ".claude/skilletor.local.json"):
+            d = self.repo("s-" + os.path.basename(rel).replace(".", "-"))
+            self.put(d, rel, "{}\n")
+            r = self.ar("inspect", str(d))
+            self.assertIn(["team", "skilletor", "yes"], self.lines(r), rel)
+        # the lock file alone is not a configuration
+        d = self.repo("s-lock")
+        self.put(d, ".claude/skilletor.lock.json", "{}\n")
+        self.assertIn(["team", "skilletor", "no"], self.lines(self.ar("inspect", str(d))))
+
+    def test_inspect_tests_ignore_cache_and_build_files(self):
+        d = self.repo()
+        self.put(d, "tests/a.py")
+        self.put(d, "tests/__pycache__/a.cpython-312.pyc")
+        self.put(d, "tests/b.pyc")
+        self.put(d, "tests/node_modules/dep/index.js")
+        self.put(d, "tests/.git/config")
+        r = self.ar("inspect", str(d))
+        self.assertEqual(self.fact(r, "tests"), [["tests", "tests", "1", "flat"]])
+
+    def test_account_inline_comment_after_the_user_name(self):
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        self.write(".config/gh/hosts.yml", "github.com:\n    user: octo # my account\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [["account", "github", "gh", "octo"]])
+
+    def test_account_token_guard_is_narrow(self):
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        self.write(".config/gh/hosts.yml", "github.com:\n    user: ghx_name\n")
+        r, acc = self.accounts()
+        self.assertEqual(acc, [["account", "github", "gh", "ghx_name"]])
+        for tok in ("gho_Abc123", "ghs_Abc123", "ghr_Abc123", "github_pat_Abc123"):
+            self.write(".config/gh/hosts.yml", "github.com:\n    user: %s\n" % tok)
+            r, acc = self.accounts()
+            self.assertEqual(acc, [["account", "github", "gh", ""]], tok)
+
+    def test_inspect_siblings_with_underscore_or_dot_after_the_language_token(self):
+        a = self.repo("acme-web")
+        self.repo("p5_acme-core")
+        self.repo("node.acme-ui")
+        self.repo("py_acme-lib")
+        r = self.ar("inspect", str(a))
+        sib = sorted(os.path.basename(l[1]) for l in self.fact(r, "sibling"))
+        self.assertEqual(sib, ["node.acme-ui", "p5_acme-core", "py_acme-lib"])
+
     # ---- usage -------------------------------------------------------------
 
     def test_help_prints_the_header(self):
