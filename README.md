@@ -12,9 +12,8 @@ It has two jobs:
    running on another model provider, on a local model, or on OpenAI models through a
    ChatGPT subscription. **This works today.**
 2. **Build the team.** It reads your project, asks what it cannot read, and writes the
-   agents, their rules and their board into the repository. **This is the next
-   version**; [the example below](#example-a-team-for-a-software-project) shows where it
-   is going.
+   agents, their rules and their board into the repository. **This works today.**
+   [The example below](#example-a-team-for-a-software-project) shows how it goes.
 
 ## What an agent team is
 
@@ -161,40 +160,46 @@ team for this project**.
 
 The kit reads first: how the project is built and tested, how it is released, which
 conventions are written down, whether sibling repositories belong to it. Then it asks
-only what it could not read:
+only what it could not read, one question at a time:
 
-> **Claude:** `harbor` has a test suite (`npm test`) and deploys from `main`. I suggest a
-> project team: one repository, one subject. Is that right, or does `harbor` belong to a
-> group of repositories that are steered together?
+> **Claude:** The history of `harbor` exists only on this computer. You have an account
+> at GitHub as `sam`. I suggest a private copy of this project there. Shall I create it?
+> Nothing is uploaded without your word.
 >
-> **You:** just this one
+> **You:** yes
 >
-> **Claude:** Who manages this project: you in a session here, or a separate hub
-> repository that steers several projects? With one repository I recommend no hub.
+> **Claude:** `harbor` is one web shop with its tests (`npm test`), so I suggest one team
+> for this repository. Is that right?
 >
-> **You:** no hub
+> **You:** yes
 >
-> **Claude:** Every team needs a board, so work does not live only in a chat. I recommend
-> karr, a board that sits inside the git repository. The alternative is a private issue
-> tracker.
+> **Claude:** Your saved versions carry a name and an e-mail; both become visible if the
+> project is ever published. Which shall I use?
 >
-> **You:** karr
+> **You:** Sam Doe, sam@example.org
 >
-> **Claude:** Who may commit? I recommend one agent only, the release manager; the others
-> hand over a finished working tree and a report.
+> **Claude:** Each job becomes a card on a board. The file `BOARD.md` needs nothing
+> installed. karr is a board program that also passes cards between projects; I would
+> download and install it for you. karr sends the cards, with the e-mail of whoever
+> changed them, to your GitHub copy with every change. I recommend the file: karr pays
+> off for a family of projects that hand work to each other.
 >
-> **You:** fine
+> **You:** the file
 >
-> **Claude:** Here is the plan. Five agents: `harbor-scout`, `harbor-worker`,
-> `harbor-test-writer`, `harbor-reviewer`, `harbor-release-manager`. A skill
-> `harbor-core` for what an implementer must know about the shop, written from your
-> code and your `CONTRIBUTING.md`. The house rules. A karr board. Shall I write it?
+> **Claude:** Here is my plan for `harbor`. Five helpers ("agents"): `harbor-scout` reads
+> and reports; `harbor-worker` changes the code; `harbor-test-writer` writes the tests;
+> `harbor-reviewer` checks each finished job and runs the tests; `harbor-release-manager`
+> saves finished work as commits, the only one that does. Their know-how: `harbor-core`, a
+> skill written from your code and your `CONTRIBUTING.md`. The house rules: careful work,
+> the helpers do the work, nothing leaves without your word. The board: `BOARD.md`. At
+> the end I save all of this as one commit. Shall I build it?
 
 After your yes, the repository has:
 
 ```
 harbor/
-  CLAUDE.md                         who does what, in one table
+  CLAUDE.md                         the team, one line per agent
+  BOARD.md                          the board: to do, in progress, review, done
   .claude/
     agents/
       harbor-scout.md               reads and reports, cannot write
@@ -204,10 +209,10 @@ harbor/
       harbor-release-manager.md     commits, changelog, moves the card to done
     rules/
       harbor-rules.md               what is true only for this project
+      .local.*.md                   the house rules, kept current by skilletor
     skills/
       harbor-core/SKILL.md          architecture, vocabulary, invariants
     settings.json                   the plugins the team needs
-  karr/                             the board
 ```
 
 From the next session on, work looks like this:
@@ -316,12 +321,13 @@ A second disk is a full remote: `git push` works the same, and no account is nee
 1. **Machine setup**: prerequisites, starters for any model service, local models,
    OpenAI through a proxy. Done.
 2. **The team itself**: reading the project, the questions, agents, rules, skills,
-   board, and the check at the end. Done.
+   board, and the check at the end, also for folders without code, with a rule for
+   input from outside. Done.
 3. Sample projects that teach the team your conventions, per-language knowledge, and
-   teams for workflows without code.
+   more roles for work without code: a collector with the browser, a team on Windows.
 4. The management hub: a repository that steers several projects by starting a session
    in each of them.
-5. More boards (private issue trackers), and a rule for input from outside.
+5. More boards: issue trackers.
 
 ## The commands
 

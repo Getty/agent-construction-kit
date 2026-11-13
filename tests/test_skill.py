@@ -904,6 +904,31 @@ class SkillTest(Sandbox):
         providers = re.search(r"^## Providers\n(.*?)(?=^## |\Z)", text, re.S | re.M).group(1)
         self.assertTrue("paid" in providers, "README: providers need an account, usually paid")
 
+    def test_readme_team_example_is_what_the_kit_does(self):
+        text = read(README)
+        step2 = text.partition("2. **Build the team.**")[2].partition("## What an agent team is")[0]
+        self.assertIn("**This works today.**", step2)
+        self.assertNotIn("next version", step2)
+        example = text.partition("## Example: a team for a software project")[2].partition("\n## ")[0]
+        for gone in ("hub", "issue tracker", "Who may commit", "in one table"):
+            self.assertNotIn(gone, example)
+        for words in ("`BOARD.md`", "karr", "`harbor-release-manager`", "house rules",
+                      "Nothing is uploaded without your word.", "Shall I build it?"):
+            self.assertIn(words, example)
+        tree = [b for b in FENCE.findall(example) if "harbor/" in b]
+        self.assertTrue(tree, "README: no file tree in the team example")
+        self.assertIn("BOARD.md", tree[0])
+        self.assertNotIn("karr", tree[0])
+        self.assertIn("one line per agent", tree[0])
+        roadmap = text.partition("## Roadmap")[2].partition("\n## ")[0]
+        self.assertIn("folders without code", roadmap)
+        self.assertIn("More boards: issue trackers", roadmap)
+        self.assertNotIn("a rule for input from outside", roadmap)
+        changes = read(ROOT / "Changes").partition("{{$NEXT}}")[2]
+        self.assertNotIn("where it is already installed", changes)
+        for words in ("recommended for a family of projects", "not its starters"):
+            self.assertIn(words, " ".join(changes.split()))
+
     def test_readme_links_resolve(self):
         for target in re.findall(r"\]\(([^)\s]+)\)", read(README)):
             if re.match(r"[a-z]+:", target):

@@ -43,9 +43,11 @@ Revision history for agent-construction-kit
       in the cache. On Git for Windows the hook's briefing-preload.exe runs,
       or the script under the Python 3 that ack-doctor finds.
     - A board without installing anything: BOARD.md, a table per column. karr
-      stays the recommendation where it is already installed.
+      is offered in the board question, recommended for a family of projects,
+      and installed after a yes.
     - A preset (a skill with an answer sheet) can fix answers and add skills
-      per role; the kit installs what the preset names.
+      per role; the team build installs the sources, bundles and skills it
+      names, not its starters, which the hand-over offers.
     - Teams for folders without code: a reading check instead of a test
       command, no test-writer.
     - The machine setup moved from SKILL.md to references/machine.md.
