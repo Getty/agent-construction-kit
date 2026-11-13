@@ -13,6 +13,7 @@ HOOK_DENY = str(FAKE / "briefing-hook-deny")
 HOOK_SILENT = str(FAKE / "briefing-hook-silent")
 HOOK_SPLIT = str(FAKE / "briefing-hook-split")
 TAB = "\t"
+RUN_LIMIT = 90
 
 ROLES = ("scout", "worker", "test-writer", "reviewer")
 READONLY = ("scout", "reviewer")
@@ -62,7 +63,18 @@ class TeamTest(Sandbox):
     # ---- helpers
 
     def at(self, *args, cwd=None, env=None):
-        return self.run_cmd("bash", AT, *args, cwd=str(cwd) if cwd else None, env=env)
+        """Run ack-team with a time limit: a hang is a failure, not a stuck CI job."""
+        full = dict(self.env)
+        full.update(env or {})
+        argv = self._launchable(("bash", AT) + args, full["PATH"])
+        if os.name == "nt" and os.path.basename(argv[0]).lower() == "bash.exe":
+            argv = self._quoted(argv)
+        try:
+            return subprocess.run(argv, env=full, text=True, cwd=str(cwd) if cwd else None,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  timeout=RUN_LIMIT)
+        except subprocess.TimeoutExpired:
+            self.fail("ack-team check did not finish within %d s" % RUN_LIMIT)
 
     def git(self, cwd, *args):
         full = dict(os.environ)
@@ -504,6 +516,25 @@ class TeamTest(Sandbox):
         r = self.at("check", cwd=d)
         self.one(r, "skill", "ok", "pocket:tdd")
         self.one(r, "skill", "missing", "pocket:evil")
+
+    def test_large_installed_plugins_file_does_not_hang(self):
+        import json
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "kit:deploy", "other:x", "no-such-skill"))
+        self.install_plugin("kit", "deploy")
+        index = self.home / ".claude" / "plugins" / "installed_plugins.json"
+        data = json.loads(index.read_text())
+        for n in range(500):
+            data["plugins"]["filler%d@market" % n] = [{
+                "scope": "user", "version": "1.0.0", "installedAt": "2026-01-01T00:00:00.000Z",
+                "installPath": str(self.home / "cache" / ("filler%d" % n) / "1.0.0"),
+                "gitCommitSha": "0123456789abcdef0123456789abcdef01234567"}]
+        index.write_text(json.dumps(data, indent=2))
+        self.assertGreater(index.stat().st_size, 150000)
+        r = self.at("check", cwd=d)
+        self.one(r, "skill", "ok", "kit:deploy")
+        self.one(r, "skill", "missing", "other:x")
+        self.one(r, "skill", "missing", "no-such-skill")
 
     def test_plugin_skill_missing_in_an_installed_plugin(self):
         d = self.team()
