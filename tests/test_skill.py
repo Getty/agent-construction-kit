@@ -14,7 +14,8 @@ SCRIPTS = sorted(p for p in (ROOT / "bin").iterdir() if p.is_file()) + \
 REFS = SKILL_DIR / "references"
 MACHINE = REFS / "machine.md"
 TEAM_REFS = ("team-analysis.md", "team-answer-sheet.md", "team-agents.md", "team-rules.md",
-             "team-board.md", "team-family.md", "using-the-team.md")
+             "team-board.md", "team-family.md", "team-second-copy.md", "team-without-code.md",
+             "using-the-team.md")
 # A new reference may exist before SKILL.md links it; until it does, it must be reached
 # from team-analysis.md. Remove a name once SKILL.md links it (the test says when).
 AWAITING_SKILL_LINK = set()
@@ -199,7 +200,8 @@ class SkillTest(Sandbox):
         has("Step 5", "`ack-team check` until no line says `missing`")
         has("Step 6", "`/exit`", "Claude Code loads agents only when a session starts",
             "fixed start sentence and this folder's full path", "Remote Control",
-            "`windows` team", "`ack-wrappers list` shows `absent`")
+            "on Windows a second team for this computer only",
+            "`ack-wrappers list` shows `absent`")
         doctor = read(ROOT / "bin" / "ack-doctor")      # the team way fixes these lines
         required = set(re.findall(r"\bemit ([a-z:]+) missing [^\n]* required\b", doctor))
         required |= {"plugin:" + n for n in re.findall(r"^plugin_line (\S+) required$",
@@ -391,9 +393,11 @@ class SkillTest(Sandbox):
         # the public marketplace, plugin ids and repo URLs are fine, and
         # `marketplace:getty` is a literal ack-doctor line name; nothing else about
         # one machine or person
-        # Getty/skills and Getty/karr are skilletor sources, named `getty` and `karr`
+        # Getty/skills and Getty/karr are skilletor sources, named `getty` and `karr`;
+        # the house rules and their bundle carry the names that source gives them
         allowed = ("Getty/marketplace", "github.com/Getty/", "marketplace:getty",
-                   "Getty/skills", "Getty/karr", "@getty", '"getty"', "`getty`", "getty=")
+                   "Getty/skills", "Getty/karr", "@getty", '"getty"', "`getty`", "getty=",
+                   "getty-agent-delegation", "getty-publish-gate", "getty-house")
         files = [p for top in ("skills", "share") for p in (ROOT / top).rglob("*") if p.is_file()]
         files.append(README)
         self.assertGreater(len(files), 5)
@@ -481,7 +485,7 @@ class SkillTest(Sandbox):
             self.assertTrue(body.startswith("You are the %s for **" % name), "%s: %s" % (doc, name))
         self.assertEqual(seen, set(ROLES), "a role without a template")
 
-    def test_rules_template_fits_in_fifty_lines(self):
+    def test_rules_template_fits_in_seventy_lines(self):
         text = read(REFS / "team-rules.md")
         block = re.search(r"^```markdown\n(<!-- ack:.*?)^```", text, re.S | re.M).group(1)
         for head in ("## Lanes", "## What the main agent does itself", "## With superpowers"):
@@ -490,7 +494,8 @@ class SkillTest(Sandbox):
                  if not b.startswith("#") and not b.startswith("|")]
         self.assertGreaterEqual(len(board), 2, "team-board.md: no board sections")
         filled = len(block.splitlines()) - 1 + max(len(b.splitlines()) for b in board)
-        self.assertLessEqual(filled, 50, "the project rules, filled, have %d lines" % filled)
+        self.assertLessEqual(filled, 70, "the project rules, filled, have %d lines" % filled)
+        self.assertIn("at most 70 lines once filled", " ".join(text.split()))
 
     def test_every_repo_and_check_line_is_documented(self):
         team = "\n".join(read(REFS / n) for n in TEAM_REFS)
@@ -570,12 +575,16 @@ class SkillTest(Sandbox):
         analysis, board = flat("team-analysis.md"), flat("team-board.md")
         for words in ("Your saved versions carry a name and an e-mail; both become visible "
                       "if the project is ever published.", "without `--global`",
-                      "I would update that copy after every saved change, without asking "
-                      "each time.", "a network drive", "with the e-mail of whoever changed "
-                      "them", "anyone who can see that copy can read them",
-                      "`.claude/skilletor.json`", "`git status --short -uall`"):
+                      "with the e-mail of whoever changed them",
+                      "anyone who can see that copy can read them",
+                      "`.claude/skilletor.json`", "`git status --short -uall`",
+                      "[team-second-copy.md](team-second-copy.md)"):
             self.assertIn(words, analysis)
-        self.assertNotIn("NAS", analysis)
+        copy = flat("team-second-copy.md")
+        for words in ("I would update that copy after every saved change, without asking "
+                      "each time.", "a network drive", "Nothing is uploaded without your word."):
+            self.assertIn(words, copy)
+        self.assertNotIn("NAS", analysis + copy)
         for words in ("`/tasks/` and `/config.yml`", "with the e-mail of whoever made it"):
             self.assertIn(words, board)
         karr = [b for b in FENCE.findall(read(REFS / "team-board.md")) if "karr board" in b]
@@ -674,6 +683,89 @@ class SkillTest(Sandbox):
         self.assertNotIn("`/exit` line", existing)
         self.assertIn("An empty folder: no question; the answer on what will be made here "
                       "decides.", analysis)
+
+    def test_the_team_commit_takes_what_the_build_made_and_no_user_file(self):
+        analysis = " ".join(read(REFS / "team-analysis.md").split())
+        reading, _, rest = analysis.partition("## An existing team")
+        self.assertIn("they stay the user's (build item 9), named in the plan", reading)
+        plan = rest.partition("## The plan")[2].partition("## After the yes")[0]
+        for words in ("Files dirty before the build stay out of the team's commits",
+                      "is named here, and the yes covers it"):
+            self.assertIn(words, plan)
+        item9 = re.search(r" 9\. (.*?) 10\. ", rest.partition("## After the yes")[2])
+        self.assertIsNotNone(item9, "build order: no item 9")
+        for words in ("`.claude/skilletor.json`", "`.claude/.gitignore`", "`.worktreeinclude`",
+                      "`.claude/settings.json`", "against the list from before the build",
+                      "unless the plan named it as one the build changes"):
+            self.assertIn(words, item9.group(1))
+        self.assertNotIn("stay out of every commit of the team", analysis)
+
+    def test_presets_are_the_listed_skills_loaded_with_the_skill_tool(self):
+        sheet = " ".join(FENCE.sub("", read(REFS / "team-answer-sheet.md")).split())
+        presets = sheet.partition("## Presets")[2].partition("## The rules header")[0]
+        for words in ('"Preset for agent-construction-kit: …"', "look through the skills this "
+                      "session lists: load each preset there with the Skill tool",
+                      "is an older copy", "I go on without it.",
+                      "Nothing is searched for or installed on the kit's own initiative."):
+            self.assertIn(words, presets)
+        analysis = " ".join(read(REFS / "team-analysis.md").split())
+        load = analysis.find("First load the presets this session lists")
+        self.assertTrue(0 < load < analysis.find("1. **Repository**"),
+                        "the presets are not loaded before the questions")
+        self.assertIn("load it (Skill tool)", " ".join(read(SKILL).split()))
+        for words in ("Trusting runs that source's code", "after the yes `skilletor trust <name>`"):
+            self.assertIn(words, sheet)
+
+    def test_the_prefix_prefers_the_manifest_name(self):
+        rows = [row for _, row in tables(read(REFS / "team-answer-sheet.md"), "Key")
+                if spans(row[0]) == ["prefix"]]
+        self.assertTrue(rows, "no prefix key")
+        cell = " ".join(rows[0][2:])
+        for words in ("`package.json`", "`Cargo.toml`", "`pyproject.toml`", "`dist.ini`",
+                      "cut to its first word when long", "else the `prefix` line",
+                      "`<project>` in the templates is the same name"):
+            self.assertIn(words, cell)
+
+    def test_a_folder_without_code_has_no_test_writer(self):
+        built = {spans(row[0])[0]: row[head.index("Built when")]
+                 for head, row in tables(read(REFS / "team-agents.md"), "Role")
+                 if "Built when" in head}
+        self.assertTrue(built["test-writer"].startswith("the project has code or tests"))
+        for role in ("scout", "worker", "reviewer"):
+            self.assertTrue(built[role].startswith("always"), role)
+        text = " ".join(read(REFS / "team-without-code.md").split())
+        team = read(ROOT / "bin" / "ack-team")     # a missing role is a warn, not missing
+        self.assertRegex(team, r"for role in [^;\n]*\btest-writer\b")
+        self.assertIn('emit roles warn "$role" "no agent ending in -$role"', team)
+        for words in ("`roles<TAB>warn<TAB>test-writer` (`no agent ending in -test-writer`)",
+                      "Worker and reviewer get only `superpowers:verification-before-completion`",
+                      "`git diff --check`", "section `## Check`", "and only these",
+                      "Login names, passwords, PINs, account and card numbers never go into"):
+            self.assertIn(words, text)
+        agents = read(REFS / "team-agents.md")
+        for words in ("mattpocock-skills:code-review", "writing-skills"):
+            self.assertNotIn(words, agents)
+
+    def test_findings_of_the_analysis_become_the_first_cards(self):
+        board = " ".join(read(REFS / "team-board.md").split())
+        for words in ("becomes a `Todo` card, at most five", "Each is named in the hand-over.",
+                      "says which, in `Notes`"):
+            self.assertIn(words, board)
+        self.assertNotIn("No job yet", board)
+        use = " ".join(read(REFS / "using-the-team.md").split())
+        for words in ("Name each first card", "Say it in the user's language, translated "
+                      "faithfully; in `CLAUDE.md` it stays English"):
+            self.assertIn(words, use)
+
+    def test_house_rules_carry_the_names_the_source_has(self):
+        rules = " ".join(read(REFS / "team-rules.md").split())
+        self.assertIn("`skilletor install engineering-discipline@getty getty-agent-delegation@getty "
+                      "getty-publish-gate@getty --project`", rules)
+        self.assertIn("`skilletor install karr-coordination@getty --project`",
+                      " ".join(read(REFS / "team-board.md").split()))
+        for doc in docs():
+            for gone in ("bundle:house", "board-karr", "`house`", "`publish-gate`"):
+                self.assertNotIn(gone, read(doc), "%s: %s" % (doc.name, gone))
 
     def readme_provider_names(self):
         text = read(README)

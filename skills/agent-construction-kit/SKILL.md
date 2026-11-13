@@ -22,8 +22,8 @@ board, a survey of the machine (its computers and services). Asked for, or calle
 what the user says: say so in a sentence, build the team for this folder. In Step 2,
 before its questions: several areas ("a homelab, and I develop things"): ask which one
 this folder is for; an empty folder: ask what will be made here, and that answer is the
-one sentence of Step 3. A preset is a skill loaded in this session with a section
-`## Answer sheet`: take its answers, ask only the rest ([references/team-answer-sheet.md](references/team-answer-sheet.md)).
+one sentence of Step 3. A preset: a skill this session lists whose description calls it a
+preset for this kit; load it (Skill tool), use its `## Answer sheet` ([references/team-answer-sheet.md](references/team-answer-sheet.md)).
 
 ## Talking with the user
 
@@ -57,8 +57,8 @@ to run `winget install Git.Git`, and start over in a new Claude Code session aft
 
 ## Step 0: the model of this session
 
-Run `ack-doctor` (it only reads). Line `session-model`: with `via <host>` another
-provider runs this session, without `via` Anthropic; your system prompt names the model.
+Run `ack-doctor` (it only reads). Line `session-model` (`default`: the account's default
+model): `via <host>` means another provider, no `via` Anthropic; your system prompt names it.
 
 - Anthropic's Opus or Fable tier, or another provider's largest model: go on; if unsure, ask.
 - Anything else, local models included: stop. Say why in two sentences: setting up makes
@@ -92,7 +92,7 @@ user starts Claude there as in Step 1.
   second team. The user's request is a change only for what it lacks, and goes through
   Steps 3 and 4 first; then Steps 5 and 6.
 - Else its questions 1 and 2, where they apply: a repository (`ack-repo init`), a second
-  copy (`ack-repo disk-remote` or a hosted one).
+  copy (`ack-repo disk-remote` or a hosted one: [references/team-second-copy.md](references/team-second-copy.md)).
 
 ## Step 3: analysis and plan
 
@@ -101,9 +101,9 @@ order" from question 3, and "The plan", which ends "Shall I build it?"; only a y
 
 ## Step 4: build
 
-"After the yes: build order" in team-analysis.md, items 1 to 7 in order, each with the
-file it links: [references/team-agents.md](references/team-agents.md), [references/team-rules.md](references/team-rules.md),
-[references/team-board.md](references/team-board.md), a family also [references/team-family.md](references/team-family.md).
+"After the yes: build order" in team-analysis.md, items 1 to 7 in order, each with the file it links:
+[references/team-agents.md](references/team-agents.md), [references/team-rules.md](references/team-rules.md), [references/team-board.md](references/team-board.md),
+a family also [references/team-family.md](references/team-family.md), no code also [references/team-without-code.md](references/team-without-code.md).
 
 ## Step 5: check
 
@@ -115,6 +115,6 @@ hook test once. Then build-order items 9 and 10: one commit, the drive copy if a
 One message as in [references/using-the-team.md](references/using-the-team.md): its fixed
 start sentence and this folder's full path; first `/exit` and `claude` here again, since
 Claude Code loads agents only when a session starts; at the end, Remote Control in one
-sentence. Then its "Next steps" that apply, one sentence each: the hub (several areas),
-on Windows the `windows` team, each later-version item from above, a preset's starters
-that `ack-wrappers list` shows `absent` (offered by step 2 of machine.md).
+sentence. Then its "Next steps" that apply, one sentence each: the hub (several areas), on
+Windows a second team for this computer only, each later-version item from above, a
+preset's starters that `ack-wrappers list` shows `absent` (offered by step 2 of machine.md).

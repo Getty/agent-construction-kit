@@ -19,7 +19,7 @@ briefing plugin loads when the agent starts; never copy skill text into a body.
 |---|---|---|---|---|
 | `scout` | reads, searches, finds gaps, reports | always | read-only | `haiku` |
 | `worker` | implements, refactors, debugs | always; one per part ("Workers by path") | all | `inherit` |
-| `test-writer` | writes and extends tests | always | all | `sonnet` |
+| `test-writer` | writes and extends tests | the project has code or tests ([team-without-code.md](team-without-code.md)) | all | `sonnet` |
 | `reviewer` | checks a finished job against its card, runs the check itself | always | read-only | `opus` |
 | `release-manager` | commits (as the committer), changelog entry, card to done, release check | always | all | `sonnet` |
 | `doc-writer` | documentation in the project's own format | the project has one (POD, a docs site with rules) | all | `sonnet` |
@@ -51,14 +51,13 @@ Per topic, by the latest `ack-doctor` run: the superpowers skill if that plugin 
 else (or where its cell is none) the mattpocock-skills one if that plugin is `ok`; never
 two. A preset's `rollen` rows change only these: each role keeps `<prefix>-core`
 (coordinator: `<family>-coordination`) and, with karr, the card skill
-[team-board.md](team-board.md) gives it.
+[team-board.md](team-board.md) gives it. No code: [team-without-code.md](team-without-code.md).
 
 | Role | Topic | superpowers (wins) | mattpocock-skills |
 |---|---|---|---|
 | worker, test-writer | test first | `superpowers:test-driven-development` | `mattpocock-skills:tdd` |
 | worker | debugging | `superpowers:systematic-debugging` | `mattpocock-skills:diagnosing-bugs` |
 | worker, reviewer | proof before "done" | `superpowers:verification-before-completion` | none |
-| reviewer | review method | none | `mattpocock-skills:code-review` |
 | adr-auditor | design words | none | `mattpocock-skills:codebase-design`, `mattpocock-skills:domain-modeling` |
 
 ## The project skill `<prefix>-core`
@@ -66,16 +65,16 @@ two. A preset's `rollen` rows change only these: each role keeps `<prefix>-core`
 What is true for this repository and nowhere else, from README, CONTRIBUTING, ADRs, CI
 config, `git log` and the code: layout, build and test commands with their traps,
 conventions, commit and changelog style, the release path; each fact with its file.
-Always write it, before the agents: `.claude/skills/<prefix>-core/SKILL.md`, frontmatter
-`name: <prefix>-core` and a `description` starting "Use when working in <project>"; with
-`superpowers:writing-skills` installed, follow it. A new project: from the user's
-sentence, what it is for, where code and tests will go, "no tests yet"; a card extends it.
+Always write it, before the agents, from these rules alone: `.claude/skills/<prefix>-core/SKILL.md`,
+frontmatter `name: <prefix>-core` and a `description` starting "Use when working in
+<project>". A new project: from the user's sentence, what it is for, where code and tests
+will go, "no tests yet"; a card extends it.
 
 ## Templates
 
-`<base>`: the role's rows from "Base skills"; `<check>`: the test command; `<card lines>`:
-from [team-board.md](team-board.md). Fill every placeholder; drop an entry with nothing.
-The coordinator's template is in [team-family.md](team-family.md).
+`<project>`: the `prefix` name; `<base>`: the role's rows from "Base skills"; `<check>`: the
+test command; `<card lines>`: from [team-board.md](team-board.md). Fill every placeholder;
+drop an entry with nothing. The coordinator's template: [team-family.md](team-family.md).
 
 ```markdown
 ---
@@ -160,7 +159,8 @@ above silently.
 
 `committer` `main` or `user`: its description drops "commits reviewed work" and "marks
 the card done"; its body says "Never commit; <the main agent|the user> does." in place of
-the commit sentences, the card lines and the drive push.
+the commit sentences, the card lines and the drive push. No changelog in the project: the
+description drops "and the changelog entry", the body the changelog rule.
 
 ```markdown
 ---

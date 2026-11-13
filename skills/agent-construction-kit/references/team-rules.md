@@ -1,12 +1,11 @@
 # Rules, settings, CLAUDE.md and the check
 
-Rules come in two layers: the house rules, installed by skilletor and the same in every
-project, and one short project rules file with what is true only here. Then the project
-settings, the section in `CLAUDE.md`, and the check that the team works.
+Two layers of rules: the house rules (from skilletor, the same in every project) and one
+short project rules file; then the settings, the `CLAUDE.md` section and the check.
 
 ## Contents
 
-- House rules: the bundle `house`
+- House rules
 - The project rules file
 - `.claude/settings.json`
 - The section in `CLAUDE.md`
@@ -14,23 +13,25 @@ settings, the section in `CLAUDE.md`, and the check that the team works.
 
 ## House rules
 
-`skilletor install bundle:house@getty --project` installs three rules as
-`.claude/rules/.local.<name>.md`. skilletor keeps them current: never edit them, never
-repeat them in the project rules.
+Three rules from source `getty`, which skilletor installs as `.claude/rules/.local.<name>.md`
+and keeps current (never edit them, never repeat them in the project rules):
+`skilletor install engineering-discipline@getty getty-agent-delegation@getty getty-publish-gate@getty --project`.
 
 - `engineering-discipline`: think before coding, small changes, tests prove intent,
   report only what was verified.
-- `agent-delegation`: the session the user talks to (the main agent) hands work on
+- `getty-agent-delegation`: the session the user talks to (the main agent) hands work on
   behaviour-relevant code to the team's agents, never to built-in ones; one agent
   commits; the reviewer runs the checks before a commit.
-- `publish-gate`: pushes, releases, deployments and writes on public trackers wait for
+- `getty-publish-gate`: pushes, releases, deployments and writes on public trackers wait for
   the user's word; local work and commits do not.
 
-With karr also `skilletor install board-karr@getty --project` ([team-board.md](team-board.md)).
+With karr also `karr-coordination@getty` ([team-board.md](team-board.md)). The bundle
+`getty-house` holds all four, so it fits a karr team only; with the file board install the
+three by name, never that bundle (its karr rule would make karr the board).
 
 ## The project rules file
 
-`.claude/rules/<prefix>-rules.md`, at most 50 lines once filled; every rule carries its
+`.claude/rules/<prefix>-rules.md`, at most 70 lines once filled; every rule carries its
 reason in half a sentence. Only what is true here: no house rule, no skill text. The first
 line keeps the answers for a later run ([team-answer-sheet.md](team-answer-sheet.md)).
 Write "With superpowers" only when the latest `ack-doctor` run shows `plugin:superpowers`
@@ -68,7 +69,7 @@ Typos, docs, configuration, answers: itself, without a card (cards are for agent
 ## With superpowers
 
 A plan runs in this folder on this branch (`main` too: the yes to the team covers it), no
-worktree, so `BOARD.md` stays here. Per task, one after another: `<prefix>-worker` (a test
+worktree, so the board stays here. Per task, one after another: `<prefix>-worker` (a test
 task: `-test-writer`) is told to skip the implementer prompt's commit step;
 `<prefix>-reviewer` reviews the uncommitted `git diff`; then <the committer> commits, so
 one writes history. Never `general-purpose`: built-in agents get no briefing.
@@ -96,14 +97,16 @@ Fill it like this:
 - **A copy on a drive** (`ack-repo disk-remote`), when the user allowed its updates, into
   "Check and commits" (two lines): "After each commit <who pushes> runs
   `git push <name> <branch>` (the copy on <drive>, allowed in advance); drive not plugged
-  in: one line saying so, the next push catches up." It is the go-ahead `publish-gate`
+  in: one line saying so, the next push catches up." It is the go-ahead `getty-publish-gate`
   asks for. `<who pushes>`: `<prefix>-release-manager` (its body carries the same
   sentence, in "you" form: [team-agents.md](team-agents.md)); with `committer` `main` or
   `user` the main agent, after the commit.
 - **Outside input**: with `fremdeingaben` `off` leave the section out; the user was told.
 - **Hazards**: what you found while reading and the agents would trip over: a test that
   needs the network or a real account, a generated file nobody edits by hand, a folder
-  never to touch, a slow suite and its quick part. None found: leave the section out.
+  never to touch, a slow suite and its quick part. A folder about accounts, portals or
+  personal documents: always the secrets hazard of [team-without-code.md](team-without-code.md).
+  None found: leave the section out.
 - `headless` `on`: one line "Starting sessions from a session: skills `claude-headless`
   and `model-routing`."
 
@@ -128,11 +131,10 @@ it. The team needs at least:
 ```
 
 Every enabled plugin outside `claude-plugins-official` needs its marketplace in
-`extraKnownMarketplaces`. A plugin whose skills an agent names (`superpowers`,
-`mattpocock-skills`) goes into `enabledPlugins` as `<plugin>@claude-plugins-official`, so
-the project states what its agents need. No `permissions` lists: they make Claude ask at
-every other step, and the read-only roles are fenced by `disallowedTools`. Keep what the
-user had there.
+`extraKnownMarketplaces`. A plugin whose skills an agent names goes into `enabledPlugins`
+(`superpowers@claude-plugins-official`), so the project states what its agents need. No
+`permissions` lists: they make Claude ask at every other step, and `disallowedTools`
+fences the read-only roles. Keep what the user had there.
 
 ## The section in `CLAUDE.md`
 
@@ -156,9 +158,10 @@ pushed, released or posted without your word, unless the project rules allow it.
 ```
 
 Then name what they allow: "… allow it: the copy on <drive>, which you allowed." With
-karr: "Work is tracked with karr (`karr board`)", and "… allow it: the karr board, which
-goes to `origin` with every change." With `committer` `main` or `user`, the release
-manager's line is "writes the changelog and checks releases, never commits".
+karr: "Work is tracked with karr (`karr board`)"; with a remote `origin` also "… allow it:
+the karr board, which goes to `origin` with every change" (without one karr sends nothing).
+With `committer` `main` or `user`, the release manager's line is "writes the changelog and
+checks releases, never commits"; without a changelog, drop "the changelog and".
 
 ## Verification
 
@@ -178,7 +181,7 @@ and run again until no line is `missing`; tell the user each `warn` in one sente
 | `board` | karr refs, or `BOARD.md` with the four headings | add what the text names |
 | `claude-md` | `CLAUDE.md` names every agent | add the name to the section |
 | `git` | a repository, and a remote | no remote: fine when the user chose "only on this computer" |
-| `hook` | runs the briefing hook once per agent, as if it were started; the first worker must also get a briefing | `missing`: the hook would refuse that agent, or hands it an abort; the text is briefing's reason: fix that entry. `warn`: hook not found (`claude plugin install briefing@getty`), no answer in time (run again), or it briefs nothing (give that agent its `briefing.skills`) |
+| `hook` | runs the briefing hook as if each agent were started; the first worker (else the first agent) must also get a briefing | every agent passes: ONE line `hook<TAB>ok<TAB><first worker>`, standing for all of them. `missing`: one line per agent the hook refuses, or for the first worker when it hands an abort; the text is briefing's reason: fix that entry. `warn` (one line; the hook part stops there): hook not found (`claude plugin install briefing@getty`), no answer in time (run again), or it briefs nothing for the first worker (give it `briefing.skills`) |
 
 That the hook refuses a broken agent is checked once by hand, in a scratch folder:
 

@@ -25,6 +25,8 @@ Example for `harbor`, with a copy on the drive 'BACKUP':
 > - Give work in one sentence, as you would to a colleague. Small things, like a typo or
 >   a question, the session does itself; everything else becomes a card in `BOARD.md`,
 >   goes to an agent, is checked by `harbor-reviewer` and saved as a commit.
+> - The first cards in `BOARD.md`: c1 "Tests for the checkout", c2 "Decide the shipping
+>   costs", which needs your answer: which countries you ship to.
 > - Nothing is uploaded, released or posted without your word. The one exception you
 >   allowed: the copy on 'BACKUP' is updated after every saved change.
 > - Everything I set up is saved as one commit, here and on 'BACKUP'.
@@ -32,7 +34,10 @@ Example for `harbor`, with a copy on the drive 'BACKUP':
 >   tell you how?
 
 The start sentence is fixed: "Start Claude in this folder. The session you talk to hands
-the work to the right agent." Name what `ack-team check` reported as `warn` in one
+the work to the right agent." Say it in the user's language, translated faithfully; in
+`CLAUDE.md` it stays English, like the rest of that file. Name each first card
+([team-board.md](team-board.md)) and, for one that needs the user's input, what it needs;
+none: say the board is empty. Name what `ack-team check` reported as `warn` in one
 sentence each, and what you left out on purpose (a second copy declined, no tests yet).
 The last lines follow the second copy:
 
@@ -63,9 +68,9 @@ The last lines follow the second copy:
 
 Commits stay on this computer. Pushing to a remote, releasing, deploying, and writing on
 public trackers wait until the user says so, each time; a yes covers what it names
-(house rule `publish-gate`). The exceptions are what the project rules write down with
-the user's yes: the copy on a drive, updated after every commit, and with karr the
-board, which karr sends to `origin` with every change.
+(house rule `getty-publish-gate`). The exceptions are what the project rules write down
+with the user's yes: the copy on a drive, updated after every commit, and with karr and a
+remote `origin` the board, which karr sends there with every change.
 
 ## Remote Control
 
