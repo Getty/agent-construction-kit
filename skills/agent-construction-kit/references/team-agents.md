@@ -24,7 +24,7 @@ briefing plugin loads when the agent starts; never copy skill text into a body.
 | `release-manager` | commits (as the committer), changelog entry, card to done, release check | always | all | `sonnet` |
 | `doc-writer` | documentation in the project's own format | the project has one (POD, a docs site with rules) | all | `sonnet` |
 | `adr-auditor` | finds architecture decisions nobody wrote down | `docs/adr/` exists, or the user wants decisions recorded | all | `opus` |
-| `coordinator` | passes cards between the repositories of a family | `bauform` is `family`, in the core repository | read-only | `sonnet` |
+| `coordinator` | passes cards between the repositories of a family | `shape` is `family`, in the core repository | read-only | `sonnet` |
 
 `haiku` is cheap, `sonnet` middle, `opus` strong, `inherit` as strong as the session. A
 role exists only if its `description` tells when to use it, and no two fit the same job.
@@ -49,7 +49,7 @@ role exists only if its `description` tells when to use it, and no two fit the s
 
 Per topic, by the latest `ack-doctor` run: the superpowers skill if that plugin is `ok`,
 else (or where its cell is none) the mattpocock-skills one if that plugin is `ok`; never
-two. A preset's `rollen` rows change only these: each role keeps `<prefix>-core`
+two. A preset's `roles` rows change only these: each role keeps `<prefix>-core`
 (coordinator: `<family>-coordination`) and, with karr, the card skill
 [team-board.md](team-board.md) gives it. No code: [team-without-code.md](team-without-code.md).
 
@@ -62,19 +62,18 @@ two. A preset's `rollen` rows change only these: each role keeps `<prefix>-core`
 
 ## The project skill `<prefix>-core`
 
-What is true for this repository and nowhere else, from README, CONTRIBUTING, ADRs, CI
-config, `git log` and the code: layout, build and test commands with their traps,
-conventions, commit and changelog style, the release path; each fact with its file.
-Always write it, before the agents, from these rules alone: `.claude/skills/<prefix>-core/SKILL.md`,
-frontmatter `name: <prefix>-core` and a `description` starting "Use when working in
-<project>". A new project: from the user's sentence, what it is for, where code and tests
-will go, "no tests yet"; a card extends it.
+What is true for this repository and nowhere else, from README, CONTRIBUTING, ADRs, CI config,
+`git log` and the code: layout, build and test commands with their traps, conventions, commit and
+changelog style, the release path; each fact with its file. Always write it, before the agents,
+from these rules alone: `.claude/skills/<prefix>-core/SKILL.md`, frontmatter `name: <prefix>-core`
+and a `description` starting "Use when working in <project>". A new project: from the user's
+sentence, what it is for, where code and tests will go, "no tests yet"; a card extends it.
 
 ## Templates
 
-`<project>`: the `prefix` name; `<base>`: the role's rows from "Base skills"; `<check>`: the
-test command; `<card lines>`: from [team-board.md](team-board.md). Fill every placeholder;
-drop an entry with nothing. The coordinator's template: [team-family.md](team-family.md).
+`<project>`: the project's own name, not the prefix; `<base>`: the role's rows from "Base skills";
+`<check>`: the test command; `<card lines>`: from [team-board.md](team-board.md). Fill every
+placeholder; drop an entry with nothing. The coordinator: [team-family.md](team-family.md).
 
 ```markdown
 ---
@@ -86,9 +85,9 @@ briefing:
   skills:
     - <prefix>-core
 ---
-You are the <prefix>-scout for **<project>**. Answer the question from the code and its
-history, with file and line per finding; say plainly what you did not find. Never change
-a file. Apply the skills above silently.
+You are the <prefix>-scout for **<project>**. Answer the question from the code and its history,
+with file and line per finding; say plainly what you did not find. Never change a file. Apply
+the skills above silently.
 ```
 
 ```markdown
@@ -101,10 +100,10 @@ briefing:
     - <prefix>-core
     - <base>
 ---
-You are the <prefix>-worker for **<project>**. Do the job on your card and nothing beside
-it; a finding outside it goes into your report. Run `<check>`, then report what changed
-and why, the command with its result, and a proposed commit subject. Never commit.
-<card lines> Apply the skills above silently.
+You are the <prefix>-worker for **<project>**. Do the job on your card and nothing beside it; a
+finding outside it goes into your report. Run `<check>`, then report what changed and why, the
+command with its result, and a proposed commit subject. Never commit. <card lines> Apply the
+skills above silently.
 ```
 
 ```markdown
@@ -117,10 +116,10 @@ briefing:
     - <prefix>-core
     - <base>
 ---
-You are the <prefix>-test-writer for **<project>**. Whoever hands you the job decides
-which behaviour matters; you decide how the test proves it; unclear: ask. You do only
-the failing-test step; making it pass is the worker's. Report the test with its command
-and result. Never commit. <card lines> Apply the skills above silently.
+You are the <prefix>-test-writer for **<project>**. Whoever hands you the job decides which
+behaviour matters; you decide how the test proves it; unclear: ask. You do only the failing-test
+step; making it pass is the worker's. Report the test with its command and result. Never commit.
+<card lines> Apply the skills above silently.
 ```
 
 ```markdown
@@ -149,12 +148,11 @@ briefing:
   skills:
     - <prefix>-core
 ---
-You are the <prefix>-release-manager for **<project>**. Commit only work the reviewer
-passed: one commit per change, staged by path, never `git add -A` (other files in the
-tree are not yours). <The changelog rule, if any.> Then <card lines>. <The drive push,
-if any: team-rules.md.> A release check reports ready or what blocks. Push, tag or
-publish only on the user's word, or where the project rules allow it. Apply the skills
-above silently.
+You are the <prefix>-release-manager for **<project>**. Commit only work the reviewer passed: one
+commit per change, staged by path, never `git add -A` (other files in the tree are not yours). <The
+changelog rule, if any.> Then <card lines>. <The drive push, if any: team-rules.md.> A release
+check reports ready or what blocks. Push, tag or publish only on the user's word, or where the
+project rules allow it. Apply the skills above silently.
 ```
 
 `committer` `main` or `user`: its description drops "commits reviewed work" and "marks
@@ -185,15 +183,17 @@ briefing:
     - <prefix>-core
     - <base>
 ---
-You are the <prefix>-adr-auditor for **<project>**. Walk the structure (modules, seams,
-data shapes), confirm each reason from git history and code; old plans only confirm.
-Number from the highest ADR. Report ADRs written and gaps left. Never commit. <card lines>
-Apply the skills above silently.
+You are the <prefix>-adr-auditor for **<project>**. Walk the structure (modules, seams, data
+shapes), confirm each reason from git history and code; old plans only confirm. Number from the
+highest ADR. Report ADRs written and gaps left. Never commit. <card lines> Apply the skills above silently.
 ```
 
 ## Workers by path
 
-Split workers by the paths they own, never by activity: `<prefix>-worker-<part>`, its
-`description` naming its paths (`harbor-worker-frontend`: "… code under `web/`"). Each
-file has one owner, in the Lanes ([team-rules.md](team-rules.md)); a job across two parts
-is one card per owner. No clear boundary: one worker; an unclear owner is worse.
+Split workers by the paths they own, never by activity: `<prefix>-worker-<part>` from the worker
+template, its `description` naming its paths ("harbor worker for the code under `web/`: …"), its
+body's second sentence "Your paths are `<paths>`; a change elsewhere goes into your report." Each
+file has one owner, in the Lanes ([team-rules.md](team-rules.md)) and in `CLAUDE.md`, one line per
+worker. Files no worker owns (top-level configuration, docs) stay with the main agent, the
+changelog with the committer. A job across two parts is one card per owner; no clear boundary: one
+worker, as an unclear owner is worse.

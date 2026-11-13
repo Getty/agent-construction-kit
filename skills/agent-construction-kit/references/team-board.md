@@ -108,7 +108,7 @@ From karr's README (release 0.602). The kit has tested none of these installs.
 
 | System | Install |
 |---|---|
-| Linux, x86_64 or aarch64 | a ready program, no Perl: from the release page download `karr-<version>-linux-x86_64` (or `-aarch64`) and `karr-<version>-checksums.txt`, run `sha256sum -c --ignore-missing karr-<version>-checksums.txt`, then `chmod +x` it and put it on the `PATH` as `karr`. It needs the system libraries libssl, libcrypto, libssh2, libz and libzstd, present on a normal Linux |
+| Linux, x86_64 or aarch64 | a ready program, no Perl: from the release page download `karr-<version>-linux-x86_64` (or `-aarch64`) and `karr-<version>-checksums.txt`, run `sha256sum -c --ignore-missing karr-<version>-checksums.txt`, then `chmod +x` it and move it as `karr` into the folder `ack-wrappers dir` prints (the kit's folder for starters; create it if needed; never `sudo`); `dir<TAB>missing`: that folder is not on the `PATH` yet, so `ack-wrappers path-fix` after the user's yes. It needs the system libraries libssl, libcrypto, libssh2, libz and libzstd, present on a normal Linux |
 | any system with Perl and `cpanm` | `cpanm App::karr` |
 | macOS | no ready program named in the README: `cpanm App::karr` |
 | Windows | Strawberry Perl and Git for Windows; then in PowerShell `$env:CMAKE_GENERATOR = 'MinGW Makefiles'`, `cpanm Alien::Libgit2`, `cpanm --notest Git::Libgit2 Git::Native`, `cpanm App::karr`. Over HTTPS set `SSL_CERT_FILE` to a CA bundle; ssh remotes need nothing |
@@ -132,7 +132,7 @@ No `BOARD.md` then: one board, not two.
 
 ### Its skills and its rule
 
-`quellen` gains `karr=Getty/karr`: `skilletor add Getty/karr --project` (source name
+`sources` gains `karr=Getty/karr`: `skilletor add Getty/karr --project` (source name
 `karr`), then `skilletor install kanban-issues-karr-ticket@karr kanban-issues-karr-coordination@karr --project`.
 
 | Skill | Covers | Into `briefing.skills` of |

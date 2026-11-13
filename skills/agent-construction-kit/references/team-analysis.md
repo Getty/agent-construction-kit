@@ -17,9 +17,8 @@ sentence the first time. The decisions and their keys: [team-answer-sheet.md](te
 
 Run `ack-repo inspect` in the project folder; it only reads, offline. One fact per line:
 
-- `git<TAB>ok<TAB><dir>`: this folder is the top folder of a repository.
-  `git<TAB>missing<TAB><dir>`: none yet, or a bare one (a store for copies, without files
-  to work on).
+- `git<TAB>ok<TAB><dir>`: this folder is the top of a repository. `git<TAB>missing<TAB><dir>`:
+  none yet, or a bare one (a store for copies, without files to work on).
 - `git<TAB>inside<TAB><top>`: the folder lies inside the repository `<top>`. Before anything
   else ask whether the team belongs to `<top>` (then the user starts Claude there, as in
   Step 1 of SKILL.md) or to this folder alone (question 1). `git<TAB>home<TAB><top>`: that
@@ -53,20 +52,19 @@ Then read, without asking: `README*`, `CONTRIBUTING*`, `CLAUDE.md`, `AGENTS.md`,
 `docs/adr/`, the `signal` files, the CI config: build and test commands and their traps,
 the release path, written conventions, clearly separate parts ("Workers by path" in
 [team-agents.md](team-agents.md)). The latest `ack-doctor` run's `plugin:superpowers`,
-`plugin:mattpocock-skills` and `tool:karr` lines decide the base skills and the board
-question. `git config user.name` or `git config user.email` empty: question 4.
+`plugin:mattpocock-skills` and `tool:karr` lines decide the base skills and the board question.
 
 ## An existing team
 
 Agent files in `.claude/agents/` mean a team exists: `team<TAB>agents` above `0`, or
-`.local.*.md` files there (agents skilletor installed; that line does not count them).
-Never build a second team. Run `ack-team check`, then say in plain words what the team
-has and what is missing ("The team has <its agents, the board>. N things are missing:
-<each in a few words>."). Only what it lacks is built, the check's findings and what the
-user asks for, as for a new team: questions, a plan naming the fixes and their one commit
-(made only after this yes), build order, Verification, the commit, the full hand-over. An
-existing agent file changes only with its own yes. A rules file that starts with
-`<!-- ack: ... -->` keeps the earlier answers; ask only about what the user wants changed.
+`.local.*.md` files there (agents skilletor installed; that line does not count them). Never
+build a second team; without a repository of its own, question 1 comes first. Run
+`ack-team check`, then say what the team has and what is missing ("The team has <its agents,
+the board>. N things are missing: <each in a few words>."). Only what it lacks is built, the
+check's findings and what the user asks for, as for a new team: questions, a plan naming the
+fixes and their one commit (made only after this yes), build order, Verification, the commit,
+the full hand-over. An existing agent file changes only with its own yes. A rules file starting
+with `<!-- ack: ... -->` keeps the earlier answers; ask only about what the user wants changed.
 
 ## From one sentence to a structure
 
@@ -84,42 +82,43 @@ what you read, with its reason in one sentence; they confirm or change it.
 First load the presets this session lists ("Presets" in [team-answer-sheet.md](team-answer-sheet.md)).
 
 1. **Repository**, only with `git<TAB>missing`, `home`, or `inside` for this folder alone.
-   `missing`: "Agents, their rules and the board are files in a git repository, which
-   keeps every change with its history. There is none here yet. May I create one? I
-   recommend yes." (No: the team needs one; stop.) Then `ack-repo init` prints
-   `git<TAB>created<TAB><dir>` and writes a `.gitignore` (local settings, key files), or
-   `git<TAB>ok<TAB><dir>` for a bare one: nothing changed; ask for the folder with the
-   files. `inside` or `home`: "This folder is part of a larger repository, `<top>`. The team
-   needs one of its own here; your files stay where they are. May I create it? I recommend
-   yes." Then `ack-repo init --own`; exit 3 means `<top>` already tracks files here: say
-   so and stop. A new repository: from here on treat it as `commits<TAB>0` (the user's
-   files get a first commit).
+   `missing`: "Agents, their rules and the board are files in a git repository, which keeps
+   every change with its history. There is none here yet. May I create one? I recommend yes."
+   (No: the team needs one; stop.) Then `ack-repo init` prints `git<TAB>created<TAB><dir>` and
+   writes a `.gitignore` (local settings, key files), or `git<TAB>ok<TAB><dir>` for a bare
+   one: nothing changed; ask for the folder with the files. `inside` or `home`: "This folder
+   is part of a larger repository, `<top>`. The team needs one of its own here; your files
+   stay where they are. May I create it? I recommend yes." Then `ack-repo init --own`; exit 3
+   means `<top>` already tracks files here: say so and stop. A new repository: from here on
+   treat it as `commits<TAB>0` (the user's files get a first commit).
 2. **A second copy**, only without a `remote` line: [team-second-copy.md](team-second-copy.md).
 3. **A family**, only with `sibling` lines: "Next to this folder are `<a>` and `<b>`. Do
    they belong together around a common core? Then each gets its own team, and they pass
-   work to each other. I recommend that if they share code." Yes: `bauform` is `family`.
+   work to each other. I recommend that if they share code." Yes: `shape` is `family`. Both
+   names going on after the shared first word (`harbor-shop`, `harbor-notes`): name that
+   sibling "probably unrelated", unless a file ties them; the user's no drops it.
 4. **The name in the history**, only when `git config user.name` or `user.email` is
    empty: "Your saved versions carry a name and an e-mail; both become visible if the
    project is ever published. Which shall I use? I recommend your name and an e-mail you
    don't mind others seeing; it is not checked." Set after the plan's yes.
 5. **How work is checked**, only when no `signal` file names a test command.
    - Code files (`*.py`, `*.js`, ...) without a build file: take the test runner from the
-     test files (`import pytest`, `import unittest`). Present: run the tests once now; the
-     plan names the command. Missing: "Your tests need the program <runner>, which is
-     missing here. May I install it for this project only? I recommend yes." (build
-     item 3). No tests: no question; the first cards are for them.
+     test files (`import pytest`, `import unittest`). Present: the plan names the command,
+     which runs once after the plan's yes. Missing: "Your tests need the program <runner>,
+     which is missing here. May I install it for this project only? I recommend yes."
+     (build item 3). No tests: no question; the first cards are for them.
    - An empty folder: no question; the answer on what will be made here decides. Software:
      that language's usual test runner, named in the plan, installed by build item 3.
      Anything else: [team-without-code.md](team-without-code.md).
    - Files, but no code: "How can you tell that a piece of work here is right?" The answer
      feeds the checklist of [team-without-code.md](team-without-code.md).
-6. **The board**, only when karr is ready here (`tool:karr` `ok`, or the table in
-   [team-board.md](team-board.md) has a ready program for this system; else the file
-   board, no question): "Each job becomes a card on a board. The file `BOARD.md` needs
-   nothing installed. karr is a board program that also passes cards between projects.
-   karr sends the cards, with the e-mail of whoever changed them, to <the second copy>
-   with every change: anyone who can see that copy can read them. I recommend <karr for
-   a family, else the file>." Without a second copy, drop the sentence on sending.
+6. **The board**, only when karr is ready here (`tool:karr` `ok`, or a ready program for this
+   system in [team-board.md](team-board.md); else the file board, no question): "Each job
+   becomes a card on a board. The file `BOARD.md` needs nothing installed. karr is a board
+   program that also passes cards between projects; I would download and install it for you.
+   karr sends the cards, with the e-mail of whoever changed them, to <the second copy> with
+   every change: anyone who can see that copy can read them. I recommend <karr for a family,
+   else the file>." Leave out the offer if karr is installed, the sending if there is no copy.
 
 ## The plan
 
@@ -136,8 +135,9 @@ any line. Besides the team itself, it names:
   ready know-how for test-first work and finding bugs; I would install them."
 - Who commits: `<prefix>-release-manager`, unless a preset or the user wants the session
   (`committer` `main`) or the user (`user`); the release manager is built either way.
-- The name and e-mail from question 4, the copy on a drive and its updates, the board,
-  and what is not included that the user might expect (a hub; "karr can come later").
+- The name and e-mail from question 4, the copy on a drive and its updates, the board
+  (karr, downloaded into the folder `ack-wrappers dir` prints), and what is not included
+  that the user might expect (a hub; "karr can come later").
 
 Example for a new web shop `harbor`, with a copy on a USB drive:
 
@@ -174,22 +174,25 @@ Example for a new web shop `harbor`, with a copy on a USB drive:
    `.venv\Scripts\python`); Node `npm install --save-dev <runner>`; others the ecosystem's
    project-local way; never system-wide, `sudo` or `--break-system-packages`. No `venv`:
    give the user the one command to type (Debian, Ubuntu `sudo apt install python3-venv`); wait.
-4. Skills and rules, before any agent names them. Per source in `quellen`:
+   Then the check command runs once: a trap it shows (slow, the network) is a hazard.
+4. Skills and rules, before any agent names them. Per source in `sources`:
    `skilletor add <name> <address> --project` (the kit's `skilletor add Getty/skills --project`
-   names it `getty`; `add` trusts a source, one the project declared before needs
-   `skilletor trust <name>`: [team-answer-sheet.md](team-answer-sheet.md)). House rules:
-   [team-rules.md](team-rules.md). Per bundle: `skilletor install bundle:<bundle>@<source> --project` (a
-   bare name: `getty`). `headless` `on`: `skilletor install claude-headless@getty model-routing@getty --project`.
-   Board `karr`: karr itself, its board, source, skills and rule ([team-board.md](team-board.md)).
-   A met `rollen` row's skill not in `.claude/skills/`: `skilletor install <skill>@<source> --project`
+   names it `getty`; trust: [team-answer-sheet.md](team-answer-sheet.md)); a user-level source
+   of that name wins over the project's: if `skilletor source list` shows it with another
+   address, tell the user. House rules: [team-rules.md](team-rules.md). Per bundle:
+   `skilletor install bundle:<bundle>@<source> --project`. `headless` `on`:
+   `skilletor install claude-headless@getty model-routing@getty --project`. Board `karr`:
+   karr itself, its board, source, skills and rule ([team-board.md](team-board.md)).
+   A met `roles` row's skill not in `.claude/skills/`: `skilletor install <skill>@<source> --project`
    ([team-answer-sheet.md](team-answer-sheet.md) names the source); none has it: stop before
    any agent file, tell the user which. Then `<prefix>-core` ([team-agents.md](team-agents.md)).
 5. Agents: [team-agents.md](team-agents.md).
 6. Project rules, `.claude/settings.json`, `CLAUDE.md`: [team-rules.md](team-rules.md).
 7. The file board: [team-board.md](team-board.md); a family also [team-family.md](team-family.md).
 8. Check: "Verification" in [team-rules.md](team-rules.md), until no line is `missing`.
-9. One commit of what the build created or changed: the files you wrote and those skilletor
-   reported (`commit it`: `.claude/skilletor.json`, `.claude/.gitignore`, `.worktreeinclude`,
+9. One commit of what the build created or changed, with no changelog entry (the team is no
+   change for the project's users): the files you wrote and those skilletor reported
+   (`commit it`: `.claude/skilletor.json`, `.claude/.gitignore`, `.worktreeinclude`,
    `.claude/settings.json`). `git status --short -uall` first, against the list from before
    the build: a file on that list stays out, unless the plan named it as one the build changes.
 10. A copy on a drive: `git push <name> <branch>` (`<name>` as `ack-repo disk-remote`

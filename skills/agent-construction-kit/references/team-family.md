@@ -4,7 +4,7 @@ A family is several repositories around a common core (`harbor-core`, `harbor-we
 `harbor-cli`): each keeps its own team, and work that crosses from one to another goes as
 a card to the repository that owns it, never as an edit there. The family's name is the
 common start of the names (`harbor`); each repository keeps its own `prefix` for its
-agents. `bauform` is `family`; karr is the recommended board when it is ready on this
+agents. `shape` is `family`; karr is the recommended board when it is ready on this
 machine ([team-board.md](team-board.md)).
 
 ## Contents

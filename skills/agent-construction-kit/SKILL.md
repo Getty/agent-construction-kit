@@ -87,10 +87,10 @@ model): `via <host>` means another provider, no `via` Anthropic; your system pro
 drive is no project: ask where it is, or suggest a new folder for a new project; the
 user starts Claude there as in Step 1.
 
-- Agents exist ("An existing team" there): `ack-team check` first, then say what the
-  team has and what is missing; never overwrite an agent file unasked, never build a
-  second team. The user's request is a change only for what it lacks, and goes through
-  Steps 3 and 4 first; then Steps 5 and 6.
+- Agents exist ("An existing team" there): without a repository of its own, question 1
+  first. Then `ack-team check`, and say what the team has and what is missing; never
+  overwrite an agent file unasked, never build a second team. The user's request is a
+  change only for what it lacks, and goes through Steps 3 and 4 first; then Steps 5 and 6.
 - Else its questions 1 and 2, where they apply: a repository (`ack-repo init`), a second
   copy (`ack-repo disk-remote` or a hosted one: [references/team-second-copy.md](references/team-second-copy.md)).
 

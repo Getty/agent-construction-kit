@@ -19,8 +19,9 @@ TEAM_REFS = ("team-analysis.md", "team-answer-sheet.md", "team-agents.md", "team
 # A new reference may exist before SKILL.md links it; until it does, it must be reached
 # from team-analysis.md. Remove a name once SKILL.md links it (the test says when).
 AWAITING_SKILL_LINK = set()
-ANSWER_KEYS = ("bauform", "manager", "prefix", "board", "committer", "publish_gate",
-               "fremdeingaben", "quellen", "rollen", "bundles", "provider", "headless")
+ANSWER_KEYS = ("shape", "manager", "prefix", "board", "committer", "publish_gate",
+               "outside_input", "sources", "roles", "bundles", "provider", "headless")
+OLD_KEYS = ("bauform", "fremdeingaben", "quellen", "rollen")     # read the same
 ROLES = ("scout", "worker", "test-writer", "reviewer", "release-manager", "doc-writer",
          "adr-auditor", "coordinator")
 FENCE = re.compile(r"^```[^\n]*\n(.*?)^```", re.S | re.M)
@@ -194,7 +195,7 @@ class SkillTest(Sandbox):
         self.assertIn("The team needs two free add-ons for Claude Code. May I install them? "
                       "I recommend yes.", " ".join(team_way.split()))
         has("Step 2", "`ack-repo inspect`", "`ack-repo init`", "`ack-repo disk-remote`",
-            "`ack-team check` first", "never overwrite an agent file unasked",
+            "question 1 first. Then `ack-team check`", "never overwrite an agent file unasked",
             "goes through Steps 3 and 4 first; then Steps 5 and 6")
         has("Step 3", "only a yes leads on")
         has("Step 5", "`ack-team check` until no line says `missing`")
@@ -437,7 +438,7 @@ class SkillTest(Sandbox):
         self.assertIsNotNone(preset, "team-answer-sheet.md: no preset example")
         for key in re.findall(r"^- ([a-z_]+):", preset.group(1), re.M):
             self.assertIn(key, values, "preset example: unknown key %r" % key)
-        self.assertTrue(tables(preset.group(1), "rollen"), "preset example: no rollen table")
+        self.assertTrue(tables(preset.group(1), "roles"), "preset example: no roles table")
 
     def agent_templates(self):
         out = []
@@ -645,12 +646,12 @@ class SkillTest(Sandbox):
             conditions += 1
         self.assertGreater(conditions, 0, "preset example: no when line")
         head, rows = None, []
-        for head, row in tables(preset, "rollen"):
+        for head, row in tables(preset, "roles"):
             rows.append(row)
-        self.assertEqual(head, ["rollen", "skills", "when"])
+        self.assertEqual(head, ["roles", "skills", "when"])
         self.assertTrue(any(r[1].startswith("+") for r in rows), "no + row in the example")
         for words in ("cannot check; I left that line out.", "the replacing rows together "
-                      "replace, then the `+` rows add", "`quellen`, `bundles` and `provider`",
+                      "replace, then the `+` rows add", "`sources`, `bundles` and `provider`",
                       "never met in this version", "`<family>-coordination`"):
             self.assertIn(words, flat)
         provider = [row[3] for _, row in tables(text, "Key") if spans(row[0]) == ["provider"]]
@@ -664,11 +665,11 @@ class SkillTest(Sandbox):
             "## After the yes: build order")[2].split())
         item4 = re.search(r" 4\. (.*?) 5\. Agents", build)
         self.assertIsNotNone(item4, "build order: no item 4 before the agents")
-        for words in ("`skilletor install bundle:<bundle>@<source> --project`", "`rollen`",
+        for words in ("`skilletor install bundle:<bundle>@<source> --project`", "`roles`",
                       "`skilletor install <skill>@<source> --project`", "stop before any agent file"):
             self.assertIn(words, item4.group(1))
         for words in ("`skilletor install <skill>@<source> --project`", "without `@<source>`",
-                      "preset's `quellen` line in its order, then `getty`", "`unknown item`",
+                      "preset's `sources` line in its order, then `getty`", "`unknown item`",
                       "write no agent file", "`claude plugin list` shows its plugin enabled"):
             self.assertIn(words, sheet)
 
@@ -702,7 +703,9 @@ class SkillTest(Sandbox):
     def test_presets_are_the_listed_skills_loaded_with_the_skill_tool(self):
         sheet = " ".join(FENCE.sub("", read(REFS / "team-answer-sheet.md")).split())
         presets = sheet.partition("## Presets")[2].partition("## The rules header")[0]
-        for words in ('"Preset for agent-construction-kit: …"', "look through the skills this "
+        for words in ('"Preset for agent-construction-kit: …"', "says, in any words,",
+                      '"Acme\'s preset: load it before the skill of the plugin '
+                      'agent-construction-kit"', "look through the skills this "
                       "session lists: load each preset there with the Skill tool",
                       "is an older copy", "I go on without it.",
                       "Nothing is searched for or installed on the kit's own initiative."):
@@ -721,9 +724,12 @@ class SkillTest(Sandbox):
         self.assertTrue(rows, "no prefix key")
         cell = " ".join(rows[0][2:])
         for words in ("`package.json`", "`Cargo.toml`", "`pyproject.toml`", "`dist.ini`",
-                      "cut to its first word when long", "else the `prefix` line",
-                      "`<project>` in the templates is the same name"):
+                      "`.claude-plugin/plugin.json`", "offered in the plan, never forced",
+                      "`agent-construction-kit` → `ack`", "else the `prefix` line",
+                      "`<project>` in the templates is the project's own name"):
             self.assertIn(words, cell)
+        agents = " ".join(read(REFS / "team-agents.md").split())
+        self.assertIn("`<project>`: the project's own name, not the prefix", agents)
 
     def test_a_folder_without_code_has_no_test_writer(self):
         built = {spans(row[0])[0]: row[head.index("Built when")]
@@ -804,6 +810,60 @@ class SkillTest(Sandbox):
             self.assertIn(words, analysis)
         rules = " ".join(read(REFS / "team-rules.md").split())
         self.assertIn('"git cannot read the repository: <reason>"', rules)
+
+    def test_the_answer_keys_are_english(self):
+        sheet = " ".join(read(REFS / "team-answer-sheet.md").split())
+        older = re.search(r"[^.]*written with the four older names[^.]*\.", sheet)
+        self.assertIsNotNone(older, "Presets: no sentence on the older key names")
+        for old, new in zip(OLD_KEYS, ("shape", "outside_input", "sources", "roles")):
+            self.assertIn("`%s`" % old, older.group(0))
+            self.assertIn("`%s`" % new, older.group(0))
+        for doc in docs() + [README]:
+            text = " ".join(read(doc).split())
+            if doc.name == "team-answer-sheet.md":
+                text = text.replace(older.group(0), "")
+            for old in OLD_KEYS:
+                self.assertNotIn(old, text, "%s: %s" % (doc.name, old))
+        self.assertNotIn("German", sheet)
+        self.assertIn("<!-- ack: shape=project manager=none board=file committer=release-manager "
+                      "outside_input=on headless=off -->", read(REFS / "team-rules.md"))
+
+    def test_text_findings_of_the_final_review(self):
+        flat = lambda n: " ".join(read(REFS / n).split())
+        second = flat("team-second-copy.md")
+        self.assertIn("`glab repo create --private`", second)
+        board, analysis = flat("team-board.md"), flat("team-analysis.md")
+        karr = [r for _, r in tables(read(REFS / "team-board.md"), "System") if "Linux" in r[0]]
+        self.assertTrue(karr, "team-board.md: no Linux row")
+        for words in ("`ack-wrappers dir`", "never `sudo`", "`ack-wrappers path-fix`"):
+            self.assertIn(words, karr[0][1])
+        q6 = re.search(r" 6\. \*\*The board\*\*(.*?)## The plan", analysis).group(1)
+        self.assertIn("I would download and install it for you", q6)
+        self.assertIn("karr, downloaded into", analysis.partition("## The plan")[2])
+        self.assertNotIn("run the tests once now", analysis)
+        self.assertIn("runs once after the plan's yes", analysis)
+        item4 = re.search(r" 4\. (.*?) 5\. Agents", analysis.partition("## After the yes")[2]).group(1)
+        self.assertIn("`skilletor source list`", item4)
+        item9 = re.search(r" 9\. (.*?) 10\. ", analysis.partition("## After the yes")[2]).group(1)
+        self.assertIn("no changelog entry", item9)
+        self.assertIn("probably unrelated", analysis)
+        existing = re.search(r"## An existing team (.*?) ## ", analysis).group(1)
+        self.assertIn("question 1 comes first", existing)
+        skill = " ".join(read(SKILL).split())
+        self.assertIn("without a repository of its own, question 1 first", skill)
+        rules = read(REFS / "team-rules.md")
+        template = [b for b in FENCE.findall(rules) if "<!-- ack:" in b][0]
+        outside = template.partition("## Outside input")[2].partition("## ")[0]
+        self.assertIn("`publish-gate`", outside)
+        self.assertNotIn("Public trackers", outside)
+        flat_rules = " ".join(rules.split())
+        for words in ('"Every report names the platforms that ran."',
+                      "leaves one line in `CLAUDE.md` pointing to the rules file"):
+            self.assertIn(words, flat_rules)
+        workers = flat("team-agents.md").partition("## Workers by path")[2]
+        for words in ("Your paths are `<paths>`", "one line per worker", "stay with the main agent",
+                      "the changelog with the committer"):
+            self.assertIn(words, workers)
 
     def readme_provider_names(self):
         text = read(README)
