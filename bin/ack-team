@@ -214,8 +214,9 @@ _safe_name() {
 
 # _unescape STRING -> REPLY: the few JSON escapes a path holds
 _unescape() {
-  REPLY="${1//\\\\/\\}"
-  REPLY="${REPLY//\\\//\/}"
+  local bs='\' sl='/'
+  REPLY="${1//"$bs$bs"/"$bs"}"
+  REPLY="${REPLY//"$bs$sl"/"$sl"}"
 }
 
 # _enabled_map -> ENABLED: lines "KEY<TAB>true|false", user then project then
@@ -292,7 +293,7 @@ _installed_entries() {
 # symlinks resolved): "C:\x" and "C:/x" become the MSYS form "/c/x", duplicate and
 # trailing slashes go
 _norm_path() {
-  local p="$1"
+  local p="$1" sl='/'
   case "$p" in
     [A-Za-z]:[\\/]*|[A-Za-z]:)
       p="${p//\\//}"
@@ -300,7 +301,7 @@ _norm_path() {
       p="/$REPLY${p:2}" ;;
   esac
   while :; do
-    case "$p" in *//*) p="${p//\/\//\/}" ;; *) break ;; esac
+    case "$p" in *//*) p="${p//"$sl$sl"/"$sl"}" ;; *) break ;; esac
   done
   while :; do
     case "$p" in */) p="${p%/}" ;; *) break ;; esac
@@ -748,8 +749,9 @@ check_git() {
 
 # _json_escape STRING -> REPLY
 _json_escape() {
-  REPLY="${1//\\/\\\\}"
-  REPLY="${REPLY//\"/\\\"}"
+  local bs='\' qt='"'
+  REPLY="${1//"$bs"/"$bs$bs"}"
+  REPLY="${REPLY//"$qt"/"$bs$qt"}"
 }
 
 # _find_hook -> REPLY: ACK_BRIEFING_HOOK, else the hook of the installed briefing plugin
@@ -829,6 +831,22 @@ _hook_clean() {
 }
 _hook_signal() { _hook_clean; exit "$1"; }
 
+# _interpreter_ok FILE: a "#!/absolute/path" line names an executable that exists
+# (shells word the failure differently, so it is looked at before the run)
+_interpreter_ok() {
+  local first interp
+  IFS= read -r first < "$1" 2>/dev/null
+  first="${first//$'\r'/}"
+  case "$first" in
+    '#!'*)
+      interp="${first#\#!}"
+      interp="${interp#"${interp%%[! ]*}"}"
+      interp="${interp%% *}"
+      case "$interp" in /*) [ -x "$interp" ] || return 1 ;; esac ;;
+  esac
+  return 0
+}
+
 # _hook_run HOOK INPUT: feeds INPUT to the hook on stdin, waiting at most ACK_HOOK_WAIT
 # whole seconds (default 10; 0 or a non-number means the default, and the wait counts
 # the sleeps, so a slow machine waits longer, never less). Sets HR_STATE (ok | timeout |
@@ -839,7 +857,9 @@ _hook_run() {
   case "$secs" in ''|*[!0-9]*) secs=10 ;; esac
   [ "$((10#$secs))" -gt 0 ] || secs=10
   secs=$((10#$secs))
-  if [ ! -x "$hook" ] || ! HOOK_TMP="$(mktemp -d)"; then HOOK_TMP=""; HR_STATE=noexec; return 0; fi
+  if [ ! -x "$hook" ] || ! _interpreter_ok "$hook" || ! HOOK_TMP="$(mktemp -d)"; then
+    HOOK_TMP=""; HR_STATE=noexec; return 0
+  fi
   trap '_hook_signal 143' TERM
   trap '_hook_signal 130' INT
   trap '_hook_signal 129' HUP
