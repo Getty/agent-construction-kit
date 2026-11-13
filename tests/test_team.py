@@ -851,13 +851,32 @@ class TeamTest(Sandbox):
         self.one(r, "hook", "warn")
 
     def test_hook_found_in_the_plugin_cache(self):
+        # installed_plugins.json may spell installPath another way (a Windows path, an old
+        # home): the same version in this home's cache is the installed plugin's hook
+        import json
+        d = self.team()
+        target = self.home / ".claude" / "plugins" / "cache" / "getty" / "briefing" / "0.5.3" / "hooks"
+        target.mkdir(parents=True)
+        shutil.copy(HOOK_OK, str(target / "briefing-preload"))
+        (target / "briefing-preload").chmod(0o755)
+        index = self.home / ".claude" / "plugins" / "installed_plugins.json"
+        index.write_text(json.dumps({"version": 2, "plugins": {"briefing@getty": [
+            {"scope": "user", "version": "0.5.3",
+             "installPath": "C:\\Users\\old\\.claude\\plugins\\cache\\getty\\briefing\\0.5.3"}]}}))
+        self.enable("briefing@getty")
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": ""})
+        self.one(r, "hook", "ok", "harbor-worker")
+
+    def test_a_cached_hook_without_an_installed_briefing_is_not_run(self):
         d = self.team()
         target = self.home / ".claude" / "plugins" / "cache" / "getty" / "briefing" / "0.5.3" / "hooks"
         target.mkdir(parents=True)
         shutil.copy(HOOK_OK, str(target / "briefing-preload"))
         (target / "briefing-preload").chmod(0o755)
         r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": ""})
-        self.one(r, "hook", "ok", "harbor-worker")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        row = self.one(r, "hook", "warn", "harbor-worker")
+        self.assertIn("not found", row[3])
 
     def test_hook_for_an_agent_without_files_is_not_run(self):
         d = self.team()
@@ -893,7 +912,7 @@ class TeamTest(Sandbox):
         self.assertLess(time.time() - t0, 15)
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertEqual(self.of(r, "hook"),
-                         [["hook", "warn", "harbor-reviewer", "the hook did not answer"]])
+                         [["hook", "warn", "harbor-worker", "the hook did not answer"]])
 
     def test_hook_that_exits_non_zero_warns_with_one_line_of_stderr(self):
         d = self.team()
@@ -901,7 +920,7 @@ class TeamTest(Sandbox):
         self.assertEqual(r.returncode, 0, r.stdout)
         hooks = self.of(r, "hook")
         self.assertEqual(len(hooks), 1, r.stdout)
-        self.assertEqual(hooks[0][1:], ["warn", "harbor-reviewer", "briefing: python3 not found"])
+        self.assertEqual(hooks[0][1:], ["warn", "harbor-worker", "briefing: python3 not found"])
 
     @unittest.skipIf(os.name == "nt", "no execute bit on Windows")
     def test_hook_that_is_not_executable_warns(self):
@@ -1145,7 +1164,7 @@ class TeamTest(Sandbox):
         d = self.team()
         r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(FAKE / "briefing-hook-badshebang")})
         self.assertEqual(self.of(r, "hook"),
-                         [["hook", "warn", "harbor-reviewer", "the hook could not be run"]])
+                         [["hook", "warn", "harbor-worker", "the hook could not be run"]])
 
     def test_short_answer_with_the_marker_is_not_ok(self):
         d = self.team()
@@ -1168,7 +1187,7 @@ class TeamTest(Sandbox):
         self.assertEqual(r.returncode, 1, r.stdout)       # the installed (denying) one ran
         self.assertEqual(self.of(r, "hook")[0][1], "missing")
 
-    def test_newest_cached_hook_when_no_briefing_is_installed(self):
+    def test_no_cached_hook_runs_when_no_briefing_is_installed(self):
         d = self.team()
         for ver, src, off in (("0.4.0", HOOK_DENY, 0), ("0.9.0", HOOK_OK, 100)):
             dd = self.home / ".claude" / "plugins" / "cache" / "getty" / "briefing" / ver / "hooks"
@@ -1178,6 +1197,7 @@ class TeamTest(Sandbox):
             os.utime(str(dd / "briefing-preload"), (time_now() + off, time_now() + off))
         r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": ""})
         self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("not found", self.one(r, "hook", "warn")[3])
 
     def test_string_values_in_enabled_plugins_do_not_count(self):
         d = self.team()
@@ -1261,20 +1281,20 @@ class TeamTest(Sandbox):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]])
 
-    def test_only_a_disabled_briefing_plugin_falls_back_to_the_cache(self):
+    def test_only_a_disabled_briefing_plugin_is_no_hook(self):
         d = self.team()
         self.install_plugin("briefing", "x", market="disabledmk", enabled=False)
         hd = self.home / ".claude" / "plugins" / "cache" / "disabledmk" / "briefing" / "1.0.0" / "hooks"
         hd.mkdir(parents=True)
         shutil.copy(HOOK_DENY, str(hd / "briefing-preload"))
         (hd / "briefing-preload").chmod(0o755)
-        os.utime(str(hd / "briefing-preload"), (1, 1))
         other = self.home / ".claude" / "plugins" / "cache" / "x" / "briefing" / "2.0.0" / "hooks"
         other.mkdir(parents=True)
-        shutil.copy(HOOK_OK, str(other / "briefing-preload"))
+        shutil.copy(HOOK_DENY, str(other / "briefing-preload"))
         (other / "briefing-preload").chmod(0o755)
         r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": ""})
         self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("not found", self.one(r, "hook", "warn")[3])
 
     def test_manifest_path_with_a_glob_character_is_not_expanded(self):
         d = self.team()
@@ -1425,6 +1445,14 @@ class TeamTest(Sandbox):
             f.write(text)
         p.chmod(0o755)
         return p
+
+    def test_check_ignores_cdpath(self):
+        d = self.team(name="proj")
+        other = self.root / "elsewhere" / "proj"
+        other.mkdir(parents=True)
+        r = self.at("check", "proj", cwd=self.work, env={"CDPATH": str(other.parent)})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.one(r, "hook", "ok", "harbor-worker")
 
     def test_git_that_refuses_to_read_the_repository_names_its_reason(self):
         d = self.team()

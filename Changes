@@ -38,9 +38,10 @@ Revision history for agent-construction-kit
       git's reason, and init then writes nothing.
     - Add ack-team check, which verifies a team: agent files, the skills they
       name, rules, settings, board, CLAUDE.md, git (with git's reason when it
-      refuses the repository), and one run of the briefing hook per agent. On
-      Git for Windows the hook's briefing-preload.exe runs, or the script
-      under the Python 3 that ack-doctor finds.
+      refuses the repository), and one run of the briefing hook per agent:
+      the hook of the installed, enabled briefing plugin, never another copy
+      in the cache. On Git for Windows the hook's briefing-preload.exe runs,
+      or the script under the Python 3 that ack-doctor finds.
     - A board without installing anything: BOARD.md, a table per column. karr
       stays the recommendation where it is already installed.
     - A preset (a skill with an answer sheet) can fix answers and add skills

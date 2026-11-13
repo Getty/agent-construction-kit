@@ -37,7 +37,10 @@
 #              first agent) must also be briefed: ok, missing when the hook hands it an
 #              abort text, warn when it adds nothing. A hook that is not found, cannot be
 #              run, fails or does not answer within ACK_HOOK_WAIT seconds (default 10) is
-#              one warn. ACK_BRIEFING_HOOK names the hook script instead of the cache's.
+#              one warn, on the first worker (else the first agent). The hook is the one of
+#              an installed and enabled briefing plugin: in its installPath, else in the
+#              same version's folder of ~/.claude/plugins/cache/<marketplace>/briefing/;
+#              no other cached copy. ACK_BRIEFING_HOOK names a hook script instead.
 #              On Git for Windows and Cygwin the briefing-preload.exe beside the script
 #              runs; without one, a Python script runs under the Python 3 ack-doctor
 #              finds (python3, python or py -3), not through its shebang line.
@@ -789,34 +792,43 @@ _json_escape() {
   REPLY="$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 }
 
-# _find_hook -> REPLY: ACK_BRIEFING_HOOK, else the hook of the installed briefing plugin
-# (installed_plugins.json, an entry for this project), else the newest briefing-preload
-# in the cache
+# _find_hook -> REPLY: ACK_BRIEFING_HOOK, else the hook of an installed and enabled
+# briefing plugin (installed_plugins.json, an entry for this project): in its
+# installPath, else in that version's folder of this home's cache (installPath may be
+# spelled another way, a Windows path or an old home). Never another cached copy: a
+# briefing that is not installed, or disabled, does not run. Empty when there is none.
 _find_hook() {
-  local idx="$HOME/.claude/plugins/installed_plugins.json" key root proj
+  local idx="$HOME/.claude/plugins/installed_plugins.json" key root proj market ver
   REPLY=""
   if [ -n "${ACK_BRIEFING_HOOK:-}" ]; then
     REPLY="$ACK_BRIEFING_HOOK"
     return 0
   fi
-  if [ -f "$idx" ] && _json_ok "$idx"; then
-    _enabled_map
-    while IFS="$TAB" read -r key root proj; do
-      case "$key" in briefing@*) ;; *) continue ;; esac
-      _enabled "$key" || continue
-      if [ -n "$proj" ]; then
-        _unescape "$proj"; _under "$REPLY" || continue
-      fi
-      _unescape "$root"
-      if [ -f "$REPLY/hooks/briefing-preload" ]; then
-        REPLY="$REPLY/hooks/briefing-preload"
-        return 0
-      fi
-    done <<EOT
+  [ -f "$idx" ] && _json_ok "$idx" || return 0
+  _enabled_map
+  while IFS="$TAB" read -r key root proj; do
+    case "$key" in briefing@*) ;; *) continue ;; esac
+    _enabled "$key" || continue
+    if [ -n "$proj" ]; then
+      _unescape "$proj"; _under "$REPLY" || continue
+    fi
+    _unescape "$root"; root="$REPLY"
+    if [ -f "$root/hooks/briefing-preload" ]; then
+      REPLY="$root/hooks/briefing-preload"
+      return 0
+    fi
+    while :; do case "$root" in */|*\\) root="${root%?}" ;; *) break ;; esac; done
+    ver="${root##*[\\/]}" market="${key#briefing@}"
+    _safe_name "$ver" && _safe_name "$market" || continue
+    case "$ver$market" in *..*) continue ;; esac
+    if [ -f "$HOME/.claude/plugins/cache/$market/briefing/$ver/hooks/briefing-preload" ]; then
+      REPLY="$HOME/.claude/plugins/cache/$market/briefing/$ver/hooks/briefing-preload"
+      return 0
+    fi
+  done <<EOT
 $(_installed_entries "$idx")
 EOT
-  fi
-  REPLY="$(ls -td -- "$HOME"/.claude/plugins/cache/*/briefing/*/hooks/briefing-preload 2>/dev/null | head -n 1)"
+  REPLY=""
   return 0
 }
 
@@ -1006,7 +1018,7 @@ check_hook() {
     agent="${AG_NAMES[$i]}"
     input="{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"ack-check\",\"cwd\":\"$esc\",\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"$agent\",\"description\":\"check\",\"prompt\":\"$MARKER\"}}"
     _hook_run "$hook" "$input"
-    ! _hook_trouble "$agent" || return 0
+    ! _hook_trouble "${AG_NAMES[$w]}" || return 0
     out="$HR_OUT"
     norm="${out//[[:space:]]/}"
     case "$norm" in
@@ -1050,11 +1062,11 @@ check_hook() {
 cmd_check() {
   [ $# -le 1 ] || usage_err "check takes at most one directory."
   case "${1:-}" in -*) usage_err "unknown option '$1'." ;; esac
-  DIR="$(cd "${1:-.}" 2>/dev/null && pwd)" && [ -n "$DIR" ] ||
+  DIR="$(CDPATH= cd -- "${1:-.}" 2>/dev/null && pwd)" && [ -n "$DIR" ] ||
     fail 2 "'${1:-.}' is not a directory." "pass the repository that holds the team."
   DIR="${DIR%/}"
   # the cwd the hook is handed: under Git for Windows the C:/... form (pwd -W), else DIR
-  DIRW="$(cd "$DIR" && pwd -W 2>/dev/null)" || DIRW=""
+  DIRW="$(CDPATH= cd -- "$DIR" && pwd -W 2>/dev/null)" || DIRW=""
   [ -n "$DIRW" ] || DIRW="$DIR"
   GITTOP=""
   if command -v git >/dev/null 2>&1; then

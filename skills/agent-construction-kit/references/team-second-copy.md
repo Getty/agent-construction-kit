@@ -35,8 +35,8 @@ again."
 After a yes, `ack-repo disk-remote <drive folder>` creates `<project>.git` there and prints
 `remote<TAB>created<TAB><name><TAB><path>`, then `push<TAB>ok<TAB>all branches` or
 `push<TAB>skipped<TAB>no commit yet` (normal). Exit 2 (folder missing, not writable,
-inside the project) or 3 (the name exists, nothing changed): relay it, ask for another
-folder. Exit 1 after `remote<TAB>created`: only the push failed; the next push repeats it.
+inside the project, a name a remote cannot have) or 3 (the name exists, nothing changed):
+relay it, ask for another folder or name. Exit 1 after `remote<TAB>created`: only the push failed; the next push repeats it.
 Without it: nothing set up; relay it.
 
 The yes covers the updates after every commit: the project rules write that down ("A copy

@@ -36,8 +36,9 @@ Run `ack-repo inspect` in the project folder; it only reads, offline. One fact p
   `github`, `codeberg`, `gitlab`, `forge` (a self-hosted server), `disk` or `other`.
 - `signal<TAB><kind><TAB><file>`: how it is built (`perl`, `node`, `python`, `go`, `rust`,
   `make`, `ci`); that file has the build, test and release commands. None: question 5.
-- `tests<TAB><dir><TAB><n><TAB>nested`: tests in subfolders; check that the test command
-  reaches them (many runners skip subfolders). `flat`: one folder. No `tests` line: none.
+- `tests<TAB><dir><TAB><n><TAB>nested`: tests in subfolders (helper folders like `fixtures/`
+  not counted); check that the test command reaches them (many runners skip subfolders).
+  `flat`: one folder. No `tests` line: none.
 - `team<TAB>agents<TAB><n>`, `team<TAB>rules<TAB><n>`, `team<TAB>skills<TAB><n>`: team parts
   that exist. `team<TAB>board<TAB>karr`, `file` or `none`: the board that exists; keep it.
   `team<TAB>skilletor<TAB>yes`: a skilletor config exists. Read `.claude/skilletor.json`

@@ -3,7 +3,8 @@
 #   ack-repo inspect [DIR]
 #   ack-repo init [--own] [DIR]
 #   ack-repo disk-remote <TARGET-DIR> [--name NAME] [--dir DIR]
-# DIR defaults to the current directory. Output is tab separated, one fact per line:
+# DIR defaults to the current directory (one that starts with - only when it exists, else
+# it is an unknown option). Output is tab separated, one fact per line:
 #   git<TAB>ok|missing<TAB>TOPLEVEL-or-DIR       missing = not a repository
 #   git<TAB>inside|home<TAB>TOPLEVEL             DIR lies below the top folder of a repository,
 #                                                or that top folder is the home folder; then
@@ -17,7 +18,10 @@
 #   remote<TAB>NAME<TAB>KIND<TAB>URL             one per remote, URL without credentials;
 #                                                KIND = github|codeberg|gitlab|forge|disk|other
 #   signal<TAB>KIND<TAB>FILE                     KIND = perl|node|python|go|rust|make|ci
-#   tests<TAB>DIR<TAB>N<TAB>nested|flat          N files; nested = tests in subdirectories
+#   tests<TAB>DIR<TAB>N<TAB>nested|flat          N files; nested = tests in subdirectories;
+#                                                caches and helper folders (fake, fakes,
+#                                                fixture, fixtures, testdata, data,
+#                                                __snapshots__, __mocks__) do not count
 #   team<TAB>agents|rules|skills<TAB>N   team<TAB>skilletor<TAB>yes|no
 #   team<TAB>board<TAB>karr|file|none            karr = refs/karr/* exist, file = BOARD.md at the top
 #   account<TAB>SERVICE<TAB>SOURCE<TAB>NAME      per hosting service found on this machine (not per
@@ -90,13 +94,14 @@ usage_err() {
 
 command -v git >/dev/null 2>&1 || fail 2 "git is not installed." "install git and run ack-repo again."
 
-# _absdir DIR -> REPLY (logical absolute path), fails when DIR is no directory
-_absdir() { REPLY="$(cd "$1" 2>/dev/null && pwd)" && [ -n "$REPLY" ]; }
-_physdir() { REPLY="$(cd "$1" 2>/dev/null && pwd -P)" && [ -n "$REPLY" ]; }
+# _absdir DIR -> REPLY (logical absolute path), fails when DIR is no directory. CDPATH
+# is cleared: cd would take a folder of that name from it and print its path.
+_absdir() { REPLY="$(CDPATH= cd -- "$1" 2>/dev/null && pwd)" && [ -n "$REPLY" ]; }
+_physdir() { REPLY="$(CDPATH= cd -- "$1" 2>/dev/null && pwd -P)" && [ -n "$REPLY" ]; }
 
 # _toplevel DIR -> REPLY: the repository's top directory; fails outside a repository
 _toplevel() {
-  REPLY="$(cd "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$REPLY" ]
+  REPLY="$(CDPATH= cd -- "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$REPLY" ]
 }
 
 # _same_dir A B: both name the same directory (physical paths; case-blind on macOS and
@@ -122,7 +127,7 @@ _where() {
   if _same_dir "$top" "$HOME"; then
     WHERE=home
   else
-    pre="$(cd "$1" 2>/dev/null && git rev-parse --show-prefix 2>/dev/null)"
+    pre="$(CDPATH= cd -- "$1" 2>/dev/null && git rev-parse --show-prefix 2>/dev/null)"
     [ -z "$pre" ] || WHERE=inside
   fi
   REPLY="$top"
@@ -177,6 +182,7 @@ _kind() {
 cmd_inspect() {
   local dir="${1:-.}" top base name f d n f2 rel nested kind url
   [ $# -le 1 ] || usage_err "inspect takes at most one directory."
+  case "$dir" in -*) [ -d "$dir" ] || usage_err "unknown option '$dir'." ;; esac
   [ -d "$dir" ] || fail 2 "'$dir' is not a directory." "pass an existing directory."
   _absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
   base="$REPLY" top=""
@@ -239,8 +245,11 @@ EOT
   # tests
   for d in t tests test spec __tests__; do
     [ -d "$base/$d" ] || continue
-    # cache and build files are no tests; one find, one awk: file count and "any file below a subdirectory"
+    # cache and build files and the folders of test helpers are no tests; one find, one
+    # awk: file count and "any file below a subdirectory"
     out="$(find "$base/$d" \( -name __pycache__ -o -name node_modules -o -name .git \) -prune -o \
+      -type d \( -name fake -o -name fakes -o -name fixture -o -name fixtures -o -name testdata \
+      -o -name data -o -name __snapshots__ -o -name __mocks__ \) -prune -o \
       -type f ! -name '*.pyc' -print 2>/dev/null |
       awk -v p="$base/$d/" '{ n++; if (index(substr($0, length(p) + 1), "/")) f = 1 } END { print n + 0, f + 0 }')"
     n="${out%% *}"; nested=flat
@@ -415,7 +424,7 @@ cmd_init() {
       *) [ "$own" = 1 ] || { printf 'git%sinside%s%s\n' "$TAB" "$TAB" "$top"; return 0; } ;;
     esac
     # --own: a repository of its own inside the other one, unless that one tracks files here
-    if [ -n "$(cd "$dir" 2>/dev/null && git ls-files 2>/dev/null | head -n 1)" ]; then
+    if [ -n "$(CDPATH= cd -- "$dir" 2>/dev/null && git ls-files 2>/dev/null | head -n 1)" ]; then
       fail 3 "the repository at '$top' already tracks files in '$dir'." \
         "a repository of its own would split them off: ask the user where they belong; nothing was changed."
     fi
@@ -436,7 +445,7 @@ cmd_init() {
 # ---------------------------------------------------------------- disk-remote
 
 cmd_disk_remote() {
-  local target="" name="" dir="." explicit=0 top ptop ptarget bare repo branch
+  local target="" name="" dir="." explicit=0 top ptop ptarget bare repo branch ok
   while [ $# -gt 0 ]; do
     case "$1" in
       --name) [ $# -ge 2 ] || usage_err "--name needs a value."; name="$2"; explicit=1; shift 2 ;;
@@ -468,7 +477,13 @@ cmd_disk_remote() {
       name=backup
     fi
   fi
-  if git -C "$top" remote | grep -Fxq "$name"; then
+  case "$name" in
+    ''|-*) ok=1 ;;
+    *) git check-ref-format "refs/remotes/$name/x" >/dev/null 2>&1; ok=$? ;;
+  esac
+  [ "$ok" = 0 ] || fail 2 "'$name' cannot be the name of a remote." \
+    "pass a name of letters, digits and dashes with --name, such as --name usb."
+  if git -C "$top" remote | grep -Fxq -- "$name"; then
     fail 3 "the remote '$name' already exists." "pick another name with --name; nothing was changed."
   fi
   git init -q --bare "$bare" >/dev/null 2>&1 ||

@@ -886,6 +886,67 @@ class RepoTest(Sandbox):
         self.assertFalse(os.path.lexists(str(gone)))
         self.assertEqual(os.listdir(str(d)), [".git"])
 
+    # ---- final fix round: names, CDPATH, leading dashes, helper folders -----
+
+    def test_disk_remote_refuses_a_name_git_cannot_take(self):
+        d = self.repo()
+        t = self.disk()
+        for name in ("a b", "-x", "x.lock", "a..b", ".hid", ""):
+            r = self.ar("disk-remote", str(t), "--name", name, cwd=d)
+            self.assertEqual(r.returncode, 2, name)
+            self.assertEqual(r.stdout, "")
+            lines = r.stderr.splitlines()
+            self.assertEqual(len(lines), 2, r.stderr)
+            self.assertIn("cannot be the name of a remote", lines[0])
+            self.assertIn("--name", lines[1])
+        self.assertEqual(os.listdir(str(t)), [])
+        self.assertEqual(self.git(d, "remote"), "")
+        r = self.ar("disk-remote", str(t), "--name", "usb/stick", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def cdpath(self):
+        """A CDPATH entry that holds a folder of the same name as the one in work/."""
+        other = self.root / "elsewhere"
+        (other / "proj").mkdir(parents=True)
+        return {"CDPATH": str(other)}
+
+    def test_inspect_and_init_ignore_cdpath(self):
+        env = self.cdpath()
+        (self.work / "proj").mkdir()
+        r = self.ar("inspect", "proj", cwd=self.work, env=env)
+        g = self.fact(r, "git")
+        self.assertEqual(len(g), 1, r.stdout)
+        self.assertTrue(self.same(g[0][2], self.work / "proj"), g)
+        r = self.ar("init", "proj", cwd=self.work, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue((self.work / "proj" / ".git").is_dir())
+        self.assertFalse((self.root / "elsewhere" / "proj" / ".git").exists())
+
+    def test_a_leading_dash_is_an_option_unless_it_is_a_folder(self):
+        for sub in ("inspect", "init"):
+            r = self.ar(sub, "-x", cwd=self.work)
+            self.assertEqual(r.returncode, 2, sub)
+            self.assertEqual(r.stdout, "")
+            self.assertIn("unknown option '-x'", self.two_lines(r)[0])
+        (self.work / "-dash").mkdir()
+        r = self.ar("inspect", "-dash", cwd=self.work)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.fact(r, "git")[0][2].endswith("-dash"))
+        r = self.ar("init", "-dash", cwd=self.work)
+        self.assertEqual(self.fact(r, "git")[0][1], "created")
+
+    def test_inspect_tests_skip_helper_folders(self):
+        d = self.repo()
+        self.put(d, "tests/a.py")
+        for rel in ("fake/claude", "fakes/x", "fixture/x", "fixtures/x.json", "testdata/x",
+                    "data/y.csv", "__snapshots__/s.snap", "__mocks__/m.js"):
+            self.put(d, "tests/" + rel)
+        r = self.ar("inspect", str(d))
+        self.assertEqual(self.fact(r, "tests"), [["tests", "tests", "1", "flat"]])
+        self.put(d, "tests/unit/b.py")
+        r = self.ar("inspect", str(d))
+        self.assertEqual(self.fact(r, "tests"), [["tests", "tests", "2", "nested"]])
+
     # ---- usage -------------------------------------------------------------
 
     def test_help_prints_the_header(self):
