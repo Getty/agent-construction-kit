@@ -1068,9 +1068,13 @@ class RepoTest(Sandbox):
         rem = self.fact(r, "remote")
         self.assertEqual(rem, [["remote", "created", "origin", "W:%s/sub.git" % t]])
         r = self.ar("init", env=win, cwd=self.home)
-        self.assertIn("'W:%s' is your home folder" % self.home, self.two_lines(r)[0])
+        self.assertTrue(any("'W:%s' is your home folder" % h in self.two_lines(r)[0]
+                            for h in (str(self.home), os.path.realpath(str(self.home)))),
+                        self.two_lines(r)[0])
         r = self.ar("disk-remote", str(t), env=win, cwd=self.home)
-        self.assertIn("'W:%s' is your home folder" % self.home, self.two_lines(r)[0])
+        self.assertTrue(any("'W:%s' is your home folder" % h in self.two_lines(r)[0]
+                            for h in (str(self.home), os.path.realpath(str(self.home)))),
+                        self.two_lines(r)[0])
 
     @unittest.skipIf(NT, "a fake cygpath stands in for Git for Windows")
     def test_on_windows_a_failing_cygpath_leaves_the_folder_as_bash_names_it(self):
