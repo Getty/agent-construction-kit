@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stand-in for a briefing hook whose answer holds the marker but is shorter than the input.
+cat > /dev/null
+printf 'ACK-CHECK-MARKER'

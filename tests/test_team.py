@@ -19,6 +19,11 @@ ROLES = ("scout", "worker", "test-writer", "reviewer")
 READONLY = ("scout", "reviewer")
 
 
+def time_now():
+    import time
+    return time.time()
+
+
 def rmtree_force(path):
     """Remove a tree including a .git directory (read-only object files on Windows)."""
     def onerror(func, p, _info):
@@ -284,13 +289,26 @@ class TeamTest(Sandbox):
 
     # ---- agent
 
-    def test_no_frontmatter(self):
+    def test_no_frontmatter_is_not_an_agent(self):
         d = self.team()
-        self.put(d, ".claude/agents/harbor-worker.md", "You are the worker.\n")
+        self.put(d, ".claude/agents/README.md", "How the agents work.\n")
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(self.one(r, "agent", "warn", "README.md"),
+                         ["agent", "warn", "README.md",
+                          "no frontmatter (Claude Code does not load it)"])
+        good = self.at("check", cwd=self.team(name="plain"))
+        rest = [x for x in self.rows(r) if x[2] != "README.md"]
+        self.assertEqual(rest, self.rows(good))
+
+    def test_only_a_readme_means_no_agents(self):
+        d = self.team()
+        shutil.rmtree(str(d / ".claude" / "agents"))
+        self.put(d, ".claude/agents/README.md", "x\n")
         r = self.at("check", cwd=d)
         self.assertEqual(r.returncode, 1)
-        self.assertEqual(self.one(r, "agent", "missing", "harbor-worker.md"),
-                         ["agent", "missing", "harbor-worker.md", "no frontmatter"])
+        self.one(r, "agent", "missing", ".claude/agents")
+        self.assertEqual(self.of(r, "hook"), [])
 
     def test_name_differs_from_file(self):
         d = self.team()
@@ -483,7 +501,8 @@ class TeamTest(Sandbox):
     def test_project_scoped_install_of_this_project_counts(self):
         d = self.team()
         self.agent(d, "worker", skills=("harbor-core", "kit:deploy"))
-        self.install_plugin("kit", "deploy", scope="project", project=d)
+        self.install_plugin("kit", "deploy", scope="project",
+                            project=d if os.name == "nt" else os.path.realpath(str(d)))
         self.assertEqual(self.at("check", cwd=d).returncode, 0)
 
     def manifest_plugin(self, skills_json, files, plugin="pocket", market="getty"):
@@ -1064,6 +1083,168 @@ class TeamTest(Sandbox):
         self.one(r, "agent", "ok", "harbor-api.local.md")
         self.one(r, "agent", "missing", "harbor-bad.local.md")
         self.one(r, "readonly", "warn", ".local.harbor-checker.md")
+
+    # ---- fix round 2
+
+    def children(self, mode, env_extra=None):
+        import random
+        marker = "ack-marker-%d" % random.randrange(10**9)
+        env = {"ACK_BRIEFING_HOOK": str(FAKE / "briefing-hook-children"), "ACK_HOOK_WAIT": "1",
+               "ACK_FAKE_MODE": mode, "ACK_MARKER": marker,
+               "ACK_SLEEP": "31.%d" % random.randrange(10**6)}
+        env.update(env_extra or {})
+        return marker, env
+
+    def survivors(self, marker):
+        r = subprocess.run(["ps", "-e", "-o", "args="], stdout=subprocess.PIPE, text=True)
+        return [l for l in r.stdout.splitlines() if marker in l]
+
+    @unittest.skipIf(os.name == "nt", "process groups and ps differ under Git for Windows")
+    def test_hook_child_in_the_foreground_does_not_survive_the_timeout(self):
+        import time
+        d = self.team()
+        marker, env = self.children("fg")
+        r = self.at("check", cwd=d, env=env)
+        self.assertEqual(self.of(r, "hook")[0][3], "the hook did not answer")
+        self.assertEqual(r.stderr, "")
+        time.sleep(1)
+        self.assertEqual(self.survivors(marker), [])
+
+    @unittest.skipIf(os.name == "nt", "process groups and ps differ under Git for Windows")
+    def test_hook_child_in_the_background_does_not_survive_the_timeout(self):
+        import time
+        d = self.team()
+        marker, env = self.children("bg")
+        r = self.at("check", cwd=d, env=env)
+        self.assertEqual(self.of(r, "hook")[0][3], "the hook did not answer")
+        self.assertEqual(r.stderr, "")
+        time.sleep(1)
+        self.assertEqual(self.survivors(marker), [])
+
+    @unittest.skipIf(os.name == "nt", "signals differ under Git for Windows")
+    def test_signal_mid_hook_stops_the_child_and_removes_the_temp_dir(self):
+        d = self.team()
+        pidfile = self.root / "child.pid"
+        marker, env = self.children("bg", {"ACK_FAKE_PIDFILE": str(pidfile), "ACK_HOOK_WAIT": "20"})
+        full = dict(self.env)
+        full.update(env)
+        self.env = full
+        rc, alive, left = self.terminate_while_child_runs(["bash", AT, "check", str(d)], pidfile)
+        self.assertFalse(alive)
+        self.assertEqual(left, [])
+        self.assertEqual(self.survivors(marker), [])
+
+    def test_hook_wait_of_zero_or_text_means_the_default(self):
+        d = self.team()
+        for v in ("0", "soon", "-3", ""):
+            r = self.at("check", cwd=d, env={"ACK_HOOK_WAIT": v})
+            self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]], v)
+
+    @unittest.skipIf(os.name == "nt", "shebang lines are not run by the OS under Windows")
+    def test_hook_with_a_bad_shebang_could_not_be_run(self):
+        d = self.team()
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(FAKE / "briefing-hook-badshebang")})
+        self.assertEqual(self.of(r, "hook"),
+                         [["hook", "warn", "harbor-reviewer", "the hook could not be run"]])
+
+    def test_short_answer_with_the_marker_is_not_ok(self):
+        d = self.team()
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(FAKE / "briefing-hook-short")})
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.none(r, "hook", "ok")
+        self.one(r, "hook", "warn", "harbor-worker")
+
+    def test_hook_of_the_installed_briefing_version_is_preferred(self):
+        d = self.team()
+        self.install_plugin("briefing", "x", version="0.4.0")
+        newer = self.home / ".claude" / "plugins" / "cache" / "getty" / "briefing" / "0.9.0" / "hooks"
+        older = self.home / ".claude" / "plugins" / "cache" / "getty" / "briefing" / "0.4.0" / "hooks"
+        for dd, src in ((newer, HOOK_OK), (older, HOOK_DENY)):
+            dd.mkdir(parents=True)
+            shutil.copy(src, str(dd / "briefing-preload"))
+            (dd / "briefing-preload").chmod(0o755)
+        os.utime(str(newer / "briefing-preload"), (time_now() + 100, time_now() + 100))
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": ""})
+        self.assertEqual(r.returncode, 1, r.stdout)       # the installed (denying) one ran
+        self.assertEqual(self.of(r, "hook")[0][1], "missing")
+
+    def test_newest_cached_hook_when_no_briefing_is_installed(self):
+        d = self.team()
+        for ver, src, off in (("0.4.0", HOOK_DENY, 0), ("0.9.0", HOOK_OK, 100)):
+            dd = self.home / ".claude" / "plugins" / "cache" / "getty" / "briefing" / ver / "hooks"
+            dd.mkdir(parents=True)
+            shutil.copy(src, str(dd / "briefing-preload"))
+            (dd / "briefing-preload").chmod(0o755)
+            os.utime(str(dd / "briefing-preload"), (time_now() + off, time_now() + off))
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": ""})
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_string_values_in_enabled_plugins_do_not_count(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "kit:deploy"))
+        self.install_plugin("kit", "deploy", enabled=True)
+        self.put(d, ".claude/settings.local.json", '{"enabledPlugins": {"kit@getty": "false"}}')
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stdout)       # the string changes nothing
+        self.put(d, ".claude/settings.local.json", '{"enabledPlugins": {"kit@getty": "true"}}')
+        self.enable("kit@getty", False)
+        self.assertEqual(self.at("check", cwd=d).returncode, 1)
+
+    def test_truncated_manifest_resolves_nothing(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "pocket:tdd"))
+        self.manifest_plugin('["./skills/deep/tdd"]', ["skills/deep/tdd/SKILL.md"])
+        mf = (self.home / ".claude" / "plugins" / "cache" / "getty" / "pocket" / "1.0.0"
+              / ".claude-plugin" / "plugin.json")
+        mf.write_text(mf.read_text().rstrip().rstrip("}"))
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 1)
+        self.one(r, "skill", "missing", "pocket:tdd")
+
+    def test_manifest_path_is_normalized_before_the_inside_test(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "pocket:tdd", "pocket:out"))
+        self.manifest_plugin('["./x/../skills/deep/tdd", "./skills/../../out"]',
+                             ["skills/deep/tdd/SKILL.md"])
+        root = self.home / ".claude" / "plugins" / "cache" / "getty" / "pocket"
+        self.put(root, "out/SKILL.md", "x\n")
+        r = self.at("check", cwd=d)
+        self.one(r, "skill", "ok", "pocket:tdd")
+        self.one(r, "skill", "missing", "pocket:out")
+
+    def within(self, child, root):
+        script = '. "$1"; _path_within "$2" "$3" && echo yes || echo no'
+        r = self.run_cmd("bash", "-c", script, "x", AT, child, root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout.strip() == "yes"
+
+    def test_path_within_plain_strings(self):
+        self.assertTrue(self.within("/home/a/proj", "/home/a/proj"))
+        self.assertTrue(self.within("/home/a/proj/sub", "/home/a/proj/"))
+        self.assertTrue(self.within("/home/a//proj", "/home/a/proj"))
+        self.assertFalse(self.within("/home/a/proj2", "/home/a/proj"))
+        self.assertFalse(self.within("/home/a", "/home/a/proj"))
+        self.assertFalse(self.within("/home/a/Proj", "/home/a/proj"))
+
+    def test_path_within_windows_spellings(self):
+        self.assertTrue(self.within("/c/proj", "C:\\proj"))
+        self.assertTrue(self.within("/c/proj/sub", "C:/proj"))
+        self.assertTrue(self.within("/C/Proj", "c:\\proj"))
+        self.assertTrue(self.within("/c/proj", "C:\\proj\\"))
+        self.assertFalse(self.within("/d/proj", "C:\\proj"))
+        self.assertFalse(self.within("/c/proj2", "C:\\proj"))
+
+    def test_board_hash_without_space_is_no_heading(self):
+        d = self.team()
+        self.put(d, "BOARD.md", "# Todo\n# In progress\n#Review\n# Done\n")
+        r = self.at("check", cwd=d)
+        self.assertEqual(self.one(r, "board", "warn")[3], "no heading for: Review")
+
+    def test_board_heading_may_be_indented_up_to_three_spaces(self):
+        d = self.team()
+        self.put(d, "BOARD.md", "   # Todo\n  ## In progress\n ### Review\n    # Done\n")
+        r = self.at("check", cwd=d)
+        self.assertEqual(self.one(r, "board", "warn")[3], "no heading for: Done")
 
     # ---- usage
 

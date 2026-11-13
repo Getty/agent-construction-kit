@@ -1,0 +1,13 @@
+#!/bin/bash
+# Stand-in for a briefing hook that starts a child and does not exec it. The child's
+# command line carries ACK_MARKER, so a test can see whether it survived.
+#   ACK_FAKE_MODE=fg  waits for the child in the foreground
+#   ACK_FAKE_MODE=bg  starts it in the background and waits (pid in ACK_FAKE_PIDFILE)
+cat > /dev/null
+if [ "$ACK_FAKE_MODE" = bg ]; then
+  sh -c 'sleep "$1"; : "$0"' "$ACK_MARKER" "$ACK_SLEEP" &
+  [ -z "$ACK_FAKE_PIDFILE" ] || echo $! > "$ACK_FAKE_PIDFILE"
+  wait
+else
+  sh -c 'sleep "$1"; : "$0"' "$ACK_MARKER" "$ACK_SLEEP"
+fi

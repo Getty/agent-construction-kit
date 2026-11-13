@@ -70,6 +70,8 @@ fi
 
 TAB=$'\t'
 RC=0
+HOOK_PID="" HOOK_TMP=""
+trap _hook_clean EXIT
 MARKER="ACK-CHECK-MARKER"
 
 fail() {
@@ -222,7 +224,7 @@ _enabled_map() {
   local f text ep k v
   ENABLED=""
   for f in "$HOME/.claude/settings.json" "$DIR/.claude/settings.json" "$DIR/.claude/settings.local.json"; do
-    [ -f "$f" ] || continue
+    [ -f "$f" ] && _json_ok "$f" || continue
     text="$(cat "$f" 2>/dev/null)"
     json_member "$text" enabledPlugins; ep="$REPLY"
     _json_keys "$ep"
@@ -286,15 +288,90 @@ _installed_entries() {
   }' "$1" 2>/dev/null
 }
 
-# _under PROJECT: DIR lies in PROJECT, also when one of them goes through a symlink
-# (macOS temp directories do)
-_under() {
-  local p="$1" real
-  case "$DIR/" in "$p"/*) return 0 ;; esac
-  case "$DIRP/" in "$p"/*) return 0 ;; esac
-  real="$(cd "$p" 2>/dev/null && pwd -P)" || return 1
-  case "$DIRP/" in "$real"/*) return 0 ;; esac
+# _norm_path PATH -> REPLY: PATH as plain text for comparing, like the hook does (no
+# symlinks resolved): "C:\x" and "C:/x" become the MSYS form "/c/x", duplicate and
+# trailing slashes go
+_norm_path() {
+  local p="$1"
+  case "$p" in
+    [A-Za-z]:[\\/]*|[A-Za-z]:)
+      p="${p//\\//}"
+      _lower "${p:0:1}"
+      p="/$REPLY${p:2}" ;;
+  esac
+  while :; do
+    case "$p" in *//*) p="${p//\/\//\/}" ;; *) break ;; esac
+  done
+  while :; do
+    case "$p" in */) p="${p%/}" ;; *) break ;; esac
+  done
+  REPLY="$p"
+}
+
+# _path_within CHILD ROOT: CHILD is ROOT or lies below it. Plain string comparison; a
+# ROOT written as a Windows drive path (C:\proj) is matched without regard to case.
+_path_within() {
+  local c r win=0
+  case "$2" in [A-Za-z]:[\\/]*|[A-Za-z]:) win=1 ;; esac
+  _norm_path "$1"; c="$REPLY"
+  _norm_path "$2"; r="$REPLY"
+  if [ "$win" = 1 ]; then _lower "$c"; c="$REPLY"; _lower "$r"; r="$REPLY"; fi
+  case "$c/" in "$r"/*) return 0 ;; esac
   return 1
+}
+
+# _under PROJECT: DIR (the cwd the hook is handed) lies in PROJECT
+_under() { _path_within "$DIR" "$1"; }
+
+# _json_ok FILE: the file holds one complete JSON object (balanced, strings closed); the
+# hook reads anything else as {}
+_json_ok() {
+  awk 'BEGIN { RS = "\001" }
+  {
+    s = $0; n = length(s); depth = 0; started = 0; i = 1
+    while (i <= n) {
+      c = substr(s, i, 1)
+      if (c == "\"") {
+        j = i + 1; closed = 0
+        while (j <= n) {
+          d = substr(s, j, 1)
+          if (d == "\\") { j += 2; continue }
+          if (d == "\"") { closed = 1; break }
+          j++
+        }
+        if (!closed || depth == 0) exit 1
+        i = j + 1; continue
+      }
+      if (c == "{" || c == "[") {
+        if (depth == 0 && started) exit 1
+        if (!started) { if (c != "{") exit 1; started = 1 }
+        depth++
+      } else if (c == "}" || c == "]") {
+        depth--
+        if (depth < 0) exit 1
+      } else if (c != " " && c != "\t" && c != "\n" && c != "\r") {
+        if (depth == 0) exit 1
+      }
+      i++
+    }
+    exit (started && depth == 0) ? 0 : 1
+  }' "$1" 2>/dev/null
+}
+
+# _collapse_path PATH -> REPLY: "." and ".." segments resolved; fails when the path
+# leaves its start (a leading ".." after resolving) or is absolute
+_collapse_path() {
+  local seg out=() n=0 IFS=/
+  case "$1" in /*) return 1 ;; esac
+  for seg in $1; do
+    case "$seg" in
+      ''|.) ;;
+      ..) [ "$n" -gt 0 ] || return 1; n=$((n - 1)); unset 'out[n]' ;;
+      *) out[n]="$seg"; n=$((n + 1)) ;;
+    esac
+  done
+  REPLY="${out[*]}"
+  return 0
 }
 
 # _plugin_list -> PLUGINS: lines "NAME<TAB>ROOT" for every plugin installed (per
@@ -304,7 +381,7 @@ _plugin_list() {
   local idx="$HOME/.claude/plugins/installed_plugins.json" key root proj name mf
   [ -z "${PLUGINS_DONE:-}" ] || return 0
   PLUGINS_DONE=1; PLUGINS=""
-  [ -f "$idx" ] || return 0
+  [ -f "$idx" ] && _json_ok "$idx" || return 0
   _enabled_map
   while IFS="$TAB" read -r key root proj; do
     [ -n "$key" ] || continue
@@ -316,7 +393,7 @@ _plugin_list() {
     fi
     name="${key%%@*}"
     mf="$root/.claude-plugin/plugin.json"
-    if [ -f "$mf" ]; then
+    if [ -f "$mf" ] && _json_ok "$mf"; then
       json_member "$(cat "$mf" 2>/dev/null)" name
       case "$REPLY" in '"'*'"') name="${REPLY#\"}"; name="${name%\"}" ;; esac
     fi
@@ -332,15 +409,16 @@ EOT
 _plugin_has_skill() {
   local root="$1" skill="$2" mf="$1/.claude-plugin/plugin.json" raw p
   [ -f "$root/skills/$skill/SKILL.md" ] && return 0
-  [ -f "$mf" ] || return 1
+  [ -f "$mf" ] && _json_ok "$mf" || return 1
   json_member "$(cat "$mf" 2>/dev/null)" skills
   raw="$(printf '%s' "$REPLY" | tr -d '[]\r\n' | tr ',' '\n')"
   while IFS= read -r p; do
     _ack_trim "$p"; p="$REPLY"
     case "$p" in '"'*'"') p="${p#\"}"; p="${p%\"}" ;; *) continue ;; esac
     _unescape "$p"; p="$REPLY"
-    p="${p#./}"; p="${p%/}"
-    case "$p" in ''|/*|..|../*|*/..|*/../*) continue ;; esac
+    _collapse_path "$p" || continue
+    p="$REPLY"
+    [ -n "$p" ] || continue
     [ "${p##*/}" = "$skill" ] && [ -f "$root/$p/SKILL.md" ] && return 0
     [ -f "$root/$p/$skill/SKILL.md" ] && return 0
   done <<EOT
@@ -402,15 +480,15 @@ check_agents() {
     rel="${f#"$DIR/.claude/agents/"}"
     base="${rel##*/}"; base="${base%.md}"
     case "$base" in .local.?*) base="${base#.local.}" ;; esac
-    AG_NAMES[${#AG_NAMES[@]}]="$base"
-    AG_FILES[${#AG_FILES[@]}]="$rel"
     parse_agent "$f"
-    AG_DIS[${#AG_DIS[@]}]="$A_DIS"
-    AG_FM[${#AG_FM[@]}]="$A_FM"
     if [ "$A_FM" = 0 ]; then
-      emit agent missing "$rel" "no frontmatter"
+      emit agent warn "$rel" "no frontmatter (Claude Code does not load it)"
       continue
     fi
+    AG_NAMES[${#AG_NAMES[@]}]="$base"
+    AG_FILES[${#AG_FILES[@]}]="$rel"
+    AG_DIS[${#AG_DIS[@]}]="$A_DIS"
+    AG_FM[${#AG_FM[@]}]="$A_FM"
     local bad=0
     if [ "$A_HASNAME" = 0 ] || [ -z "$A_NAME" ]; then
       emit agent missing "$rel" "no name"; bad=1
@@ -588,7 +666,7 @@ EOT
 # ---------------------------------------------------------------- board, claude-md, git
 
 check_board() {
-  local line t todo=0 prog=0 rev=0 done_=0 fence=0 miss="" have_karr=""
+  local line t marks todo=0 prog=0 rev=0 done_=0 fence=0 miss="" have_karr=""
   if [ -n "$GITTOP" ]; then
     have_karr="$(git -C "$DIR" for-each-ref --count=1 refs/karr 2>/dev/null)"
   fi
@@ -607,8 +685,14 @@ check_board() {
       '```'*|'~~~'*) [ "$fence" = 1 ] && fence=0 || fence=1; continue ;;
     esac
     [ "$fence" = 0 ] || continue
-    case "$line" in '#'*) ;; *) continue ;; esac
-    t="${line#"${line%%[!#]*}"}"
+    # a heading: up to three spaces, 1-6 hashes, then a space (or the line ends)
+    t="$line"
+    case "$t" in "    "*|"$TAB"*) continue ;; esac
+    t="${t#"${t%%[! ]*}"}"
+    marks="${t%%[!#]*}"
+    case "${#marks}" in 1|2|3|4|5|6) ;; *) continue ;; esac
+    t="${t#"$marks"}"
+    case "$t" in ''|' '*|"$TAB"*) ;; *) continue ;; esac
     t="$(printf '%s' "$t" | tr -d '*`')"
     _ack_trim "$t"; t="$REPLY"
     t="${t%"${t##*[!#]}"}"
@@ -668,12 +752,30 @@ _json_escape() {
   REPLY="${REPLY//\"/\\\"}"
 }
 
-# _find_hook -> REPLY: ACK_BRIEFING_HOOK, else the newest briefing-preload in the cache
+# _find_hook -> REPLY: ACK_BRIEFING_HOOK, else the hook of the installed briefing plugin
+# (installed_plugins.json, an entry for this project), else the newest briefing-preload
+# in the cache
 _find_hook() {
+  local idx="$HOME/.claude/plugins/installed_plugins.json" key root proj
   REPLY=""
   if [ -n "${ACK_BRIEFING_HOOK:-}" ]; then
     REPLY="$ACK_BRIEFING_HOOK"
     return 0
+  fi
+  if [ -f "$idx" ] && _json_ok "$idx"; then
+    while IFS="$TAB" read -r key root proj; do
+      case "$key" in briefing@*) ;; *) continue ;; esac
+      if [ -n "$proj" ]; then
+        _unescape "$proj"; _under "$REPLY" || continue
+      fi
+      _unescape "$root"
+      if [ -f "$REPLY/hooks/briefing-preload" ]; then
+        REPLY="$REPLY/hooks/briefing-preload"
+        return 0
+      fi
+    done <<EOT
+$(_installed_entries "$idx")
+EOT
   fi
   REPLY="$(ls -td -- "$HOME"/.claude/plugins/cache/*/briefing/*/hooks/briefing-preload 2>/dev/null | head -n 1)"
   return 0
@@ -696,19 +798,74 @@ _deny_reason() {
   REPLY="$acc"
 }
 
+# _kill_tree PID: stop the hook and what it started. The hook runs as the leader of its
+# own process group (set -m), so the group goes first; where that is not so (Git for
+# Windows) its children (pkill -P, when there is one) and the pid itself are stopped.
+_kill_tree() {
+  local pid="$1" i=0
+  kill -TERM -- "-$pid" 2>/dev/null
+  command -v pkill >/dev/null 2>&1 && pkill -TERM -P "$pid" 2>/dev/null
+  kill -TERM "$pid" 2>/dev/null
+  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 20 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -KILL -- "-$pid" 2>/dev/null
+    command -v pkill >/dev/null 2>&1 && pkill -KILL -P "$pid" 2>/dev/null
+    kill -KILL "$pid" 2>/dev/null
+  fi
+  return 0
+}
+
+# _hook_clean: drop the hook run's temp directory and traps (also the cleanup of a signal)
+_hook_clean() {
+  if [ -n "$HOOK_PID" ]; then
+    _kill_tree "$HOOK_PID"
+    { wait "$HOOK_PID"; } 2>/dev/null
+    HOOK_PID=""
+  fi
+  if [ -n "$HOOK_TMP" ]; then rm -rf "$HOOK_TMP"; HOOK_TMP=""; fi
+}
+_hook_signal() { _hook_clean; exit "$1"; }
+
 # _hook_run HOOK INPUT: feeds INPUT to the hook on stdin, waiting at most ACK_HOOK_WAIT
-# seconds (default 10). Sets HR_STATE (ok | timeout | noexec | fail), HR_OUT (stdout) and
-# HR_ERR (the first line of stderr).
+# whole seconds (default 10; 0 or a non-number means the default, and the wait counts
+# the sleeps, so a slow machine waits longer, never less). Sets HR_STATE (ok | timeout |
+# noexec | fail), HR_OUT (stdout) and HR_ERR (the first line of stderr).
 _hook_run() {
-  local hook="$1" input="$2" secs="${ACK_HOOK_WAIT:-10}" d rc
+  local hook="$1" input="$2" secs="${ACK_HOOK_WAIT:-10}" ticks=0 rc
   HR_STATE=ok HR_OUT="" HR_ERR=""
   case "$secs" in ''|*[!0-9]*) secs=10 ;; esac
-  if [ ! -x "$hook" ] || ! d="$(mktemp -d)"; then HR_STATE=noexec; return 0; fi
-  printf '%s\n' "$input" > "$d/in"
-  ack_run_bounded "$secs" sh -c 'exec "$1" < "$2"' sh "$hook" "$d/in"
-  rc=$?
-  rm -rf "$d"
-  HR_OUT="$ACK_BOUNDED_OUT"; HR_ERR="$ACK_BOUNDED_ERR"
+  [ "$((10#$secs))" -gt 0 ] || secs=10
+  secs=$((10#$secs))
+  if [ ! -x "$hook" ] || ! HOOK_TMP="$(mktemp -d)"; then HOOK_TMP=""; HR_STATE=noexec; return 0; fi
+  trap '_hook_signal 143' TERM
+  trap '_hook_signal 130' INT
+  trap '_hook_signal 129' HUP
+  printf '%s\n' "$input" > "$HOOK_TMP/in"
+  set -m
+  sh -c 'exec "$1" < "$2" > "$3" 2> "$4"' sh "$hook" "$HOOK_TMP/in" "$HOOK_TMP/out" "$HOOK_TMP/err" &
+  HOOK_PID=$!
+  set +m
+  while kill -0 "$HOOK_PID" 2>/dev/null && [ "$ticks" -lt $((secs * 10)) ]; do
+    sleep 0.1
+    ticks=$((ticks + 1))
+  done
+  if kill -0 "$HOOK_PID" 2>/dev/null; then
+    _kill_tree "$HOOK_PID"
+    { wait "$HOOK_PID"; } 2>/dev/null
+    rc=124
+  else
+    { wait "$HOOK_PID"; } 2>/dev/null
+    rc=$?
+  fi
+  HOOK_PID=""
+  HR_OUT="$(cat "$HOOK_TMP/out" 2>/dev/null)"
+  IFS= read -r HR_ERR < "$HOOK_TMP/err" 2>/dev/null
+  HR_ERR="${HR_ERR//$'\r'/}"
+  rm -rf "$HOOK_TMP"; HOOK_TMP=""
+  trap - TERM INT HUP
   case "$rc" in
     0) ;;
     124) HR_STATE=timeout ;;
@@ -797,7 +954,6 @@ cmd_check() {
   DIR="$(cd "${1:-.}" 2>/dev/null && pwd)" && [ -n "$DIR" ] ||
     fail 2 "'${1:-.}' is not a directory." "pass the repository that holds the team."
   DIR="${DIR%/}"
-  DIRP="$(cd "$DIR" && pwd -P)"
   GITTOP=""
   if command -v git >/dev/null 2>&1; then
     GITTOP="$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null)"
@@ -824,4 +980,5 @@ main() {
     *) usage_err "unknown subcommand '$sub'." ;;
   esac
 }
-main "$@"
+# run unless sourced (the tests source the file to try single functions)
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then main "$@"; fi
