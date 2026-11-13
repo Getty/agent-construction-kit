@@ -318,7 +318,17 @@ _path_within() {
 }
 
 # _under PROJECT: DIRW (the cwd the hook is handed) lies in PROJECT
-_under() { _path_within "$DIRW" "$1"; }
+_under() {
+  local real
+  _path_within "$DIRW" "$1" && return 0
+  # Git for Windows: the same directory can be spelled C:\x\y, C:/x/y, /c/x/y or /tmp/y;
+  # let cygpath translate the project's spelling into the one DIR has
+  if command -v cygpath >/dev/null 2>&1; then
+    real="$(cd "$(cygpath -u "$1" 2>/dev/null)" 2>/dev/null && pwd)" || return 1
+    [ -n "$real" ] && _path_within "$DIR" "$real" && return 0
+  fi
+  return 1
+}
 
 # _json_ok FILE: the file holds one complete JSON object (balanced, strings closed); the
 # hook reads anything else as {}
