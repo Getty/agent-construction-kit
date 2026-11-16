@@ -8,6 +8,8 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FAKE_CLAUDE = ROOT / "tests" / "fake" / "claude"
+FAKE_BRIEFING = ROOT / "tests" / "fake" / "briefing"
+FAKE_SKILLETOR = ROOT / "tests" / "fake" / "skilletor"
 
 
 def sandbox_env(home, fakebin):
@@ -35,6 +37,11 @@ class Sandbox(unittest.TestCase):
         self.fakebin.mkdir()
         shutil.copy(str(FAKE_CLAUDE), str(self.fakebin / "claude"))
         (self.fakebin / "claude").chmod(0o755)
+        # The plugins' commands ack-doctor and ack-team look for; a test that wants one
+        # absent deletes it from fakebin.
+        for name, src in (("briefing", FAKE_BRIEFING), ("skilletor", FAKE_SKILLETOR)):
+            shutil.copy(str(src), str(self.fakebin / name))
+            (self.fakebin / name).chmod(0o755)
         self.env = sandbox_env(self.home, self.fakebin)
 
     def run_cmd(self, *argv, env=None, input=None, cwd=None):

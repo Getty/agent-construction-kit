@@ -5,52 +5,30 @@
 # DIR defaults to the current directory. One finding per line, four fields separated by
 # tabs (the last may be empty, its tab stays):
 #   WHAT<TAB>ok|missing|warn<TAB>FILE-OR-NAME<TAB>TEXT
-# WHAT is one of:
-#   agent      per *.md below .claude/agents (subdirectories included, symlinks to files
-#              too like the hook reads them, a dangling one warns; a leading ".local."
-#              is dropped from the file name, so .local.x.md must say "x"): frontmatter
-#              (a BOM is fine), name, description, briefing.skills (warn: no briefing;
-#              missing: a flow list that spans lines), allowed-tools (missing: Claude Code
-#              ignores it), a top-level skills key (warn: briefing reads only
-#              briefing.skills). No agent file at all: missing .claude/agents.
-#   skill      per distinct briefing.skills entry that resolves: ok; per agent that
-#              declares an entry that does not: missing (briefing would refuse the spawn).
-#              A name resolves in .claude/skills, ~/.claude/skills or, as "plugin:skill"
-#              or bare, in a plugin that is installed (installed_plugins.json, in the
-#              installed version's directory) and enabled (enabledPlugins, user, project,
-#              project-local settings), like the briefing hook decides.
+# The agent, skill, hook and settings findings come from the briefing plugin: check runs
+# `briefing doctor --tsv --cwd DIR` (at most ACK_BRIEFING_WAIT seconds, default 30) and
+# passes its lines on unchanged, every CR dropped, but only lines of the contract: four
+# tab-separated fields, WHAT one of agent, skill, hook, settings, status ok, missing or
+# warn. See briefing for what each one checks. When no briefing command answers (not on
+# PATH, no answer in time, exit 2 or more, or no settings line among the contract
+# lines), check prints one line, "briefing<TAB>missing<TAB>.<TAB>TEXT", and goes on with
+# its own; TEXT names the command's path when there is one.
+# The kit adds these lines, and no JSON is read for any of them:
 #   readonly   per agent ending in -scout, -reviewer, -checker or -coordinator: warn
 #              unless its disallowedTools name Edit and Write.
 #   rules      missing without a *.md file in .claude/rules/.
-#   json-parser ok with the first usable standard JSON parser (jq, Node or Python 3), named
-#              in the third field; missing when none is usable, before metadata or a hook is
-#              read.
-#   settings   .claude/settings.json is readable, every plugin set to true in
-#              enabledPlugins has its marketplace in extraKnownMarketplaces
-#              (claude-plugins-official excepted), briefing is enabled; missing otherwise.
 #   board      ok with karr refs (refs/karr/*) or a BOARD.md with the headings Todo,
 #              In progress, Review, Done (each the heading's whole text, outside code
 #              fences; warn when one is absent); else missing.
 #   claude-md  warn unless CLAUDE.md exists and names every agent (as a whole name).
 #   git        missing without a repository (when a .git is there but git refuses to
 #              read it, the text is the reason, git's or the kit's); warn without a remote.
-#   hook       runs the briefing plugin's hook once per agent as if it were spawned: a
-#              denial is missing (the reason is the text). The first worker (else the
-#              first agent) must also be briefed: ok, missing when the hook hands it an
-#              abort text, warn when it adds nothing. A hook that is not found, cannot be
-#              run, fails or does not answer within ACK_HOOK_WAIT seconds (default 10) is
-#              one warn, on the first worker (else the first agent). The hook is the one of
-#              an installed and enabled briefing plugin: in its installPath, else in the
-#              same version's folder of ~/.claude/plugins/cache/<marketplace>/briefing/;
-#              no other cached copy. ACK_BRIEFING_HOOK names a hook script instead.
-#              On Git for Windows and Cygwin the briefing-preload.exe beside the script
-#              runs; without one, a Python script runs under the Python 3 ack-doctor
-#              finds (python3, python or py -3), not through its shebang line.
 #   owner      with `owner`: ok for each requested relative file mapped by the selected
 #              directory's OWNERS file; missing for an invalid or missing map, an
 #              out-of-scope file or an unowned file. Exact paths win; otherwise the
 #              longest literal directory prefix wins. OWNERS rows are path<TAB>owner.
-# Exit codes: 0 no line is missing, 1 a line is missing, 2 usage error or unusable DIR.
+# Exit codes: 0 no line is missing (briefing's lines included), 1 a line is missing, 2
+# usage error or unusable DIR.
 # Errors are two lines on stderr: "ack-team: <what>" and "ack-team: <what to do>".
 
 _help() {
@@ -84,9 +62,6 @@ fi
 
 TAB=$'\t'
 RC=0
-HOOK_PID="" HOOK_TMP=""
-trap _hook_clean EXIT
-MARKER="ACK-CHECK-MARKER"
 
 fail() {
   echo "ack-team: $2" >&2
@@ -120,14 +95,12 @@ _unquote() {
   esac
 }
 
-# parse_agent FILE: sets A_FM (1 = has frontmatter), A_HASNAME, A_NAME, A_DESC (1 = a
-# description with text), A_SKILLS (newline separated briefing.skills), A_BADLIST (1 =
-# a flow list that does not close on its line), A_ALLOWED, A_TOPSKILLS, A_DIS (the
+# parse_agent FILE: sets A_FM (1 = has frontmatter), A_HASNAME, A_NAME and A_DIS (the
 # disallowedTools text). Only the frontmatter is read: the lines between a first line
 # "---" (a UTF-8 BOM before it is fine) and the next "---".
 parse_agent() {
-  local f="$1" line t first=1 mode="" bsk=0 bind=-1 ind val item rest
-  A_FM=0 A_HASNAME=0 A_NAME="" A_DESC=0 A_SKILLS="" A_BADLIST=0 A_ALLOWED=0 A_TOPSKILLS=0 A_DIS=""
+  local f="$1" line t first=1 mode="" item val
+  A_FM=0 A_HASNAME=0 A_NAME="" A_DIS=""
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line//$'\r'/}"
     if [ "$first" = 1 ]; then line="${line#$'\xEF\xBB\xBF'}"; fi
@@ -142,51 +115,10 @@ parse_agent() {
     case "$t" in ''|'#'*) continue ;; esac
     case "$line" in
       ' '*|"$TAB"*)
-        ind="${line%%[![:space:]]*}"
-        case "$mode" in
-          desc) A_DESC=1 ;;
-          dis) A_DIS="$A_DIS $t" ;;
-          briefing)
-            [ "$bind" = -1 ] && bind="${#ind}"
-            case "$t" in
-              skills:*)
-                if [ "${#ind}" != "$bind" ]; then bsk=0; continue; fi
-                _ack_trim "${t#skills:}"; val="$REPLY"
-                bsk=0
-                case "$val" in
-                  '['*)
-                    case "$val" in
-                      *']'*) ;;
-                      *) A_BADLIST=1; continue ;;
-                    esac
-                    val="${val#\[}"; val="${val%%\]*}"
-                    while [ -n "$val" ]; do
-                      item="${val%%,*}"
-                      case "$val" in *,*) val="${val#*,}" ;; *) val="" ;; esac
-                      _unquote "$item"
-                      [ -z "$REPLY" ] || A_SKILLS="$A_SKILLS$REPLY"$'\n'
-                    done ;;
-                  ''|'#'*) bsk=1 ;;
-                esac ;;
-              -*)
-                if [ "$bsk" = 1 ]; then
-                  rest="${t#-}"
-                  _unquote "$rest"
-                  [ -z "$REPLY" ] || A_SKILLS="$A_SKILLS$REPLY"$'\n'
-                fi ;;
-              *) bsk=0 ;;
-            esac ;;
-        esac ;;
+        [ "$mode" = dis ] && A_DIS="$A_DIS $t" ;;
       *)
         if [ "$mode" = dis ]; then
           case "$t" in -*) A_DIS="$A_DIS $t"; continue ;; esac
-        fi
-        if [ "$mode" = briefing ] && [ "$bsk" = 1 ]; then
-          case "$t" in -*)
-            _unquote "${t#-}"
-            [ -z "$REPLY" ] || A_SKILLS="$A_SKILLS$REPLY"$'\n'
-            continue ;;
-          esac
         fi
         mode=""
         case "$t" in
@@ -197,15 +129,7 @@ parse_agent() {
         _ack_trim "${t#*:}"; val="$REPLY"
         case "$item" in
           name) A_HASNAME=1; _unquote "$val"; A_NAME="$REPLY" ;;
-          description)
-            case "$val" in
-              ''|'#'*|'>'*|'|'*) mode=desc ;;
-              *) _unquote "$val"; [ -z "$REPLY" ] || A_DESC=1 ;;
-            esac ;;
-          allowed-tools) A_ALLOWED=1 ;;
-          skills) A_TOPSKILLS=1 ;;
           disallowedTools) A_DIS="$val"; mode=dis ;;
-          briefing) mode=briefing; bsk=0; bind=-1 ;;
         esac ;;
     esac
   done < "$f"
@@ -217,253 +141,6 @@ _has_word() {
   local t
   t="$(printf '%s' "$1" | tr -c 'A-Za-z' ' ')"
   case " $t " in *" $2 "*) return 0 ;; esac
-  return 1
-}
-
-# _safe_name NAME: fit to be a path part (no glob characters, no slash, not empty)
-_safe_name() {
-  case "$1" in ''|*[\*\?\[\]/\\]*) return 1 ;; esac
-  return 0
-}
-
-# _unescape STRING -> REPLY: the few JSON escapes a path holds
-_unescape() {
-  REPLY="$(printf '%s' "$1" | sed 's/\\\\/\\/g; s/\\\//\//g')"
-}
-
-# _enabled_map -> ENABLED: lines "KEY<TAB>true|false", user then project then
-# project-local settings, a later file winning per key; only literal true and false count
-_enabled_map() {
-  local f text ep k v
-  ENABLED=""
-  for f in "$HOME/.claude/settings.json" "$DIR/.claude/settings.json" "$DIR/.claude/settings.local.json"; do
-    [ -f "$f" ] && _json_ok "$f" || continue
-    text="$(cat "$f" 2>/dev/null)"
-    json_member "$text" enabledPlugins; ep="$REPLY"
-    _json_keys "$ep"
-    while IFS="$TAB" read -r k v; do
-      case "$v" in true|false) ;; *) continue ;; esac
-      [ -n "$k" ] || continue
-      ENABLED="$ENABLED$k$TAB$v"$'\n'
-    done <<EOT
-$VALS
-EOT
-  done
-}
-
-# _enabled KEY: the last entry for KEY in ENABLED says true
-_enabled() {
-  local k v r=1
-  while IFS="$TAB" read -r k v; do
-    [ "$k" = "$1" ] && { [ "$v" = true ] && r=0 || r=1; }
-  done <<EOT
-$ENABLED
-EOT
-  return "$r"
-}
-
-# _installed_entries FILE: one line KEY<TAB>installPath<TAB>projectPath per entry of
-# the "plugins" object of installed_plugins.json (a 150 KB file on a busy machine, so
-# an awk scan, not a shell loop); strings keep their JSON escapes
-_installed_entries() {
-  awk 'BEGIN { RS = "\001" }
-  {
-    s = $0; n = length(s); depth = 0; i = 1
-    while (i <= n) {
-      c = substr(s, i, 1)
-      if (c == "\"") {
-        j = i + 1; str = ""
-        while (j <= n) {
-          d = substr(s, j, 1)
-          if (d == "\\") { str = str substr(s, j, 2); j += 2; continue }
-          if (d == "\"") break
-          str = str d; j++
-        }
-        i = j + 1
-        if (ctx[depth] == "o" && expectkey[depth]) { key[depth] = str; expectkey[depth] = 0 }
-        else if (depth == 4 && key[1] == "plugins") {
-          if (key[4] == "installPath") ip = str
-          else if (key[4] == "projectPath") pp = str
-        }
-        continue
-      }
-      if (c == "{" || c == "[") {
-        depth++; ctx[depth] = (c == "{") ? "o" : "a"; expectkey[depth] = (c == "{")
-        if (depth == 4) { ip = ""; pp = "" }
-      } else if (c == "}" || c == "]") {
-        if (depth == 4 && key[1] == "plugins" && ip != "") printf "%s\t%s\t%s\n", key[2], ip, pp
-        depth--
-      } else if (c == ",") {
-        if (ctx[depth] == "o") expectkey[depth] = 1
-      }
-      i++
-    }
-  }' "$1" 2>/dev/null
-}
-
-# _norm_path PATH -> REPLY: PATH as plain text for comparing, like the hook does (no
-# symlinks resolved): "C:\x" and "C:/x" become the MSYS form "/c/x", duplicate and
-# trailing slashes go
-_norm_path() {
-  local p="$1"
-  case "$p" in
-    [A-Za-z]:[\\/]*|[A-Za-z]:)
-      p="$(printf '%s' "$p" | tr '\\' '/')"
-      _lower "${p:0:1}"
-      p="/$REPLY${p:2}" ;;
-  esac
-  case "$p" in
-    /*) _segments "$p" 0; p="/$REPLY" ;;      # normpath: "." and ".." resolved
-  esac
-  while :; do
-    case "$p" in */) p="${p%/}" ;; *) break ;; esac
-  done
-  REPLY="$p"
-}
-
-# _path_within CHILD ROOT: CHILD is ROOT or lies below it. Plain string comparison; a
-# ROOT written as a Windows drive path (C:\proj) is matched without regard to case.
-_path_within() {
-  local c r win=0
-  case "$2" in [A-Za-z]:[\\/]*|[A-Za-z]:) win=1 ;; esac
-  _norm_path "$1"; c="$REPLY"
-  _norm_path "$2"; r="$REPLY"
-  if [ "$win" = 1 ]; then _lower "$c"; c="$REPLY"; _lower "$r"; r="$REPLY"; fi
-  case "$c/" in "$r"/*) return 0 ;; esac
-  return 1
-}
-
-# _under PROJECT: DIRW (the cwd the hook is handed) lies in PROJECT
-_under() {
-  local real
-  _path_within "$DIRW" "$1" && return 0
-  # Git for Windows: the same directory can be spelled C:\x\y, C:/x/y, /c/x/y or /tmp/y;
-  # let cygpath translate the project's spelling into the one DIR has
-  if command -v cygpath >/dev/null 2>&1; then
-    real="$(cd "$(cygpath -u "$1" 2>/dev/null)" 2>/dev/null && pwd)" || return 1
-    [ -n "$real" ] && _path_within "$DIR" "$real" && return 0
-  fi
-  return 1
-}
-
-# The parser is chosen once, before any metadata is read. jq and Python accept JSON-like
-# NaN and Infinity by default, so their standard parser APIs are told to reject them. jq
-# also rejects numbers it represents as infinity (for example 1e999); Node and Python may
-# accept those valid but out-of-range JSON numbers.
-JSON_PARSER_DONE=0 JSON_PARSER="" JSON_JQ="" JSON_NODE="" JSON_PYTHON="" JSON_PYTHON_ARGS=""
-JQ_JSON_OBJECT='length == 1 and (.[0] | type == "object") and all(.. | numbers; (isnan | not) and (isinfinite | not))'
-NODE_JSON_PROBE='try {
-  const value = JSON.parse("{}");
-  let rejected = false;
-  try { JSON.parse("{\"value\":NaN}"); } catch (_) { rejected = true; }
-  const ok = value !== null && !Array.isArray(value) && typeof value === "object" && rejected;
-  process.stdout.write(ok ? "true" : "false");
-  process.exit(ok ? 0 : 1);
-} catch (_) { process.exit(1); }'
-NODE_JSON_OBJECT='const fs = require("fs");
-try {
-  const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  process.exit(value !== null && !Array.isArray(value) && typeof value === "object" ? 0 : 1);
-} catch (_) { process.exit(1); }'
-PYTHON_JSON_PROBE='import json, sys
-def reject_constant(value):
-    raise ValueError
-try:
-    value = json.loads("{}")
-    try:
-        json.loads("{\"value\":NaN}", parse_constant=reject_constant)
-    except ValueError:
-        pass
-    else:
-        raise ValueError
-except Exception:
-    sys.exit(1)
-sys.stdout.write("true")'
-PYTHON_JSON_OBJECT='import json, sys
-def reject_constant(value):
-    raise ValueError
-try:
-    with open(sys.argv[1], encoding="utf-8") as stream:
-        value = json.load(stream, parse_constant=reject_constant)
-except Exception:
-    sys.exit(1)
-sys.exit(0 if type(value) is dict else 1)'
-
-# _json_jq_usable PARSER: jq at PARSER parses an object and rejects known non-JSON numbers.
-_json_jq_usable() {
-  local parser="$1" probe rc
-  ack_run_bounded 15 sh -c 'printf "%s\\n" "{}" | "$1" -e -s "$2"' sh "$parser" "$JQ_JSON_OBJECT"
-  rc=$?
-  [ "$rc" = 0 ] && [ "$ACK_BOUNDED_OUT" = true ] || return 1
-  for probe in '{"value":NaN}' '{"value":01}' '{"value":+1}' '{"value":.1}' '{"value":1.}'; do
-    ack_run_bounded 15 sh -c 'printf "%s\\n" "$3" | "$1" -e -s "$2"' sh "$parser" "$JQ_JSON_OBJECT" "$probe"
-    [ "$?" != 0 ] || return 1
-  done
-  return 0
-}
-
-# _json_node_usable FILE: Node at FILE has JSON.parse and rejects a non-JSON constant.
-_json_node_usable() {
-  local parser="$1"
-  ack_run_bounded 15 "$parser" -e "$NODE_JSON_PROBE"
-  [ "$?" = 0 ] && [ "$ACK_BOUNDED_OUT" = true ]
-}
-
-# _json_python_run CODE [FILE]: run CODE under the Python ack_find_python selected.
-_json_python_run() {
-  local code="$1"
-  shift
-  if [ -n "$ACK_PYTHON_ARGS" ]; then
-    "$ACK_PYTHON" "$ACK_PYTHON_ARGS" -I -c "$code" "$@"
-  else
-    "$ACK_PYTHON" -I -c "$code" "$@"
-  fi
-}
-
-# _json_python_usable: the Python ack_find_python selected has strict JSON parsing support.
-_json_python_usable() {
-  ack_run_bounded 15 _json_python_run "$PYTHON_JSON_PROBE"
-  [ "$?" = 0 ] && [ "$ACK_BOUNDED_OUT" = true ]
-}
-
-# _select_json_parser -> JSON_PARSER (jq, node or python): the first usable standard parser.
-_select_json_parser() {
-  local parser=""
-  [ "$JSON_PARSER_DONE" = 0 ] || { [ -n "$JSON_PARSER" ]; return; }
-  JSON_PARSER_DONE=1
-  parser="$(type -P jq 2>/dev/null)"
-  if [ -n "$parser" ] && _json_jq_usable "$parser"; then
-    JSON_PARSER=jq JSON_JQ="$parser"
-    return 0
-  fi
-  parser="$(type -P node 2>/dev/null)"
-  if [ -n "$parser" ] && _json_node_usable "$parser"; then
-    JSON_PARSER=node JSON_NODE="$parser"
-    return 0
-  fi
-  if ack_find_python && _json_python_usable; then
-    JSON_PARSER=python JSON_PYTHON="$ACK_PYTHON" JSON_PYTHON_ARGS="$ACK_PYTHON_ARGS"
-    return 0
-  fi
-  return 1
-}
-
-# _json_ok FILE: FILE holds exactly one complete JSON object. It returns 0 when valid, 1
-# when invalid or unreadable, and 2 when no usable standard JSON parser is available.
-_json_ok() {
-  local rc
-  [ -f "$1" ] && [ -r "$1" ] || return 1
-  _select_json_parser || return 2
-  case "$JSON_PARSER" in
-    jq) "$JSON_JQ" -e -s "$JQ_JSON_OBJECT" -- "$1" >/dev/null 2>&1 ;;
-    node) "$JSON_NODE" -e "$NODE_JSON_OBJECT" -- "$1" >/dev/null 2>&1 ;;
-    python)
-      ACK_PYTHON="$JSON_PYTHON" ACK_PYTHON_ARGS="$JSON_PYTHON_ARGS" \
-        _json_python_run "$PYTHON_JSON_OBJECT" "$1" >/dev/null 2>&1 ;;
-    *) return 2 ;;
-  esac
-  rc=$?
-  [ "$rc" = 0 ] && return 0
   return 1
 }
 
@@ -496,182 +173,97 @@ _collapse_path() {
   _segments "$1" 1
 }
 
-# _plugin_list -> PLUGINS: lines "NAME<TAB>ROOT" for every plugin installed (per
-# ~/.claude/plugins/installed_plugins.json, for this project) AND enabled, like the
-# briefing hook reads them; computed once
-_plugin_list() {
-  local idx="$HOME/.claude/plugins/installed_plugins.json" key root proj name mf
-  [ -z "${PLUGINS_DONE:-}" ] || return 0
-  PLUGINS_DONE=1; PLUGINS=""
-  [ -f "$idx" ] && _json_ok "$idx" || return 0
-  _enabled_map
-  while IFS="$TAB" read -r key root proj; do
-    [ -n "$key" ] || continue
-    _enabled "$key" || continue
-    _unescape "$root"; root="$REPLY"
-    if [ -n "$proj" ]; then
-      _unescape "$proj"; proj="${REPLY%/}"
-      if ! _under "$proj"; then continue; fi
-    fi
-    name="${key%%@*}"
-    mf="$root/.claude-plugin/plugin.json"
-    if [ -f "$mf" ] && _json_ok "$mf"; then
-      json_member "$(cat "$mf" 2>/dev/null)" name
-      case "$REPLY" in '"'*'"') name="${REPLY#\"}"; name="${name%\"}" ;; esac
-    fi
-    PLUGINS="$PLUGINS$name$TAB$root"$'\n'
-  done <<EOT
-$(_installed_entries "$idx")
-EOT
-}
+# ---------------------------------------------------------------- briefing
 
-# _plugin_has_skill ROOT SKILL: the plugin at ROOT holds the skill: skills/SKILL/SKILL.md,
-# or at a path the manifest's "skills" lists (each one a skill directory or a directory
-# of them, like ./skills/engineering/tdd), as the briefing hook reads it
-_plugin_has_skill() {
-  local root="$1" skill="$2" mf="$1/.claude-plugin/plugin.json" raw p
-  [ -f "$root/skills/$skill/SKILL.md" ] && return 0
-  [ -f "$mf" ] && _json_ok "$mf" || return 1
-  json_member "$(cat "$mf" 2>/dev/null)" skills
-  raw="$(printf '%s' "$REPLY" | tr -d '[]\r\n' | tr ',' '\n')"
-  while IFS= read -r p; do
-    _ack_trim "$p"; p="$REPLY"
-    case "$p" in '"'*'"') p="${p#\"}"; p="${p%\"}" ;; *) continue ;; esac
-    _unescape "$p"; p="$REPLY"
-    _collapse_path "$p" || continue
-    p="$REPLY"
-    [ -n "$p" ] || continue
-    [ "${p##*/}" = "$skill" ] && [ -f "$root/$p/SKILL.md" ] && return 0
-    [ -f "$root/$p/$skill/SKILL.md" ] && return 0
-  done <<EOT
-$raw
-EOT
-  return 1
-}
-
-# _resolves NAME -> WHY (empty on success): the skill exists where the briefing hook
-# looks: the project's and the user's .claude/skills, and the skills directory of every
-# plugin that is installed and enabled (in the installed version's directory)
-_resolves() {
-  local n="$1" plugin skill name root known=0
-  WHY=""
-  case "$n" in
-    *:*)
-      plugin="${n%%:*}"; skill="${n#*:}"
-      if ! _safe_name "$plugin" || ! _safe_name "$skill"; then WHY="not a usable skill name"; return 1; fi
-      _plugin_list
-      while IFS="$TAB" read -r name root; do
-        [ "$name" = "$plugin" ] || continue
-        known=1
-        _plugin_has_skill "$root" "$skill" && return 0
-      done <<EOT
-$PLUGINS
-EOT
-      if [ "$known" = 1 ]; then WHY="plugin '$plugin' has no skill '$skill'"
-      else WHY="plugin '$plugin' is not installed and enabled"; fi
-      return 1 ;;
+# check_briefing: the agent, skill, hook and settings lines are the briefing plugin's.
+# Only lines of the contract pass through: four fields split at the tabs (the last may be
+# empty), WHAT one of agent, skill, hook, settings, status ok, missing or warn, a name
+# that is not empty. A valid run always has a settings line. briefing's exit 1 only says
+# some lines are missing, so the passed lines decide RC. The call is cut off after
+# ACK_BRIEFING_WAIT seconds (1 to 5 digits, no leading zero; default 30). Anything else is
+# one missing line: no command on PATH, no answer in time, exit 2 or more, or no settings
+# line among the contract lines; the text names the command's path and, when the command
+# failed, its exit status and first stderr line.
+check_briefing() {
+  local bin rc line r what st name text valid="" wait="${ACK_BRIEFING_WAIT:-30}" settings=0 why
+  local tail="so the agent, skill, hook and settings checks cannot run"
+  local fix="Update or install the briefing plugin with: claude plugin update briefing@getty (or install it with: claude plugin install briefing@getty), then run /reload-plugins."
+  case "$wait" in
+    [1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]) ;;
+    *) wait=30 ;;
   esac
-  if ! _safe_name "$n"; then WHY="not a usable skill name"; return 1; fi
-  [ -f "$DIR/.claude/skills/$n/SKILL.md" ] && return 0
-  [ -f "$HOME/.claude/skills/$n/SKILL.md" ] && return 0
-  _plugin_list
-  while IFS="$TAB" read -r name root; do
-    [ -n "$root" ] || continue
-    _plugin_has_skill "$root" "$n" && return 0
+  if ! bin="$(type -P briefing 2>/dev/null)" || [ -z "$bin" ]; then
+    emit briefing missing "." "No briefing command was found on PATH, $tail. $fix"
+    return 0
+  fi
+  ack_run_bounded "$wait" "$bin" doctor --tsv --cwd "$DIR"; rc=$?
+  why=""
+  if [ "$rc" != 0 ] && [ "$rc" != 124 ]; then
+    why=" (exit $rc"
+    [ -n "$ACK_BOUNDED_ERR" ] && why="$why: $ACK_BOUNDED_ERR"
+    why="$why)"
+  fi
+  if [ "$rc" = 124 ]; then
+    emit briefing missing "." "The briefing command at $bin did not answer within $wait seconds, $tail. $fix"
+    return 0
+  elif [ "$rc" -gt 1 ]; then
+    emit briefing missing "." "The briefing command at $bin did not run the check$why, $tail. $fix"
+    return 0
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line//$'\r'/}"
+    what="${line%%"$TAB"*}"
+    [ "$what" != "$line" ] || continue
+    r="${line#*"$TAB"}"
+    st="${r%%"$TAB"*}"
+    [ "$st" != "$r" ] || continue
+    r="${r#*"$TAB"}"
+    name="${r%%"$TAB"*}"
+    [ "$name" != "$r" ] || continue
+    text="${r#*"$TAB"}"
+    case "$text" in *"$TAB"*) continue ;; esac
+    [ -n "$name" ] || continue
+    case "$what" in agent|skill|hook|settings) ;; *) continue ;; esac
+    case "$st" in ok|missing|warn) ;; *) continue ;; esac
+    [ "$what" = settings ] && settings=1
+    [ "$st" = missing ] && RC=1
+    valid="$valid$line"$'\n'
   done <<EOT
-$PLUGINS
+$ACK_BOUNDED_OUT
 EOT
-  WHY="no such skill in .claude/skills, ~/.claude/skills or an installed and enabled plugin"
-  return 1
+  if [ "$settings" = 0 ]; then
+    # the lines that were counted belong to a run that is not used
+    RC=0
+    emit briefing missing "." "The briefing command at $bin printed no check lines in the expected format$why, $tail. $fix"
+    return 0
+  fi
+  printf '%s' "$valid"
+  return 0
 }
 
-# ---------------------------------------------------------------- agents
-
-# Agent files are every *.md below .claude/agents, subdirectories included. The name
-# that must stand in the file is the file name without ".md" and without one leading
-# ".local." (skilletor installs ".local.<name>.md"); "x.local.md" must say "x.local".
-check_agents() {
-  local f rel base pairs="" s list
-  AG_NAMES=()      # expected names, in file order
+# scan_agents: the agents the readonly and claude-md lines look at, quietly (briefing
+# reports the broken ones). A file counts when it has frontmatter; its name is the file
+# name without ".md" and without one leading ".local." (skilletor installs
+# ".local.<name>.md").
+scan_agents() {
+  local f rel base list
+  AG_NAMES=()      # names, in file order
   AG_DIS=()        # their disallowedTools text
-  AG_FM=()         # 1 when the file has frontmatter
   AG_FILES=()      # their paths below .claude/agents
+  [ -d "$DIR/.claude/agents" ] || return 0
   list="$(find -H "$DIR/.claude/agents" \( -type f -o -type l \) -name '*.md' -print 2>/dev/null | LC_ALL=C sort)"
   while IFS= read -r f; do
-    [ -n "$f" ] || continue
+    [ -f "$f" ] || continue
     rel="${f#"$DIR/.claude/agents/"}"
     base="${rel##*/}"; base="${base%.md}"
     case "$base" in .local.?*) base="${base#.local.}" ;; esac
-    # the hook walks the directory without following links: a link to a file is read, a
-    # link to a directory is no agent, a dangling link is a file that holds nothing
-    if [ -L "$f" ] && [ ! -e "$f" ]; then
-      emit agent warn "$rel" "dangling symlink (Claude Code cannot load it)"
-      continue
-    fi
-    [ -f "$f" ] || continue
     parse_agent "$f"
-    if [ "$A_FM" = 0 ]; then
-      emit agent warn "$rel" "no frontmatter (Claude Code does not load it)"
-      continue
-    fi
+    [ "$A_FM" = 1 ] || continue
     AG_NAMES[${#AG_NAMES[@]}]="$base"
     AG_FILES[${#AG_FILES[@]}]="$rel"
     AG_DIS[${#AG_DIS[@]}]="$A_DIS"
-    AG_FM[${#AG_FM[@]}]="$A_FM"
-    local bad=0
-    if [ "$A_HASNAME" = 0 ] || [ -z "$A_NAME" ]; then
-      emit agent missing "$rel" "no name"; bad=1
-    elif [ "$A_NAME" != "$base" ]; then
-      emit agent missing "$rel" "name '$A_NAME' differs from the file name"; bad=1
-    fi
-    if [ "$A_DESC" = 0 ]; then
-      emit agent missing "$rel" "description is empty"; bad=1
-    fi
-    if [ "$A_ALLOWED" = 1 ]; then
-      emit agent missing "$rel" "allowed-tools: ignored by Claude Code; use disallowedTools"; bad=1
-    fi
-    if [ "$A_BADLIST" = 1 ]; then
-      emit agent missing "$rel" 'briefing.skills is not readable (keep the list on one line or use one "- name" per line)'; bad=1
-    elif [ -z "$A_SKILLS" ]; then
-      emit agent warn "$rel" "no briefing"; bad=1
-    fi
-    if [ "$A_TOPSKILLS" = 1 ]; then
-      emit agent warn "$rel" "skills: briefing reads only briefing.skills"; bad=1
-    fi
-    [ "$bad" = 1 ] || emit agent ok "$rel" ""
-    while IFS= read -r s; do
-      [ -z "$s" ] || pairs="$pairs$rel$TAB$s"$'\n'
-    done <<EOT
-$A_SKILLS
-EOT
   done <<EOT
 $list
-EOT
-  if [ "${#AG_NAMES[@]}" = 0 ]; then
-    emit agent missing ".claude/agents" "no agent files"
-  fi
-  check_skills "$pairs"
-}
-
-# check_skills PAIRS: PAIRS holds "AGENT-FILE<TAB>SKILL" lines
-check_skills() {
-  local pairs="$1" seen=$'\n' a s a2 s2
-  while IFS="$TAB" read -r a s; do
-    [ -n "$s" ] || continue
-    case "$seen" in *$'\n'"$s"$'\n'*) continue ;; esac
-    seen="$seen$s"$'\n'
-    if _resolves "$s"; then
-      emit skill ok "$s" ""
-    else
-      while IFS="$TAB" read -r a2 s2; do
-        [ "$s2" = "$s" ] || continue
-        emit skill missing "$s" "$a2 declares it; $WHY; briefing would refuse the spawn"
-      done <<EOT
-$pairs
-EOT
-    fi
-  done <<EOT
-$pairs
 EOT
 }
 
@@ -679,7 +271,6 @@ _role_match() { # NAME ROLE
   case "$1" in
     *-"$2") return 0 ;;
   esac
-  [ "$2" = worker ] && case "$1" in *-worker-?*) return 0 ;; esac
   return 1
 }
 
@@ -691,7 +282,7 @@ check_readonly() {
     for role in scout reviewer checker coordinator; do
       _role_match "$name" "$role" && ro=1
     done
-    [ "$ro" = 1 ] && [ "${AG_FM[$i]}" = 1 ] || continue
+    [ "$ro" = 1 ] || continue
     if _has_word "${AG_DIS[$i]}" Edit && _has_word "${AG_DIS[$i]}" Write; then
       emit readonly ok "${AG_FILES[$i]}" ""
     else
@@ -699,8 +290,6 @@ check_readonly() {
     fi
   done
 }
-
-# ---------------------------------------------------------------- rules, settings
 
 check_rules() {
   local hit=""
@@ -712,68 +301,6 @@ check_rules() {
   else
     emit rules missing ".claude/rules" "no rule files"
   fi
-}
-
-# _json_keys OBJECT-TEXT -> KEYS (newline wrapped), VALS (lines KEY<TAB>VALUE)
-_json_keys() {
-  local s k v rest
-  KEYS=$'\n' VALS=""
-  case "$1" in '{'*) ;; *) return 0 ;; esac
-  json_objects "[$1]"
-  s="${PLUGIN_OBJS%%$'\n'*}"
-  while :; do
-    while [ "${s:0:1}" = "," ]; do s="${s:1}"; done
-    case "$s" in '"'*) ;; *) break ;; esac
-    rest="${s#\"}"
-    k="${rest%%\"*}"
-    s="${rest#*\":}"
-    v="${s%%,\"*}"
-    s="${s#"$v"}"
-    v="${v%,}"
-    KEYS="$KEYS$k"$'\n'
-    VALS="$VALS$k$TAB$v"$'\n'
-  done
-}
-
-check_settings() {
-  local f="$DIR/.claude/settings.json" text ep mk k v market briefing=0 bad=0 markets
-  local name=".claude/settings.json"
-  if [ ! -f "$f" ] || ! text="$(cat "$f" 2>/dev/null)"; then
-    emit settings missing "$name" "not found or not readable"
-    return 0
-  fi
-  if ! _json_ok "$f"; then
-    emit settings missing "$name" "the settings file is not a valid JSON object. Correct the JSON syntax and run ack-team check again."
-    return 0
-  fi
-  json_member "$text" enabledPlugins; ep="$REPLY"
-  json_member "$text" extraKnownMarketplaces; mk="$REPLY"
-  _json_keys "$mk"; markets="$KEYS"
-  _json_keys "$ep"
-  while IFS="$TAB" read -r k v; do
-    [ -n "$k" ] || continue
-    [ "$v" = true ] || continue
-    case "$k" in
-      briefing@*) briefing=1 ;;
-    esac
-    case "$k" in
-      *@*)
-        market="${k##*@}"
-        if [ "$market" != claude-plugins-official ]; then
-          case "$markets" in
-            *$'\n'"$market"$'\n'*) ;;
-            *) emit settings missing "$k" "marketplace '$market' is not in extraKnownMarketplaces"; bad=1 ;;
-          esac
-        fi ;;
-    esac
-  done <<EOT
-$VALS
-EOT
-  if [ "$briefing" = 0 ]; then
-    emit settings missing "briefing" "the briefing plugin is not enabled in enabledPlugins"
-    bad=1
-  fi
-  [ "$bad" = 1 ] || emit settings ok "$name" ""
 }
 
 # ---------------------------------------------------------------- board, claude-md, git
@@ -861,282 +388,10 @@ check_git() {
   fi
 }
 
-# ---------------------------------------------------------------- hook
-
-# _json_escape STRING -> REPLY
-_json_escape() {
-  REPLY="$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-}
-
-# _find_hook -> REPLY: ACK_BRIEFING_HOOK, else the hook of an installed and enabled
-# briefing plugin (installed_plugins.json, an entry for this project): in its
-# installPath, else in that version's folder of this home's cache (installPath may be
-# spelled another way, a Windows path or an old home). Never another cached copy: a
-# briefing that is not installed, or disabled, does not run. Empty when there is none.
-_find_hook() {
-  local idx="$HOME/.claude/plugins/installed_plugins.json" key root proj market ver
-  REPLY=""
-  if [ -n "${ACK_BRIEFING_HOOK:-}" ]; then
-    REPLY="$ACK_BRIEFING_HOOK"
-    return 0
-  fi
-  [ -f "$idx" ] && _json_ok "$idx" || return 0
-  _enabled_map
-  while IFS="$TAB" read -r key root proj; do
-    case "$key" in briefing@*) ;; *) continue ;; esac
-    _enabled "$key" || continue
-    if [ -n "$proj" ]; then
-      _unescape "$proj"; _under "$REPLY" || continue
-    fi
-    _unescape "$root"; root="$REPLY"
-    if [ -f "$root/hooks/briefing-preload" ]; then
-      REPLY="$root/hooks/briefing-preload"
-      return 0
-    fi
-    while :; do case "$root" in */|*\\) root="${root%?}" ;; *) break ;; esac; done
-    ver="${root##*[\\/]}" market="${key#briefing@}"
-    _safe_name "$ver" && _safe_name "$market" || continue
-    case "$ver$market" in *..*) continue ;; esac
-    if [ -f "$HOME/.claude/plugins/cache/$market/briefing/$ver/hooks/briefing-preload" ]; then
-      REPLY="$HOME/.claude/plugins/cache/$market/briefing/$ver/hooks/briefing-preload"
-      return 0
-    fi
-  done <<EOT
-$(_installed_entries "$idx")
-EOT
-  REPLY=""
-  return 0
-}
-
-# _deny_reason OUTPUT -> REPLY: the permissionDecisionReason string, unescaped a little
-_deny_reason() {
-  local r="${1#*\"permissionDecisionReason\"}" acc="" pre
-  r="${r#*:}"
-  _ack_trim "$r"; r="${REPLY#\"}"
-  while :; do
-    pre="${r%%\"*}"
-    if [ "$pre" = "$r" ]; then acc="$acc$pre"; break; fi
-    case "$pre" in
-      *\\) acc="${acc}${pre%\\}\""; r="${r#*\"}" ;;
-      *) acc="$acc$pre"; break ;;
-    esac
-  done
-  acc="${acc//\\n/ }"; acc="${acc//\\t/ }"; acc="${acc//\\\\/\\}"
-  REPLY="$acc"
-}
-
-# _kill_tree PID: stop the hook and what it started. The hook runs as the leader of its
-# own process group (set -m), so the group goes first; where that is not so (Git for
-# Windows) its children (pkill -P, when there is one) and the pid itself are stopped.
-_kill_tree() {
-  local pid="$1" i=0
-  kill -TERM -- "-$pid" 2>/dev/null
-  command -v pkill >/dev/null 2>&1 && pkill -TERM -P "$pid" 2>/dev/null
-  kill -TERM "$pid" 2>/dev/null
-  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 20 ]; do
-    sleep 0.1
-    i=$((i + 1))
-  done
-  if kill -0 "$pid" 2>/dev/null; then
-    kill -KILL -- "-$pid" 2>/dev/null
-    command -v pkill >/dev/null 2>&1 && pkill -KILL -P "$pid" 2>/dev/null
-    kill -KILL "$pid" 2>/dev/null
-  fi
-  return 0
-}
-
-# _hook_clean: drop the hook run's temp directory and traps (also the cleanup of a signal)
-_hook_clean() {
-  if [ -n "$HOOK_PID" ]; then
-    _kill_tree "$HOOK_PID"
-    { wait "$HOOK_PID"; } 2>/dev/null
-    HOOK_PID=""
-  fi
-  if [ -n "$HOOK_TMP" ]; then rm -rf "$HOOK_TMP"; HOOK_TMP=""; fi
-}
-_hook_signal() { _hook_clean; exit "$1"; }
-
-# _interpreter_ok FILE: a "#!/absolute/path" line names an executable that exists
-# (shells word the failure differently, so it is looked at before the run)
-_interpreter_ok() {
-  local first interp
-  IFS= read -r first < "$1" 2>/dev/null
-  first="${first//$'\r'/}"
-  case "$first" in
-    '#!'*)
-      interp="${first#\#!}"
-      interp="${interp#"${interp%%[! ]*}"}"
-      interp="${interp%% *}"
-      case "$interp" in /*) [ -x "$interp" ] || return 1 ;; esac ;;
-  esac
-  return 0
-}
-
-# _hook_command HOOK -> HOOK_CMD (an array): how the hook is started. Git for Windows
-# runs "#!/usr/bin/env python3" only where python3 exists, and a Windows Python is often
-# "python" or "py -3" alone: there the briefing-preload.exe beside the script runs, else
-# a Python script runs under the Python ack_find_python finds. Elsewhere, and without
-# either, the script itself. Looked up once per hook, before _hook_run sets its traps
-# (ack_find_python resets them).
-_hook_command() {
-  [ "${HOOK_CMD_FOR-}" = "$1" ] && [ "${#HOOK_CMD[@]}" -gt 0 ] && return 0
-  HOOK_CMD_FOR="$1" HOOK_CMD=("$1")
-  case "$OSTYPE" in msys*|cygwin*) ;; *) return 0 ;; esac
-  if [ -f "$1.exe" ]; then
-    HOOK_CMD=("$1.exe")
-  elif _wants_python "$1" && ack_find_python; then
-    if [ -n "$ACK_PYTHON_ARGS" ]; then
-      HOOK_CMD=("$ACK_PYTHON" "$ACK_PYTHON_ARGS" "$1")
-    else
-      HOOK_CMD=("$ACK_PYTHON" "$1")
-    fi
-  fi
-  return 0
-}
-
-# _hook_run HOOK INPUT: feeds INPUT to the hook (started as HOOK_CMD says) on stdin,
-# waiting at most ACK_HOOK_WAIT whole seconds (default 10; 0 or a non-number means the
-# default, and the wait counts the sleeps, so a slow machine waits longer, never less).
-# Sets HR_STATE (ok | timeout | noexec | fail), HR_OUT (stdout) and HR_ERR (the first
-# line of stderr).
-_hook_run() {
-  local hook="$1" input="$2" secs="${ACK_HOOK_WAIT:-10}" ticks=0 rc
-  HR_STATE=ok HR_OUT="" HR_ERR="" HR_HOOK="$hook"
-  case "$secs" in ''|*[!0-9]*) secs=10 ;; esac
-  [ "$((10#$secs))" -gt 0 ] || secs=10
-  secs=$((10#$secs))
-  _hook_command "$hook"
-  if [ ! -x "${HOOK_CMD[0]}" ] || { [ "${#HOOK_CMD[@]}" = 1 ] && ! _interpreter_ok "${HOOK_CMD[0]}"; } ||
-     ! HOOK_TMP="$(mktemp -d)"; then
-    HOOK_TMP=""; HR_STATE=noexec; return 0
-  fi
-  trap '_hook_signal 143' TERM
-  trap '_hook_signal 130' INT
-  trap '_hook_signal 129' HUP
-  printf '%s\n' "$input" > "$HOOK_TMP/in"
-  set -m
-  sh -c 'i=$1 o=$2 e=$3; shift 3; exec "$@" < "$i" > "$o" 2> "$e"' sh \
-    "$HOOK_TMP/in" "$HOOK_TMP/out" "$HOOK_TMP/err" "${HOOK_CMD[@]}" &
-  HOOK_PID=$!
-  set +m
-  while kill -0 "$HOOK_PID" 2>/dev/null && [ "$ticks" -lt $((secs * 10)) ]; do
-    sleep 0.1
-    ticks=$((ticks + 1))
-  done
-  if kill -0 "$HOOK_PID" 2>/dev/null; then
-    _kill_tree "$HOOK_PID"
-    { wait "$HOOK_PID"; } 2>/dev/null
-    rc=124
-  else
-    { wait "$HOOK_PID"; } 2>/dev/null
-    rc=$?
-  fi
-  HOOK_PID=""
-  HR_OUT="$(cat "$HOOK_TMP/out" 2>/dev/null)"
-  IFS= read -r HR_ERR < "$HOOK_TMP/err" 2>/dev/null
-  HR_ERR="${HR_ERR//$'\r'/}"
-  rm -rf "$HOOK_TMP"; HOOK_TMP=""
-  trap - TERM INT HUP
-  case "$rc" in
-    0) ;;
-    124) HR_STATE=timeout ;;
-    126|127) HR_STATE=noexec ;;
-    *) HR_STATE=fail ;;
-  esac
-  return 0
-}
-
-# _wants_python FILE: the script starts with a python shebang (the briefing hook does)
-_wants_python() {
-  local first
-  IFS= read -r first < "$1" 2>/dev/null
-  case "$first" in '#!'*python*) return 0 ;; esac
-  return 1
-}
-
-# _have_python: a Python 3 found as ack-doctor finds one (ack_find_python)
-_have_python() { ack_find_python; }
-
-# _hook_trouble AGENT: after a failed _hook_run, print the warn line; returns 1 when
-# there was trouble
-_hook_trouble() {
-  case "$HR_STATE" in
-    ok) return 1 ;;
-    timeout) emit hook warn "$1" "the hook did not answer" ;;
-    noexec)
-      if _wants_python "$HR_HOOK" && ! _have_python; then
-        emit hook warn "$1" "the hook could not be run: it is a Python 3 script and no Python 3 was found; ack-doctor shows the runtime:python line with how to install it"
-      else
-        emit hook warn "$1" "the hook could not be run"
-      fi ;;
-    *) emit hook warn "$1" "${HR_ERR:-the hook could not be run}" ;;
-  esac
-  return 0
-}
-
-# check_hook: every agent goes through the hook's PreToolUse check (a denial is
-# missing); the first worker (else the first agent) is also checked for being briefed.
-# The first trouble with the hook itself ends the check, so a broken hook warns once.
-check_hook() {
-  local i w=-1 agent hook input out norm esc names bs="\\"
-  [ "${#AG_NAMES[@]}" -gt 0 ] || return 0
-  for ((i = 0; i < ${#AG_NAMES[@]}; i++)); do
-    if _role_match "${AG_NAMES[$i]}" worker; then w="$i"; break; fi
-  done
-  [ "$w" -ge 0 ] || w=0
-  _find_hook; hook="$REPLY"
-  if [ -z "$hook" ] || [ ! -f "$hook" ]; then
-    emit hook warn "${AG_NAMES[$w]}" "the briefing hook was not found; install the briefing plugin"
-    return 0
-  fi
-  _json_escape "$DIRW"; esc="$REPLY"
-  for ((i = 0; i < ${#AG_NAMES[@]}; i++)); do
-    agent="${AG_NAMES[$i]}"
-    input="{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"ack-check\",\"cwd\":\"$esc\",\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"$agent\",\"description\":\"check\",\"prompt\":\"$MARKER\"}}"
-    _hook_run "$hook" "$input"
-    ! _hook_trouble "${AG_NAMES[$w]}" || return 0
-    out="$HR_OUT"
-    norm="${out//[[:space:]]/}"
-    case "$norm" in
-      *'"permissionDecision":"deny"'*)
-        _deny_reason "$out"
-        emit hook missing "$agent" "${REPLY:-the hook denied the spawn}"
-        continue ;;
-    esac
-    [ "$i" = "$w" ] || continue
-    # An older hook briefs here: the prompt comes back longer, the marker inside.
-    case "$out" in
-      *"$MARKER"*)
-        if [ "${#out}" -gt "${#input}" ]; then
-          emit hook ok "$agent" ""
-          continue
-        fi ;;
-    esac
-    # The current hook only guards here and briefs when the subagent starts.
-    input="{\"hook_event_name\":\"SubagentStart\",\"session_id\":\"ack-check\",\"cwd\":\"$esc\",\"agent_type\":\"$agent\"}"
-    _hook_run "$hook" "$input"
-    ! _hook_trouble "$agent" || return 0
-    out="$HR_OUT"
-    norm="${out//[[:space:]]/}"
-    case "$out" in
-      *"could not be loaded: "*)
-        # the hook cannot deny at SubagentStart; it hands the agent an abort text instead
-        names="${out#*could not be loaded: }"
-        names="${names%%".${bs}n"*}"
-        emit hook missing "$agent" "the hook reports skills that could not be loaded: $names"
-        continue ;;
-    esac
-    case "$norm" in
-      *'"additionalContext":"'[!\"]*) emit hook ok "$agent" "" ;;
-      *) emit hook warn "$agent" "the hook briefs nothing for this agent" ;;
-    esac
-  done
-}
-
 # ---------------------------------------------------------------- ownership
 
 # _owner_agents -> OWNER_AGENTS: declared agent names below the selected directory. This
-# deliberately reads only frontmatter, so owner lookup has no JSON-runtime dependency.
+# deliberately reads only frontmatter.
 _owner_agents() {
   local f list
   OWNER_AGENTS=()
@@ -1313,27 +568,17 @@ cmd_check() {
   DIR="$(CDPATH= cd -- "${1:-.}" 2>/dev/null && pwd)" && [ -n "$DIR" ] ||
     fail 2 "'${1:-.}' is not a directory." "pass the repository that holds the team."
   DIR="${DIR%/}"
-  # the cwd the hook is handed: under Git for Windows the C:/... form (pwd -W), else DIR
-  DIRW="$(CDPATH= cd -- "$DIR" && pwd -W 2>/dev/null)" || DIRW=""
-  [ -n "$DIRW" ] || DIRW="$DIR"
-  if _select_json_parser; then
-    emit json-parser ok "$JSON_PARSER" ""
-  else
-    emit json-parser missing "." "no usable standard JSON parser is available. Make available Node or Python 3, then run ack-team check again."
-    exit "$RC"
-  fi
   GITTOP=""
   if command -v git >/dev/null 2>&1; then
     GITTOP="$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null)"
   fi
-  check_agents
+  check_briefing
+  scan_agents
   check_readonly
   check_rules
-  check_settings
   check_board
   check_claude_md
   check_git
-  check_hook
   exit "$RC"
 }
 

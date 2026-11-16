@@ -22,6 +22,9 @@ AWAITING_SKILL_LINK = set()
 ANSWER_KEYS = ("shape", "manager", "prefix", "board", "committer", "publish_gate",
                "outside_input", "sources", "roles", "bundles", "provider", "headless")
 OLD_KEYS = ("bauform", "fremdeingaben", "quellen", "rollen")     # read the same
+# ack-team prints these four as `briefing doctor --tsv` printed them (the contract of the
+# ACK package design); the docs name them, no ACK script prints them.
+BRIEFING_WHATS = ("agent", "skill", "hook", "settings")
 FENCE = re.compile(r"^```[^\n]*\n(.*?)^```", re.S | re.M)
 
 
@@ -312,6 +315,15 @@ class SkillTest(Sandbox):
                     continue
                 fields = span.split("<TAB>")
                 name = fields[0]
+                if name in BRIEFING_WHATS:
+                    # briefing prints these, not a script of the kit: hold the span to the
+                    # contract (WHAT, ok|missing|warn) instead, and ack-team's header to naming
+                    # the source. The kit's own lines still go through the checks below.
+                    for status in fields[1].split("|"):
+                        self.assertIn(status, ("ok", "missing", "warn"), "%s: `%s`" % (doc.name, span))
+                    self.assertIn("briefing doctor --tsv", header("ack-team"))
+                    self.assertIn(name, header("ack-team"))
+                    continue
                 self.assertTrue(any(re.search(f.format(placeholder_re(name)), src)
                                     for f in NAME_FORMS),
                                 "%s: line `%s` is printed by no script" % (doc.name, span))
@@ -447,14 +459,12 @@ class SkillTest(Sandbox):
                                r"(?:never|does not|do not|not).{0,140}"
                                r"(?:create.{0,30}remote|publish|push)")
 
-    def test_json_parser_finding_is_documented_with_a_non_node_recovery(self):
-        rules = read(REFS / "team-rules.md")
-        self.assertRegex(rules, r"json-parser<TAB>ok(?:<TAB>|\|)")
-        self.assertIn("json-parser<TAB>missing", rules)
-        parser_text = " ".join(line for line in rules.splitlines() if "json-parser" in line)
-        self.assertRegex(parser_text, r"(?i)(?:jq|node|python)")
-        self.assertRegex(parser_text, r"(?i)(?:install|add|make available)")
-        self.assertNotRegex(parser_text, r"(?i)(?:must|need to) install node")
+    def test_no_json_parser_finding_and_no_node_or_python_demand_is_documented(self):
+        for doc in docs() + [README]:
+            text = read(doc)
+            self.assertNotIn("json-parser", text, doc.name)
+            self.assertNotRegex(text, r"(?i)(?:install|needs?|requires?)\s+(?:Node\.js|Python 3)\b",
+                                doc.name)
 
     # ---- the team references
 
@@ -642,8 +652,17 @@ class SkillTest(Sandbox):
         emitted = set(re.findall(r"^\s*(?:\S.*)?\bemit ([a-z-]+) (?:ok|missing|warn)\b",
                                  read(ROOT / "bin" / "ack-team"), re.M))
         whats = {spans(row[0])[0] for _, row in tables(read(REFS / "team-rules.md"), "What")}
-        self.assertGreater(len(emitted), 8)
-        self.assertEqual(whats, emitted, "the What table of team-rules.md and ack-team differ")
+        self.assertGreaterEqual(len(emitted), 7)
+        # ack-team prints no agent, skill, hook or settings line of its own: they are briefing's
+        self.assertEqual(emitted & set(BRIEFING_WHATS), set(), "ack-team prints briefing's lines itself")
+        self.assertTrue(set(BRIEFING_WHATS) <= whats, "team-rules.md: What table lacks a briefing line")
+        # `briefing` is the one line the kit prints for a briefing that does not answer: it is
+        # explained in the text, not in the table
+        self.assertIn("briefing", emitted)
+        self.assertRegex(" ".join(read(REFS / "team-rules.md").split()),
+                         r"no briefing answers: one `missing` line")
+        self.assertEqual(whats - set(BRIEFING_WHATS), emitted - {"briefing"},
+                         "the What table of team-rules.md and ack-team differ")
 
     def test_every_repo_and_team_option_is_on_its_help(self):
         for script in ("ack-repo", "ack-team"):
@@ -910,20 +929,26 @@ class SkillTest(Sandbox):
         self.assertIn("the `<url>` of the `remote` line for `origin` that `ack-repo inspect "
                       "<core folder>` prints, credentials already stripped", family)
 
-    def test_step_1_is_skipped_only_with_node_and_python_too(self):
+    def test_step_1_is_skipped_only_when_the_machine_lines_are_ok(self):
         step1 = re.search(r"^## Step 1:.*?\n(.*?)(?=^## )", read(SKILL), re.S | re.M).group(1)
         team = " ".join(re.search(r"^- Team:.*?(?=^- |\Z)", step1, re.S | re.M).group(0).split())
         self.assertIn("all `ok`: skip this step", team)
         skip = team.split("all `ok`: skip this step")[0]
-        for name in ("claude", "git", "plugin:briefing", "runtime:node", "runtime:python"):
+        for name in ("claude", "git", "marketplace:getty", "plugin:briefing", "plugin:skilletor"):
             self.assertIn("`%s`" % name, skip)
+        # node and python are no longer asked for, in the skill or in machine.md
+        for doc in (SKILL, MACHINE):
+            for gone in ("runtime:node", "runtime:python"):
+                self.assertNotIn(gone, read(doc), doc.name)
 
     def test_the_hook_probe_counts_only_a_missing_line(self):
         rules = " ".join(read(REFS / "team-rules.md").split())
-        for words in ("Any other result means the team is not checked: never hand it over as "
-                      "checked.", "`warn`, or no `hook` line: briefing did not run; tell the "
-                      "user so, naming the `runtime:python` line of `ack-doctor`"):
-            self.assertIn(words, rules)
+        self.assertIn("Any other result means the team is not checked: never hand it over as "
+                      "checked.", rules)
+        self.assertRegex(rules, r"`warn`, or no `hook` line: briefing did not run; tell the "
+                                r"user so, naming the `(?:plugin|runtime):briefing` line of "
+                                r"`ack-doctor`")
+        self.assertNotIn("runtime:python", rules)
 
     def test_a_folder_in_another_repository_gets_one_of_its_own(self):
         analysis = " ".join(read(REFS / "team-analysis.md").split())

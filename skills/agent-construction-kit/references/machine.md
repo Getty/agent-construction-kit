@@ -6,7 +6,7 @@ steps 3 and 4 apply.
 
 ## Contents
 
-- 1. Prerequisites: the `ack-doctor` lines and their fixes
+- 1. Prerequisites: the `ack-doctor` lines and their fixes (briefing and skilletor included)
 - 2. Starters for other services
 - 3. OpenAI with a ChatGPT subscription
 - 4. Local models
@@ -24,23 +24,35 @@ and offer the recommended ones each in its own message (other statuses:
 | `plugin:skilletor` | `claude plugin install skilletor@getty` |
 | `git` | macOS: `xcode-select --install`. Linux: the user runs `sudo apt install git` (or their system's equivalent) in a terminal window, as it asks for their password |
 | `claude` | not on PATH: Claude Code's installer, below the table |
-| `runtime:node` | when warn: Node.js 18 or newer: macOS `brew install node`, Windows `winget install OpenJS.NodeJS.LTS`, Linux the user runs their package manager (`sudo apt install nodejs`) |
-| `runtime:python` | when warn: Python 3: macOS `brew install python`, Windows `winget install Python.Python.3.12`, Linux `sudo apt install python3`; on Windows the Microsoft Store stub does not count |
 | `plugin:superpowers` (recommended) | `claude plugin install superpowers@claude-plugins-official`: planning, test-first work, review |
 | `plugin:mattpocock-skills` (recommended) | `claude plugin install mattpocock-skills@claude-plugins-official`: skills for everyday coding |
-
-The two `runtime:` lines are `warn`, never `missing`: the starters work without them. They
-matter only before a team is built: `skilletor` needs Node.js, the briefing hook needs
-Python 3, and without that the agents start unbriefed or are refused. Offer the command
-for the user's system and run it only after their yes (an installer changes the machine);
-do not hold the machine setup back for them, and bring them up again when the team work
-starts (`ack-team check` then says `the hook could not be run: ... no Python 3 was found`).
 
 Claude Code's installer: `curl -fsSL https://claude.ai/install.sh | bash`; on Windows
 `powershell -Command "irm https://claude.ai/install.ps1 | iex"`. Re-run `ack-doctor` until
 no required line is `missing`. New plugins work once the user types `/reload-plugins`, or
 in the next Claude Code session; the setup goes on now. `kit-data` `warn` (the starters
 run an old copy): `install` one starter a `wrapper:` line shows, with its permissions.
+
+## Briefing and skilletor
+
+The kit declares skilletor and briefing as dependencies: its one install
+(`agent-construction-kit@getty`) brings all three plugins, and the two `plugin:` rows above
+matter only when one was removed or disabled. The kit itself needs neither Node.js nor
+Python 3; skilletor and briefing ship their own binaries where available and otherwise
+keep working on their current runtime, so an installer may still be asked for there.
+
+`ack-doctor` takes `plugin:*` from `claude plugin list`; for `runtime:skilletor` and
+`runtime:briefing` it runs `<name> --version` and prints it. Found but silent: `warn` with
+the first error line, advice `claude plugin update <name>@getty`. Not found: `missing`, and
+its advice follows the plugin's state: installed and enabled, update it; disabled,
+`claude plugin enable <name>`; not installed, `claude plugin install <name>@getty`;
+state unknown, update or install. Each ends with `/reload-plugins`.
+
+`ack-team check` prints one `briefing<TAB>missing<TAB>.` line when briefing delivers no
+checks: not on PATH, no answer within `ACK_BRIEFING_WAIT` seconds (default 30), exit 2 or
+more (the text carries `(exit N: first stderr line)`), or no `settings` line. Its text ends
+with the advice: `claude plugin update briefing@getty` (or `claude plugin install
+briefing@getty`), then `/reload-plugins`.
 
 ## 2. Starters for other services
 

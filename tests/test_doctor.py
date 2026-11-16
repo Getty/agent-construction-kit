@@ -3,7 +3,7 @@ import shutil
 import subprocess
 import unittest
 
-from helpers import ROOT, Sandbox
+from helpers import FAKE_BRIEFING, FAKE_SKILLETOR, ROOT, Sandbox
 
 AD = str(ROOT / "bin" / "ack-doctor")
 AW = str(ROOT / "bin" / "ack-wrappers")
@@ -13,20 +13,30 @@ FAKE_CLAUDE = """#!/usr/bin/env bash
 [ -f "$HOME/claude-fails" ] && { echo "boom" >&2; exit 1; }
 case "$*" in
   "--version") echo "9.9.9 (Claude Code)" ;;
-  "plugin list --json") cat "$HOME/plugins.json" ;;
+  "plugin list") cat "$HOME/plugins.txt" ;;
   "plugin marketplace list") cat "$HOME/marketplaces.txt" ;;
 esac
 exit 0
 """
 
-ENTRY = """  {
-    "id": "%(id)s",
-    "version": "1.0.0",
-    "scope": "user",
-    "enabled": %(enabled)s,
-    "installPath": "/nowhere/%(id)s",
-    "projectEnabled": false
-  }"""
+STATUS = {"enabled": "\u2714 enabled", "disabled": "\u2718 disabled"}
+
+
+def plugin_blocks(*entries, nl="\n"):
+    """The text of `claude plugin list`: one block per (id, scope, status) entry; a status
+    of None leaves the Status line out."""
+    text = "Installed plugins:" + nl + nl
+    for ident, scope, status in entries:
+        text += "  \u276f %s%s    Version: 1.0.0%s    Scope: %s%s" % (ident, nl, nl, scope, nl)
+        if status is not None:
+            text += "    Status: %s%s" % (STATUS.get(status, status), nl)
+        text += nl
+    return text
+
+
+def good_plugins(nl="\n"):
+    return plugin_blocks(("briefing@getty", "user", "enabled"),
+                         ("skilletor@getty", "user", "enabled"), nl=nl)
 
 
 class DoctorTest(Sandbox):
@@ -36,16 +46,9 @@ class DoctorTest(Sandbox):
         self.plugins()
         self.marketplaces()
 
-    def plugins(self, *ids, disabled=(), compact=False):
-        if compact:
-            body = ",".join('{"enabled":%s,"id":"%s"}' % (
-                "false" if i in disabled else "true", i) for i in ids)
-            text = "[" + body + "]"
-        else:
-            text = "[\n" + ",\n".join(
-                ENTRY % {"id": i, "enabled": "false" if i in disabled else "true"}
-                for i in ids) + "\n]\n"
-        self.write("plugins.json", text)
+    def plugins(self, *ids, disabled=()):
+        self.write("plugins.txt", plugin_blocks(*[
+            (i, "user", "disabled" if i in disabled else "enabled") for i in ids]))
 
     def marketplaces(self, *names):
         text = "Configured marketplaces:\n\n"
@@ -93,53 +96,69 @@ class DoctorTest(Sandbox):
         self.assertEqual(r.returncode, 0)
         self.assertIn("plugin:briefing\twarn\t", r.stdout)
 
-    def raw_plugins(self, text):
-        self.write("plugins.json", text)
+    def listed(self, text):
+        self.write("plugins.txt", text)
         self.marketplaces("getty")
         return self.doc()
 
-    def test_nested_object_between_id_and_enabled(self):
-        r = self.raw_plugins(
-            '[{"id":"briefing@getty","meta":{"a":[1,{"b":2}],"id":"q"},"list":[{"enabled":false}],"enabled":true},'
-            '{"id":"skilletor@getty","enabled":true}]')
-        self.assertIn("plugin:briefing\tok\t", r.stdout)
+    def test_a_plugin_enabled_in_one_of_several_scopes_is_ok(self):
+        # any enabled scope counts, whichever order the blocks come in
+        for order in (("disabled", "enabled"), ("enabled", "disabled")):
+            with self.subTest(order):
+                r = self.listed(plugin_blocks(
+                    ("briefing@getty", "project", order[0]), ("briefing@getty", "user", order[1]),
+                    ("skilletor@getty", "user", "enabled")))
+                self.assertIn("plugin:briefing\tok\t", r.stdout)
+                self.assertEqual(r.returncode, 0, r.stdout)
 
-    def test_string_with_braces_and_escaped_quote(self):
-        r = self.raw_plugins(
-            '[{"id":"briefing@getty","note":"a {brace} and \\"quote\\" and } \\\\","enabled":true},'
-            '{"id":"skilletor@getty","enabled":true}]')
+    def test_a_plugin_disabled_in_every_scope_is_a_warning(self):
+        r = self.listed(plugin_blocks(
+            ("briefing@getty", "project", "disabled"), ("briefing@getty", "user", "disabled"),
+            ("skilletor@getty", "user", "enabled")))
+        self.assertIn("plugin:briefing\twarn\t", r.stdout)
+        self.assertEqual(r.returncode, 0)
+
+    def test_a_block_without_a_recognisable_status_counts_as_disabled(self):
+        for label, status in (("no Status line", None), ("unknown word", "pending"),
+                              ("empty", "")):
+            with self.subTest(label):
+                r = self.listed(plugin_blocks(("briefing@getty", "user", status),
+                                              ("skilletor@getty", "user", "enabled")))
+                self.assertIn("plugin:briefing\twarn\t", r.stdout)
+                self.assertIn("plugin:skilletor\tok\t", r.stdout)
+
+    def test_a_status_belongs_to_its_own_block_only(self):
+        # the block of skilletor has no Status line; briefing's enabled above it is not
+        # inherited, and the last block (no line after it) is closed at the end of the text
+        r = self.listed(plugin_blocks(("briefing@getty", "user", "enabled"),
+                                      ("skilletor@getty", "user", None)))
+        self.assertIn("plugin:briefing\tok\t", r.stdout)
+        self.assertIn("plugin:skilletor\twarn\t", r.stdout)
+
+    def test_crlf_in_the_plugin_list_is_read_the_same(self):
+        r = self.listed(good_plugins(nl="\r\n"))
+        self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("plugin:briefing\tok\t", r.stdout)
         self.assertIn("plugin:skilletor\tok\t", r.stdout)
+        self.assertNotIn("\r", r.stdout)
 
-    def test_nested_enabled_in_disabled_plugin_does_not_count(self):
-        r = self.raw_plugins(
-            '[{"id":"briefing@getty","enabled":false,"x":{"id":"q","enabled":true}},'
-            '{"id":"skilletor@getty","enabled":true}]')
-        self.assertIn("plugin:briefing\twarn\t", r.stdout)
-
-    def test_nested_id_does_not_count(self):
-        r = self.raw_plugins(
-            '[{"id":"other@getty","enabled":true,"x":{"id":"briefing@getty","enabled":true}},'
-            '{"id":"skilletor@getty","enabled":true}]')
-        self.assertIn("plugin:briefing\tmissing\t", r.stdout)
-
-    def test_prefix_id_does_not_satisfy(self):
-        r = self.raw_plugins('[{"id":"briefing-extra@getty","enabled":true},'
-                             '{"id":"skilletor@getty","enabled":true}]')
+    def test_a_longer_id_does_not_satisfy_a_shorter_name(self):
+        r = self.listed(plugin_blocks(("briefing-extra@getty", "user", "enabled"),
+                                      ("skilletor@getty", "user", "enabled")))
         self.assertIn("plugin:briefing\tmissing\t", r.stdout)
         self.assertEqual(r.returncode, 1)
 
-    def test_same_plugin_in_two_scopes_one_disabled(self):
-        r = self.raw_plugins('[{"id":"briefing@getty","scope":"project","enabled":false},'
-                             '{"id":"briefing@getty","scope":"user","enabled":true},'
-                             '{"id":"skilletor@getty","enabled":true}]')
-        self.assertIn("plugin:briefing\tok\t", r.stdout)
+    def test_a_status_word_in_another_line_is_not_the_status(self):
+        r = self.listed("Installed plugins:\n\n  \u276f briefing@getty\n"
+                        "    Description: enabled in every scope\n"
+                        "    Status: \u2718 disabled\n\n"
+                        "  \u276f skilletor@getty\n    Status: \u2714 enabled\n")
+        self.assertIn("plugin:briefing\twarn\t", r.stdout)
 
-    def test_long_pretty_list_is_read(self):
-        ids = ["p%d@m" % i for i in range(300)] + ["briefing@getty", "skilletor@getty"]
-        self.plugins(*ids)
-        self.marketplaces("getty")
-        r = self.doc()
+    def test_a_long_plugin_list_is_read(self):
+        entries = [("p%d@m" % i, "user", "enabled") for i in range(300)]
+        entries += [("briefing@getty", "user", "enabled"), ("skilletor@getty", "user", "enabled")]
+        r = self.listed(plugin_blocks(*entries))
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("plugin:skilletor\tok\t", r.stdout)
 
@@ -166,20 +185,6 @@ class DoctorTest(Sandbox):
         self.assertEqual(rc, 143)
         self.assertFalse(alive, "claude --version still runs")
         self.assertEqual(left, [])
-
-    def test_compact_json_with_swapped_field_order(self):
-        self.plugins("briefing@getty", "skilletor@getty", "superpowers@x", compact=True)
-        self.marketplaces("getty")
-        r = self.doc()
-        self.assertEqual(r.returncode, 0)
-        self.assertIn("plugin:briefing\tok\t", r.stdout)
-        self.assertIn("plugin:superpowers\tok\t", r.stdout)
-
-    def test_plugin_enabled_in_one_scope_is_ok(self):
-        self.write("plugins.json", '[{"id":"briefing@getty","enabled":false},'
-                   '{"id":"briefing@getty","enabled":true},{"id":"skilletor@getty","enabled":true}]')
-        self.marketplaces("getty")
-        self.assertIn("plugin:briefing\tok\t", self.doc().stdout)
 
     def test_claude_failing_is_warn_not_missing(self):
         self.write("claude-fails", "")
@@ -397,93 +402,125 @@ class DoctorTest(Sandbox):
 
 
 class RuntimeTest(Sandbox):
-    """node (skilletor) and python (the briefing hook): warn, never missing."""
+    """skilletor and briefing, the two plugins' commands: ok with a version, warn when
+    --version does not answer, missing (and exit 1) when absent. The shared sandbox puts a
+    fake of each in fakebin; a test that wants one absent removes it."""
 
-    NODE = "#!/bin/sh\n[ \"$1\" = --version ] && echo %s\nexit 0\n"
-    PYTHON = "#!/bin/sh\n[ \"$1\" = --version ] && echo \"%s\"\nexit 0\n"
-    STUB = "#!/bin/sh\nexit 9009\n"
+    NAMES = ("skilletor", "briefing")
 
     def setUp(self):
         super().setUp()
         self.fake("claude", FAKE_CLAUDE)
-        self.write("plugins.json", "[]\n")
-        self.write("marketplaces.txt", "")
+        # everything else is in order, so the exit code speaks of the two commands only
+        self.write("plugins.txt", good_plugins())
+        self.write("marketplaces.txt", "Configured marketplaces:\n\n  \u276f getty\n"
+                   "    Source: GitHub (x/getty)\n\n")
 
     def line(self, r, name):
         hits = [l.split("\t") for l in r.stdout.splitlines() if l.startswith(name + "\t")]
         self.assertEqual(len(hits), 1, r.stdout)
         return hits[0]
 
-    def without(self, *names):
-        """A PATH holding fakebin and links to every other tool of the sandbox PATH."""
-        d = self.root / "toolbin"
-        d.mkdir(exist_ok=True)
-        for src in ("/usr/bin", "/bin"):
-            if not os.path.isdir(src):
-                continue
-            for n in os.listdir(src):
-                if n in names or n.startswith(("python", "node", "nodejs")) or (d / n).exists():
-                    continue
-                try:
-                    os.symlink(os.path.join(src, n), str(d / n))
-                except OSError:
-                    pass
-        return "%s:%s" % (self.fakebin, d)
+    def doc(self, env=None):
+        return self.run_cmd("bash", AD, env=env)
 
-    def test_present_and_new_enough(self):
-        self.fake("node", self.NODE % "v20.11.1")
-        self.fake("python3", self.PYTHON % "Python 3.12.1")
-        r = self.run_cmd("bash", AD)
-        n, p = self.line(r, "runtime:node"), self.line(r, "runtime:python")
-        self.assertEqual(n[1], "ok")
-        self.assertIn("v20.11.1", n[2])
-        self.assertEqual(p[1], "ok")
-        self.assertIn("Python 3.12.1", p[2])
+    def test_both_present_are_ok_with_their_version(self):
+        r = self.doc()
+        s, b = self.line(r, "runtime:skilletor"), self.line(r, "runtime:briefing")
+        self.assertEqual(s[1], "ok")
+        self.assertIn("skilletor 1.2.3", s[2])
+        self.assertEqual(b[1], "ok")
+        self.assertIn("briefing 9.8.7", b[2])
 
-    def test_node_18_is_enough(self):
-        self.fake("node", self.NODE % "v18.0.0")
-        self.fake("python3", self.PYTHON % "Python 3.9.0")
-        self.assertEqual(self.line(self.run_cmd("bash", AD), "runtime:node")[1], "ok")
+    def test_the_old_node_and_python_lines_are_gone(self):
+        r = self.doc()
+        self.assertNotIn("runtime:node", r.stdout)
+        self.assertNotIn("runtime:python", r.stdout)
 
-    def test_node_16_warns(self):
-        self.fake("node", self.NODE % "v16.20.2")
-        self.fake("python3", self.PYTHON % "Python 3.12.1")
-        r = self.run_cmd("bash", AD)
-        n = self.line(r, "runtime:node")
-        self.assertEqual(n[1], "warn")
-        self.assertIn("18 or newer", n[2])
-        self.assertIn("v16.20.2", n[2])
+    def test_a_version_on_a_crlf_line_is_read_without_the_cr(self):
+        self.fake("briefing", "#!/bin/sh\nprintf 'briefing 5.5.5\\r\\n'\n")
+        row = self.line(self.doc(), "runtime:briefing")
+        self.assertEqual(row[1], "ok")
+        self.assertNotIn("\r", row[2])
+        self.assertIn("briefing 5.5.5", row[2])
 
-    @unittest.skipIf(os.name == "nt", "the Windows host keeps its own node and python on PATH")
-    def test_absent_warns_and_says_why_and_how(self):
-        env = {"PATH": self.without("node", "nodejs", "python3", "python", "py")}
-        r = self.run_cmd("bash", AD, env=env)
-        for name, word in (("runtime:node", "Node.js"), ("runtime:python", "Python 3")):
-            row = self.line(r, name)
-            self.assertEqual(row[1], "warn", r.stdout)
-            self.assertIn(word, row[2])
-            self.assertIn("agent team", row[2])
-            self.assertIn("winget", row[2])
-            self.assertIn("brew", row[2])
-        # a warn never turns the exit code: the same lines with the tools present
-        self.fake("node", self.NODE % "v20.0.0")
-        self.fake("python3", self.PYTHON % "Python 3.12.1")
-        self.assertEqual(self.run_cmd("bash", AD).returncode, r.returncode)
+    def test_a_command_that_does_not_answer_version_is_a_warning(self):
+        for name, var in (("skilletor", "FAKE_SKILLETOR_VERSION_EXIT"),
+                          ("briefing", "FAKE_BRIEFING_VERSION_EXIT")):
+            with self.subTest(name):
+                r = self.doc(env={var: "3"})
+                row = self.line(r, "runtime:" + name)
+                self.assertEqual(row[1], "warn", r.stdout)
+                self.assertIn("--version", row[2])
+                self.assertIn("%s: cannot start (fake failure)" % name, row[2])   # first stderr line
+                self.assertNotIn("second stderr line", row[2])
+                self.assertIn("claude plugin update %s@getty" % name, row[2])
+                # the other one is not touched
+                other = [n for n in self.NAMES if n != name][0]
+                self.assertEqual(self.line(r, "runtime:" + other)[1], "ok")
+                # a warning does not turn the exit code
+                self.assertEqual(r.returncode, self.doc().returncode)
 
-    @unittest.skipIf(os.name == "nt", "the Windows host keeps its own node and python on PATH")
-    def test_store_stub_that_prints_nothing_does_not_count(self):
-        self.fake("python3", self.STUB)
-        self.fake("node", self.STUB)
-        env = {"PATH": self.without("node", "nodejs", "python3", "python", "py")}
-        r = self.run_cmd("bash", AD, env=env)
-        self.assertEqual(self.line(r, "runtime:python")[1], "warn")
-        self.assertEqual(self.line(r, "runtime:node")[1], "warn")
+    def test_a_command_that_answers_with_nothing_is_a_warning(self):
+        self.fake("skilletor", "#!/bin/sh\nexit 0\n")
+        self.assertEqual(self.line(self.doc(), "runtime:skilletor")[1], "warn")
 
-    @unittest.skipIf(os.name == "nt", "the Windows host keeps its own python on PATH, found next")
-    def test_python_2_does_not_count(self):
-        self.fake("python3", self.PYTHON % "Python 2.7.18")
-        self.fake("node", self.NODE % "v20.0.0")
-        self.assertEqual(self.line(self.run_cmd("bash", AD), "runtime:python")[1], "warn")
+    def test_the_warn_text_ends_with_the_reload_advice(self):
+        row = self.line(self.doc(env={"FAKE_BRIEFING_VERSION_EXIT": "3"}), "runtime:briefing")
+        self.assertTrue(row[2].endswith("claude plugin update briefing@getty, then run /reload-plugins."),
+                        row[2])
+        row = self.line(self.doc(env={"FAKE_SKILLETOR_VERSION_EXIT": "3"}), "runtime:skilletor")
+        self.assertTrue(row[2].endswith("claude plugin update skilletor@getty, then run /reload-plugins."),
+                        row[2])
+
+    # the advice of a command that is not on PATH follows the state of its plugin
+    ABSENT = {
+        "enabled": ("is installed and enabled but its command was not found on PATH",
+                    "claude plugin update %s@getty", ("claude plugin install", "claude plugin enable")),
+        "disabled": ("is installed but disabled", "claude plugin enable %s",
+                     ("claude plugin install", "claude plugin update")),
+        "absent": ("is not installed", "claude plugin install %s@getty",
+                   ("claude plugin enable", "claude plugin update")),
+        "unknown": ("was not found on PATH", "claude plugin update %s@getty (or claude plugin install %s@getty)",
+                    ("claude plugin enable",)),
+    }
+
+    def plugin_state(self, name, state):
+        other = [n for n in self.NAMES if n != name][0]
+        entries = [(other + "@getty", "user", "enabled")]
+        if state in ("enabled", "disabled"):
+            entries.append((name + "@getty", "user", state))
+        self.write("plugins.txt", plugin_blocks(*entries))
+        if state == "unknown":
+            self.write("claude-fails", "")     # the plugin list cannot be asked
+
+    @unittest.skipIf(os.name == "nt", "the Windows host keeps its own PATH, which may hold the plugins")
+    def test_an_absent_command_is_missing_and_the_advice_follows_the_plugin_state(self):
+        self.assertEqual(self.doc().returncode, 0, "the baseline must be green")
+        for name in self.NAMES:
+            for state, (why, how, never) in self.ABSENT.items():
+                with self.subTest(name=name, state=state):
+                    self.plugin_state(name, state)
+                    (self.fakebin / name).unlink()
+                    r = self.doc()
+                    row = self.line(r, "runtime:" + name)
+                    self.assertEqual(row[1], "missing", r.stdout)
+                    self.assertIn("%s %s" % (name, why), row[2])
+                    self.assertIn("agent team", row[2])
+                    self.assertIn(how.replace("%s", name), row[2])
+                    for other_advice in never:
+                        self.assertNotIn(other_advice, row[2])
+                    self.assertTrue(row[2].endswith(", then run /reload-plugins."), row[2])
+                    # missing is what turns the exit code; the other command stays ok
+                    self.assertEqual(r.returncode, 1, r.stdout)
+                    other = [n for n in self.NAMES if n != name][0]
+                    self.assertEqual(self.line(r, "runtime:" + other)[1], "ok")
+                    # a plugin that is not required is not why: put the command back
+                    fake = FAKE_SKILLETOR if name == "skilletor" else FAKE_BRIEFING
+                    shutil.copy(str(fake), str(self.fakebin / name))
+                    (self.fakebin / name).chmod(0o755)
+                    (self.home / "claude-fails").unlink(missing_ok=True)
+                    self.write("plugins.txt", good_plugins())
 
 
 if __name__ == "__main__":

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Stand-in for `skilletor`: answers --version; FAKE_SKILLETOR_VERSION_EXIT makes it fail.
+case "${1:-}" in
+  --version)
+    [ "${FAKE_SKILLETOR_VERSION_EXIT:-0}" = 0 ] ||
+      { echo "skilletor: cannot start (fake failure)" >&2; echo "second stderr line" >&2
+        exit "$FAKE_SKILLETOR_VERSION_EXIT"; }
+    echo "skilletor 1.2.3"
+    exit 0 ;;
+esac
+exit 0

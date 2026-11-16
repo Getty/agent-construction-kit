@@ -52,17 +52,45 @@ url_host() {
   REPLY="$h"
 }
 
-# plugin_state NAME -> PSTATE: enabled | disabled | absent (from PLUGIN_OBJS).
+# parse_plugins TEXT -> PLUGIN_ENTRIES: lines "ID<TAB>enabled|disabled", one per block
+# of the text of `claude plugin list` ("  ❯ id@market", then "Status: ✔ enabled" or
+# "Status: ✘ disabled"; one block per scope). A block without a recognizable status
+# counts as disabled.
+parse_plugins() {
+  local line id="" st=""
+  PLUGIN_ENTRIES=""
+  while IFS= read -r line; do
+    line="${line//$'\r'/}"
+    case "$line" in
+      *"❯"*)
+        [ -n "$id" ] && PLUGIN_ENTRIES="$PLUGIN_ENTRIES$id$TAB${st:-disabled}"$'\n'
+        line="${line#*❯}"; _ack_trim "$line"
+        id="${REPLY%%[[:space:]]*}"; st="" ;;
+      *[Ss]tatus:*)
+        [ -n "$id" ] || continue
+        case "$line" in
+          *disabled*) st=disabled ;;
+          *enabled*) st=enabled ;;
+        esac ;;
+    esac
+  done <<EOT
+$1
+EOT
+  [ -n "$id" ] && PLUGIN_ENTRIES="$PLUGIN_ENTRIES$id$TAB${st:-disabled}"$'\n'
+  return 0
+}
+
+# plugin_state NAME -> PSTATE: enabled | disabled | absent (from PLUGIN_ENTRIES).
 # A plugin counts as enabled if any entry (one per scope) is enabled.
 plugin_state() {
-  local name="$1" obj seen=0 on=0
+  local name="$1" id st seen=0 on=0
   PSTATE=absent
-  while IFS= read -r obj; do
-    case "$obj" in *',"id":"'"$name"'@'*) ;; *) continue ;; esac
+  while IFS="$TAB" read -r id st; do
+    case "$id" in "$name"@*) ;; *) continue ;; esac
     seen=1
-    case "$obj" in *',"enabled":true,'*) on=1 ;; esac
+    [ "$st" = enabled ] && on=1
   done <<EOT
-$PLUGIN_OBJS
+$PLUGIN_ENTRIES
 EOT
   if [ "$on" = 1 ]; then PSTATE=enabled; elif [ "$seen" = 1 ]; then PSTATE=disabled; fi
   return 0
@@ -117,34 +145,59 @@ else
   emit git missing "git is not installed or not on PATH; install git and run this again" required
 fi
 
-# ---------------------------------------------------------------- node, python
-# Not needed for the starters, needed to build and run an agent team: skilletor's launcher
-# wants Node.js 18+, the briefing hook is a Python 3 script. Looked up the way the
-# launchers do: node, and python3 (on Windows python3.exe, python.exe, then py -3:
-# ack_find_python, which ack-team uses too). A Windows Store stub exists but prints no
-# version, so only an answer to --version counts.
-
-nodebin=""
-if nodebin="$(type -P node 2>/dev/null)" && [ -n "$nodebin" ] &&
-   ack_run_bounded 15 "$nodebin" --version && [ -n "$ACK_BOUNDED_OUT" ]; then
-  nv="${ACK_BOUNDED_OUT%%$'\n'*}"; nv="${nv//$'\r'/}"
-  nmajor="${nv#v}"; nmajor="${nmajor%%.*}"
-  case "$nmajor" in
-    ''|*[!0-9]*) emit runtime:node warn "$nodebin printed '$nv' as its version; skilletor needs Node.js 18 or newer" ;;
-    *)
-      if [ "$nmajor" -ge 18 ]; then emit runtime:node ok "$nodebin ($nv)"
-      else emit runtime:node warn "$nodebin is Node.js $nv, and skilletor needs 18 or newer. Update it: Windows: winget upgrade OpenJS.NodeJS.LTS; macOS: brew upgrade node; Linux: your package manager"
-      fi ;;
-  esac
-else
-  emit runtime:node warn "Node.js is not installed or not on PATH, and building and running an agent team needs it (skilletor). Install it: Windows: winget install OpenJS.NodeJS.LTS; macOS: brew install node; Linux: your package manager, for example sudo apt install nodejs"
+# ---------------------------------------------------------------- ask claude
+# One question each about the marketplaces and the plugins; the lines that use the
+# answers follow below (runtime:*, marketplace:getty, plugin:*).
+MARKETS="" PLUGIN_ENTRIES="" ASKED_M=0 ASKED_P=0
+if [ -n "$CLAUDE" ] && [ "$CLAUDE_OK" = 1 ]; then
+  if ack_run_bounded 15 "$CLAUDE" plugin marketplace list; then
+    ASKED_M=1
+    while IFS= read -r line; do
+      line="${line//$'\r'/}"
+      case "$line" in *"❯"*) ;; *) continue ;; esac
+      line="${line#*❯}"; _ack_trim "$line"
+      MARKETS="$MARKETS ${REPLY%%[[:space:]]*}"
+    done <<EOT
+$ACK_BOUNDED_OUT
+EOT
+  fi
+  if ack_run_bounded 15 "$CLAUDE" plugin list; then
+    ASKED_P=1
+    parse_plugins "$ACK_BOUNDED_OUT"
+  fi
 fi
 
-if ack_find_python; then
-  emit runtime:python ok "$ACK_PYTHON ($ACK_PYTHON_VERSION)"
-else
-  emit runtime:python warn "Python 3 is not installed or not on PATH, and building and running an agent team needs it (the briefing hook is a Python script). Install it: Windows: winget install Python.Python.3.12 (the Microsoft Store stub does not count); macOS: brew install python; Linux: your package manager, for example sudo apt install python3"
-fi
+# ---------------------------------------------------------------- skilletor, briefing
+# Not needed for the starters, needed to build and run an agent team, so a missing one
+# counts as missing (exit 1). Both plugins ship their command in their bin/, which is on
+# the Bash tool's PATH. Only an answer to --version counts: a command that is found but
+# does not answer (too old, broken) is a warning that says to update; one that is not
+# found is missing, and the advice follows the plugin's own state (plugin list): update
+# when it is installed and enabled, enable when disabled, install only when absent.
+runtime_line() { # NAME
+  local n="$1" b v why have="" what="and building and running an agent team needs it" reload=", then run /reload-plugins."
+  if b="$(type -P "$n" 2>/dev/null)" && [ -n "$b" ]; then
+    if ack_run_bounded 15 "$b" --version && [ -n "$ACK_BOUNDED_OUT" ]; then
+      v="${ACK_BOUNDED_OUT%%$'\n'*}"; v="${v//$'\r'/}"
+      emit "runtime:$n" ok "$b ($v)"
+    else
+      why=""
+      [ -n "$ACK_BOUNDED_ERR" ] && why=" ($ACK_BOUNDED_ERR)"
+      emit "runtime:$n" warn "$b did not answer --version$why. Update the plugin with: claude plugin update $n@getty$reload"
+    fi
+  else
+    # the plugin's own state decides the advice: update what is installed, install the rest
+    if [ "$ASKED_P" = 1 ]; then plugin_state "$n"; have="$PSTATE"; fi
+    case "$have" in
+      enabled) emit "runtime:$n" missing "$n is installed and enabled but its command was not found on PATH, $what. Update the plugin with: claude plugin update $n@getty$reload" required ;;
+      disabled) emit "runtime:$n" missing "$n is installed but disabled, so its command was not found on PATH, $what. Enable the plugin with: claude plugin enable $n$reload" required ;;
+      absent) emit "runtime:$n" missing "$n is not installed, $what. Install the plugin with: claude plugin install $n@getty$reload" required ;;
+      *) emit "runtime:$n" missing "$n was not found on PATH, $what. Update or install the plugin with: claude plugin update $n@getty (or claude plugin install $n@getty)$reload" required ;;
+    esac
+  fi
+}
+runtime_line skilletor
+runtime_line briefing
 
 # ---------------------------------------------------------------- repo
 if [ -z "$gitbin" ]; then
@@ -176,25 +229,6 @@ detail="${model:-default}"
 emit session-model info "$detail"
 
 # ---------------------------------------------------------------- marketplace, plugins
-MARKETS="" PLUGIN_OBJS="" ASKED_M=0 ASKED_P=0
-if [ -n "$CLAUDE" ] && [ "$CLAUDE_OK" = 1 ]; then
-  if ack_run_bounded 15 "$CLAUDE" plugin marketplace list; then
-    ASKED_M=1
-    while IFS= read -r line; do
-      line="${line//$'\r'/}"
-      case "$line" in *"❯"*) ;; *) continue ;; esac
-      line="${line#*❯}"; _ack_trim "$line"
-      MARKETS="$MARKETS ${REPLY%%[[:space:]]*}"
-    done <<EOT
-$ACK_BOUNDED_OUT
-EOT
-  fi
-  if ack_run_bounded 15 "$CLAUDE" plugin list --json; then
-    ASKED_P=1
-    json_objects "$ACK_BOUNDED_OUT"
-  fi
-fi
-
 if [ "$ASKED_M" = 1 ]; then
   case "$MARKETS " in
     *" getty "*) emit marketplace:getty ok "marketplace getty is configured" required ;;

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Stand-in for `briefing`. Behaviour comes from the environment of the test:
+#   FAKE_BRIEFING_OUT          file whose bytes `doctor --tsv` prints as they are (default: nothing)
+#   FAKE_BRIEFING_EXIT         exit code of `doctor` (default 0)
+#   FAKE_BRIEFING_VERSION_EXIT exit code of `--version` (default 0; non-zero prints two stderr lines)
+#   FAKE_BRIEFING_STDERR       text `doctor` writes to stderr, a second line follows (default: nothing)
+#   FAKE_BRIEFING_HANG         seconds `doctor` sleeps before it answers (default 0)
+#   FAKE_BRIEFING_LOG          file that gets one line with the arguments of each call
+# "briefing is not installed" is the file missing from the sandbox's fakebin.
+[ -n "${FAKE_BRIEFING_LOG:-}" ] && printf '%s\n' "$*" >> "$FAKE_BRIEFING_LOG"
+case "${1:-}" in
+  --version)
+    [ "${FAKE_BRIEFING_VERSION_EXIT:-0}" = 0 ] ||
+      { echo "briefing: cannot start (fake failure)" >&2; echo "second stderr line" >&2
+        exit "$FAKE_BRIEFING_VERSION_EXIT"; }
+    echo "briefing 9.8.7"
+    exit 0 ;;
+  doctor)
+    [ -n "${FAKE_BRIEFING_HANG:-}" ] && sleep "$FAKE_BRIEFING_HANG"
+    [ -n "${FAKE_BRIEFING_STDERR:-}" ] && { echo "$FAKE_BRIEFING_STDERR" >&2; echo "second stderr line" >&2; }
+    [ -n "${FAKE_BRIEFING_OUT:-}" ] && cat "$FAKE_BRIEFING_OUT"
+    exit "${FAKE_BRIEFING_EXIT:-0}" ;;
+esac
+exit 2

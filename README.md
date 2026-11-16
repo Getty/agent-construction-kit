@@ -44,9 +44,6 @@ add coordination cost. Skills may be shared, while routing stays narrow and unam
 - git. On Windows, [Git for Windows](https://git-scm.com/downloads/win): the kit's
   commands run in its bash. If git is missing on macOS or Linux, the setup helps you
   install it.
-- For an agent team, also [Node.js](https://nodejs.org) 18 or newer and Python 3: two
-  of the plugins a team builds on need them. The machine setup with starters works
-  without both; the kit's check tells you if one is missing and how to get it.
 
 ## Install
 
@@ -58,8 +55,12 @@ In Claude Code, type:
 /reload-plugins
 ```
 
-`/reload-plugins` makes the new plugin available at once; restarting Claude Code does
-the same. Then say: **set up my machine for agent teams**.
+One install brings all three plugins an agent team builds on: this kit, skilletor and
+briefing (the kit declares the other two as dependencies). The kit itself needs neither
+Node.js nor Python; skilletor and briefing ship their own binaries where available and
+otherwise keep working on their current runtime. `/reload-plugins` makes the new plugins
+available at once; restarting Claude Code does the same. Then say:
+**set up my machine for agent teams**.
 
 ## Reusing skills
 

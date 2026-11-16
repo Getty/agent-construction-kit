@@ -165,9 +165,10 @@ commits. Include a changelog or release check only when the selected responsibil
 ## Verification
 
 Run `ack-team check` in the project folder; it only reads. One line per finding:
-`<what><TAB><status><TAB><file or name><TAB><text>`, status `ok`, `missing` or `warn`.
-Exit 0: no line is `missing`; 1: at least one is; 2: usage error or unusable folder. Fix
-and run again until no line is `missing`; tell the user each `warn` in one sentence.
+`<what><TAB><status><TAB><file or name><TAB><text>`, status `ok`, `missing` or `warn`. Exit 0:
+no line is `missing`; 1: at least one is; 2: usage error or unusable folder. Fix, run again
+until none is; tell the user each `warn` in one sentence. `agent`, `skill`, `hook`, `settings`
+are briefing's; no briefing answers: one `missing` line, `briefing<TAB>missing<TAB>.`, whose text ends with the cure ([machine.md](machine.md)).
 
 | What | Checks | On `missing` or `warn` |
 |---|---|---|
@@ -180,9 +181,8 @@ and run again until no line is `missing`; tell the user each `warn` in one sente
 | `board` | karr refs, or `BOARD.md` with the four headings | add what the text names |
 | `claude-md` | `CLAUDE.md` names every agent | add the name to the section |
 | `git` | a repository, and a remote | no remote: fine when the user chose "only on this computer". `missing` with "git cannot read the repository: <reason>": the reason (dubious ownership, a broken `.git`); tell the user, change nothing until they fixed it |
-| `hook` | runs the briefing hook as if each agent were started; the first worker (else the first agent) must also get a briefing | every agent passes: ONE line `hook<TAB>ok<TAB><first worker>`, standing for all of them. `missing`: one line per agent the hook refuses, or for the first worker when it hands an abort; the text is briefing's reason: fix that entry. `warn` (one line; the hook part stops there): hook not found, only an installed and enabled briefing counts (`claude plugin install briefing@getty`), no answer in time (run again), or it briefs nothing for the first worker (give it `briefing.skills`) |
-| `json-parser` | selects a standard parser that passes strict JSON capability probes: a `jq` build that accepts malformed number forms is skipped, while a suitable Node or Python 3 parser may be used instead; success is `json-parser<TAB>ok<TAB><backend>` | missing is `json-parser<TAB>missing<TAB><capability><TAB><text>`: install or make a suitable `jq`, Node or Python 3 parser available, then rerun. An installed `jq` alone can be unsuitable. It exits 1 and does not run a briefing hook from unchecked metadata |
-That the hook refuses a broken agent is checked once by hand, in a scratch folder:
+| `hook` | briefing's line: the hook run as if each agent were started; the first worker (else the first agent) must also get a briefing | every agent passes: ONE line `hook<TAB>ok<TAB><first worker>`, standing for all of them. `missing`: one line per agent the hook refuses, or for the first worker when it hands an abort; the text is briefing's reason: fix that entry. `warn`: the text says why (briefing's hook not found, no answer in time: run again; or it briefs nothing for the first worker: give it `briefing.skills`) |
+That the hook refuses a broken agent is checked once by hand, in a scratch folder (`ack-team` passes briefing's `hook` line through):
 
 ```bash
 d="$(mktemp -d)"; mkdir -p "$d/.claude/agents"
@@ -193,7 +193,7 @@ bash "<skill base dir>/../../bin/ack-team" check "$d" | grep '^hook'; rm -rf "$d
 Expected: a line `hook<TAB>missing<TAB>probe-worker<TAB>` whose text, briefing's reason,
 names `no-such-skill`. Any other result means the team is not checked: never hand it over
 as checked. `ok`: the hook lets broken agents start; report it. `warn`, or no `hook` line:
-briefing did not run; tell the user so, naming the `runtime:python` line of `ack-doctor`.
+briefing did not run; tell the user so, naming the `runtime:briefing` line of `ack-doctor`.
 
 New agents start only in a new session (Claude Code reads agent files when a session
 starts); the hand-over says so ([using-the-team.md](using-the-team.md)).

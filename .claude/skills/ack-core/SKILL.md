@@ -12,14 +12,14 @@ A Claude Code plugin that sets up a machine and a repository for agent teams
 
 - `bin/`: the commands `ack-doctor`, `ack-wrappers`, `ack-proxy`, `ack-repo`, `ack-team`.
   Each starts with a comment header: usage, the lines it prints, its exit codes.
-- `share/lib.sh`: functions the commands source (`. "$SHARE/lib.sh"`), JSON reading in
-  awk included; `share/claude-with`: the launcher behind every `claude_with_<name>`
+- `share/lib.sh`: functions the commands source (`. "$SHARE/lib.sh"`); no JSON reading;
+  `share/claude-with`: the launcher behind every `claude_with_<name>`
   starter; `share/providers/*.conf`: one provider definition each.
 - `skills/agent-construction-kit/SKILL.md`: the procedure; `references/*.md`: one file per
   step, opened only when a step names it.
 - `tests/`: Python `unittest`, one `test_*.py` per command plus `test_skill.py`;
   `tests/helpers.py` (`Sandbox`: a fresh HOME with a space in its name, a fake `claude`
-  first on PATH); `tests/fake/`: fake `claude` and briefing hooks.
+  first on PATH); `tests/fake/`: fake `claude`, `briefing` and `skilletor`.
 - `.claude-plugin/plugin.json`: the manifest; `.github/workflows/ci.yml`: the tests on
   Ubuntu, macOS and Windows, in bash.
 - `.superpowers/` (gitignored): plans and reviews of earlier stages; history, not rules.
