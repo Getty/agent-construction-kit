@@ -5,9 +5,11 @@
 #   FAKE_BRIEFING_VERSION_EXIT exit code of `--version` (default 0; non-zero prints two stderr lines)
 #   FAKE_BRIEFING_STDERR       text `doctor` writes to stderr, a second line follows (default: nothing)
 #   FAKE_BRIEFING_HANG         seconds `doctor` sleeps before it answers (default 0)
-#   FAKE_BRIEFING_LOG          file that gets one line with the arguments of each call
+#   FAKE_BRIEFING_LOG          file that gets one line per call: the arguments, a tab, the
+#                              directory the call ran in ($PWD)
+#   FAKE_BRIEFING_PIDFILE      file that gets the pid ($$) of the `doctor` call
 # "briefing is not installed" is the file missing from the sandbox's fakebin.
-[ -n "${FAKE_BRIEFING_LOG:-}" ] && printf '%s\n' "$*" >> "$FAKE_BRIEFING_LOG"
+[ -n "${FAKE_BRIEFING_LOG:-}" ] && printf '%s\t%s\n' "$*" "$PWD" >> "$FAKE_BRIEFING_LOG"
 case "${1:-}" in
   --version)
     [ "${FAKE_BRIEFING_VERSION_EXIT:-0}" = 0 ] ||
@@ -16,6 +18,7 @@ case "${1:-}" in
     echo "briefing 9.8.7"
     exit 0 ;;
   doctor)
+    [ -n "${FAKE_BRIEFING_PIDFILE:-}" ] && echo "$$" > "$FAKE_BRIEFING_PIDFILE"
     [ -n "${FAKE_BRIEFING_HANG:-}" ] && sleep "$FAKE_BRIEFING_HANG"
     [ -n "${FAKE_BRIEFING_STDERR:-}" ] && { echo "$FAKE_BRIEFING_STDERR" >&2; echo "second stderr line" >&2; }
     [ -n "${FAKE_BRIEFING_OUT:-}" ] && cat "$FAKE_BRIEFING_OUT"

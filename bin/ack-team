@@ -6,8 +6,10 @@
 # tabs (the last may be empty, its tab stays):
 #   WHAT<TAB>ok|missing|warn<TAB>FILE-OR-NAME<TAB>TEXT
 # The agent, skill, hook and settings findings come from the briefing plugin: check runs
-# `briefing doctor --tsv --cwd DIR` (at most ACK_BRIEFING_WAIT seconds, default 30) and
-# passes its lines on unchanged, every CR dropped, but only lines of the contract: four
+# `briefing doctor --tsv` in DIR for at most ACK_BRIEFING_WAIT seconds (default 30), with
+# no --cwd: a path with characters outside the Windows ANSI code page does not survive a
+# Perl command line, the working directory does. Its lines pass on unchanged, every CR
+# dropped, but only lines of the contract: four
 # tab-separated fields, WHAT one of agent, skill, hook, settings, status ok, missing or
 # warn. See briefing for what each one checks. When no briefing command answers (not on
 # PATH, no answer in time, exit 2 or more, or no settings line among the contract
@@ -175,6 +177,19 @@ _collapse_path() {
 
 # ---------------------------------------------------------------- briefing
 
+# _briefing_doctor BIN: `BIN doctor --tsv` run from DIR. Meant to run inside
+# ack_run_bounded, which starts it as a background subshell: the cd stays out of the
+# caller, and exec makes BIN that process, so a timeout or a signal kills briefing itself
+# and not just a subshell around it. A cd that fails is an exit 2 with the reason on
+# stderr, which check_briefing reports like any failed run.
+_briefing_doctor() {
+  CDPATH= cd -- "$DIR" 2>/dev/null || {
+    echo "ack-team: cannot enter $DIR to run briefing." >&2
+    return 2
+  }
+  exec "$1" doctor --tsv
+}
+
 # check_briefing: the agent, skill, hook and settings lines are the briefing plugin's.
 # Only lines of the contract pass through: four fields split at the tabs (the last may be
 # empty), WHAT one of agent, skill, hook, settings, status ok, missing or warn, a name
@@ -196,7 +211,7 @@ check_briefing() {
     emit briefing missing "." "No briefing command was found on PATH, $tail. $fix"
     return 0
   fi
-  ack_run_bounded "$wait" "$bin" doctor --tsv --cwd "$DIR"; rc=$?
+  ack_run_bounded "$wait" _briefing_doctor "$bin"; rc=$?
   why=""
   if [ "$rc" != 0 ] && [ "$rc" != 124 ]; then
     why=" (exit $rc"

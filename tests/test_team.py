@@ -687,12 +687,21 @@ class TeamTest(Sandbox):
         self.assertTrue(row[3].endswith(" " + FIX), row[3])
         return row
 
-    def test_briefing_is_called_with_tsv_and_the_checked_directory(self):
-        d = self.team(name="my harbor")
-        log = self.root / "briefing-calls.log"
-        r = self.at("check", str(d), cwd=self.root, env={"FAKE_BRIEFING_LOG": str(log)})
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(log.read_text().splitlines(), ["doctor --tsv --cwd %s" % self.shown(d)])
+    def test_briefing_is_called_with_tsv_and_runs_in_the_checked_directory(self):
+        # `doctor --tsv` and nothing else: the directory is the working directory, not an
+        # argument (no --cwd: a path with 技能 in it breaks as an argument on Windows)
+        for n, name in enumerate(("harbor", "my harbor", "技能", "技能 harbor")):
+            with self.subTest(name):
+                try:
+                    d = self.team(name=name)
+                except (OSError, UnicodeError) as e:
+                    self.skipTest("skipped: this sandbox cannot create a directory named %r (%s)"
+                                  % (name, e))
+                log = self.root / ("briefing-calls-%d.log" % n)
+                r = self.at("check", str(d), cwd=self.root, env={"FAKE_BRIEFING_LOG": str(log)})
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertEqual(log.read_text(encoding="utf-8").splitlines(),
+                                 ["doctor --tsv\t%s" % self.shown(d)])
 
     def test_briefing_lines_lose_every_carriage_return(self):
         d = self.team()
@@ -750,11 +759,28 @@ class TeamTest(Sandbox):
         import time
         d = self.team()
         t = time.time()
-        r = self.at("check", cwd=d, env={"ACK_BRIEFING_WAIT": "1", "FAKE_BRIEFING_HANG": "8"})
+        pidfile = self.root / "briefing.pid"
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_WAIT": "1", "FAKE_BRIEFING_HANG": "8",
+                                         "FAKE_BRIEFING_PIDFILE": str(pidfile)})
         self.assertLess(time.time() - t, 7, "the check waited for the hanging briefing")
         row = self.only_briefing_missing(r, d)
         self.assertIn("did not answer within 1 seconds", row[3])
         self.assertNotIn("(exit", row[3])
+        # the timeout kills briefing itself, not only the subshell around it
+        if os.name == "nt":
+            self.skipTest("skipped on Windows: the pid of an MSYS bash is not a Windows pid, "
+                          "so os.kill cannot check that briefing is gone")
+        pid = int(pidfile.read_text().strip())
+        deadline = time.time() + 2
+        alive = True
+        while alive and time.time() < deadline:
+            try:
+                os.kill(pid, 0)
+                time.sleep(0.1)
+            except ProcessLookupError:
+                alive = False
+        self.assertFalse(alive, "the hanging briefing (pid %d) still runs after the check "
+                                "returned" % pid)
 
     def test_a_slow_briefing_inside_the_wait_is_used(self):
         d = self.team()
@@ -831,8 +857,7 @@ class TeamTest(Sandbox):
                          ["hook", "ok", "harbor-worker", ""])
 
     def test_help_text_or_no_output_is_one_missing_line(self):
-        helptext = ("Usage: briefing doctor [--tsv] [--cwd DIR]\n\n  --tsv\tprint tab separated lines\n"
-                    "  --cwd DIR\tthe project\n")
+        helptext = ("Usage: briefing doctor [--tsv]\n\n  --tsv\tprint tab separated lines\n")
         for label, text, code in (("help text", helptext, 0), ("silent", "", 0),
                                   ("silent, exit 1", "", 1), ("only blank lines", "\n\r\n\n", 0)):
             with self.subTest(label):
