@@ -5,7 +5,7 @@ import unittest
 from helpers import ROOT
 
 
-TUNE = ROOT / "skills" / "tune" / "SKILL.md"
+TUNE = ROOT / "skills" / "agent-tune" / "SKILL.md"
 FIXTURES = ROOT / "tests" / "fixtures" / "tune"
 
 
@@ -18,16 +18,17 @@ class TuneSkillTest(unittest.TestCase):
     """Text contracts for a manual workflow, not assertions about model behavior."""
 
     def skill(self):
-        self.assertTrue(TUNE.is_file(), "the plugin needs skills/tune/SKILL.md")
+        self.assertTrue(TUNE.is_file(), "the plugin needs skills/agent-tune/SKILL.md")
         return read(TUNE)
 
     def test_tune_is_a_manual_plugin_scoped_command(self):
         text = self.skill()
         self.assertRegex(text, r"(?m)^---$")
-        self.assertRegex(text, r"(?m)^name: tune$")
+        self.assertRegex(text, r"(?m)^name: agent-tune$")
         self.assertRegex(text, r"(?m)^disable-model-invocation: true$")
-        self.assertIn("/agent-construction-kit:tune", text)
-        self.assertRegex(text, r"(?is)(?:manual|explicit).{0,100}(?:invoke|request|run)")
+        self.assertIn("/agent-tune", text)
+        # the user types it (disable-model-invocation above); the text says it is manual
+        self.assertRegex(text, r"(?is)`/agent-tune` is a manual.{0,40}read-only")
         self.assertRegex(text, r"(?is)(?:does not|never).{0,100}"
                                r"(?:background|continuous).{0,100}(?:watch|monitor|scan)")
         self.assertLessEqual(len(text.splitlines()), 150)

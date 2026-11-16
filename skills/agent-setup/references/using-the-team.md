@@ -94,10 +94,10 @@ skipped), not with a starter for another service (`claude_with_<name>`).
 
 After the hand-over, a sentence or two each, for what applies; nothing else:
 
-- After real work has accumulated, recommend: "You can manually run
-  `/agent-construction-kit:tune` to review this team's project-scoped work and propose
-  improvements before any change. Shall I do that?" It is an explicitly invoked, read-only
-  review; it does not edit, publish or change permissions.
+- After real work has accumulated, recommend: "You can manually type `/agent-tune`
+  (in full `/agent-construction-kit:agent-tune`) to review this team's project-scoped work
+  and propose improvements before any change." Claude cannot start it; the user types it. It
+  is an explicitly invoked, read-only review; it does not edit, publish or change permissions.
 - When project knowledge can help another project, offer once: "You can collect reusable skills in your
   own local, private or shared repository; I can show you how when you want." First look through
   installed skills and trusted source catalogs, then load a relevant one before authoring. An optional
@@ -118,8 +118,9 @@ After the hand-over, a sentence or two each, for what applies; nothing else:
   later version of the kit can look, with your permission, at which computers and services
   you work with (your SSH settings, the hosts you know) and propose a structure for them."
 - A preset named starters (`provider`): nothing of that was installed during the build.
-  Name each one whose state `ack-wrappers list` shows as `absent` and offer to set it up
-  ([machine.md](machine.md), step 2).
+  Name each one whose state `ack-wrappers list` shows as `absent` and say that `/agent-machine`
+  sets them up: the user types it in the new session, after the `/exit` and `claude` above.
+  Do not set them up inside `/agent-setup`.
 
 ## With a hub
 

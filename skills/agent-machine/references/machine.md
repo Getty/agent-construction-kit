@@ -1,8 +1,8 @@
 # Machine setup: plugins and starters
 
 The steps for the machine, after Step 0 of the skill (the model of this session). Talk
-with the user and run the commands as SKILL.md says. Its step 2 below says which of
-steps 3 and 4 apply.
+with the user and run the commands as SKILL.md says; `/agent-setup` opens step 1 only.
+Its step 2 below says which of steps 3 and 4 apply.
 
 ## Contents
 

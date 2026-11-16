@@ -678,7 +678,7 @@ cmd_set() {
     case " PREFIX $ACK_KNOWN_KEYS $ACK_KEYS " in
       *" $k "*) ;;
       *) echo "ack-wrappers: $k is not a key that a definition knows, so nothing was changed." >&2
-         echo "ack-wrappers: check its spelling against the keys in the providers reference of the skill." >&2
+         echo "ack-wrappers: check its spelling against the keys in the providers reference of /agent-machine." >&2
          exit 2 ;;
     esac
     if [ "$k" = PROXY_PORT ] && ! ack_valid_port "$v"; then

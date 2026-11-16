@@ -43,7 +43,7 @@ need_binary() {
   if ack_find_proxy; then BIN="$REPLY"; else BIN=""; fi
   if [ -z "$BIN" ]; then
     echo "ack-proxy: claude-code-proxy is not installed." >&2
-    echo "ack-proxy: install it (see the skill's references/openai-proxy.md), then try again." >&2
+    echo "ack-proxy: install it (see the OpenAI proxy reference of /agent-machine), then try again." >&2
     exit 5
   fi
 }

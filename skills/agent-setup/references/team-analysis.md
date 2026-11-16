@@ -21,7 +21,7 @@ Run `ack-repo inspect` in the project folder; it only reads, offline. One fact p
   none yet, or a bare one (a store for copies, without files to work on).
 - `git<TAB>inside<TAB><top>`: the folder lies inside the repository `<top>`. Before anything
   else ask whether the team belongs to `<top>` (then the user starts Claude there, as in
-  Step 1 of SKILL.md) or to this folder alone (question 1). `git<TAB>home<TAB><top>`: that
+  Step 2 of SKILL.md) or to this folder alone (question 1). `git<TAB>home<TAB><top>`: that
   repository is the user's home folder kept in git; never build in it: question 1, or Step 2
   of SKILL.md when `<top>` is this folder (a home folder is no project). Neither prints
   `commits`, `branch`, `dirty` or `remote` lines; the other lines are this folder's.

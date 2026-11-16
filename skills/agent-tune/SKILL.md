@@ -1,12 +1,12 @@
 ---
-name: tune
-description: "Use when a user explicitly requests a review of an ACK team's observed project workload and possible team improvements."
+name: agent-tune
+description: "Review how an agent team's work was spread and propose improvements; read-only."
 disable-model-invocation: true
 ---
 
 # Tune an agent team
 
-`/agent-construction-kit:tune` is a manual, read-only review. It does not continuously
+`/agent-tune` is a manual, read-only review. It does not continuously
 watch, monitor or scan history. It produces a report and proposed changes, not an
 automatic patch or edit.
 

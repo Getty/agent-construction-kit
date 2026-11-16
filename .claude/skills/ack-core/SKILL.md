@@ -15,8 +15,9 @@ A Claude Code plugin that sets up a machine and a repository for agent teams
 - `share/lib.sh`: functions the commands source (`. "$SHARE/lib.sh"`); no JSON reading;
   `share/claude-with`: the launcher behind every `claude_with_<name>`
   starter; `share/providers/*.conf`: one provider definition each.
-- `skills/agent-construction-kit/SKILL.md`: the procedure; `references/*.md`: one file per
-  step, opened only when a step names it.
+- `skills/agent-setup`, `skills/agent-machine`, `skills/agent-tune`: the three commands
+  (SKILL.md each, `disable-model-invocation`); `references/*.md`: opened only when a step
+  names it.
 - `tests/`: Python `unittest`, one `test_*.py` per command plus `test_skill.py`;
   `tests/helpers.py` (`Sandbox`: a fresh HOME with a space in its name, a fake `claude`
   first on PATH); `tests/fake/`: fake `claude`, `briefing` and `skilletor`.

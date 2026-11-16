@@ -23,17 +23,20 @@ presets use; the project rules keep the answers in their first line. "Kit alone"
 | `sources` | `<name>=<address>`, comma-separated; added to the kit's | `getty=Getty/skills`; with karr also `karr=Getty/karr` | the skilletor sources the project installs from |
 | `roles` | a table, see Presets | selected optional patterns start with "Base skills" in [team-agents.md](team-agents.md) | per selected pattern, the base skills in its `briefing.skills` |
 | `bundles` | bundle names | none: the house rules come as bundle `house` ([team-rules.md](team-rules.md)) | skilletor bundles; a bare name comes from source `getty`, else `<bundle>@<source>` |
-| `provider` | provider names, or `none` | asked in the machine setup | which `claude_with_<name>` starters to offer. The team build installs none; the hand-over offers each one `ack-wrappers list` shows as `absent` ("Next steps" in [using-the-team.md](using-the-team.md)) |
+| `provider` | provider names, or `none` | asked in the machine setup | which `claude_with_<name>` starters to offer. The team build installs none; the hand-over names each one `ack-wrappers list` shows as `absent` and points to `/agent-machine` ("Next steps" in [using-the-team.md](using-the-team.md)) |
 | `headless` | `on`, `off` | `off`, never asked | `on`: install skills `claude-headless` and `model-routing` and name them in the project rules; a plan line only when a preset sets it |
 
 ## Presets
 
 A preset is a skill with a section `## Answer sheet` whose description says, in any words,
 that it is a preset for agent-construction-kit or is loaded before the kit's skill
-("Preset for agent-construction-kit: …", "Acme's preset: load it before the skill of the
-plugin agent-construction-kit"). Before the
+("Preset for agent-construction-kit: …", "Preset for agent-construction-kit (/agent-setup …)",
+"Acme's preset: load it before the skill of the plugin agent-construction-kit"). Claude does
+not see the kit's commands in its skill list, so a preset checks that the plugin is there with
+`ack-doctor` on PATH. Before the
 questions, look through the skills this session lists: load each preset there with the
-Skill tool, take its answers and ask only the rest. A listed preset without that section
+Skill tool, take its answers and ask only the rest (`/agent-machine` loads them the same
+way, for the `provider` line). A listed preset without that section
 is an older copy: say so in one sentence ("<name> is an older preset without an answer
 sheet; I go on without it.") and go on without it. Nothing is searched for or installed
 on the kit's own initiative. Its author writes the section like this:

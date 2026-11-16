@@ -4,15 +4,22 @@ import unittest
 
 from helpers import ROOT, Sandbox
 
-SKILL_DIR = ROOT / "skills" / "agent-construction-kit"
+# The kit has three skills, each a manual command (/agent-setup, /agent-machine, /agent-tune).
+SKILLS_DIR = ROOT / "skills"
+SKILL_NAMES = ("agent-setup", "agent-machine", "agent-tune")
+SKILL_DIR = SKILLS_DIR / "agent-setup"       # the team procedure and its references
 SKILL = SKILL_DIR / "SKILL.md"
+MACHINE_DIR = SKILLS_DIR / "agent-machine"   # the machine procedure and its references
+MACHINE_SKILL = MACHINE_DIR / "SKILL.md"
+TUNE_SKILL = SKILLS_DIR / "agent-tune" / "SKILL.md"
 README = ROOT / "README.md"
 PROVIDER_DIR = ROOT / "share" / "providers"
 AW = str(ROOT / "bin" / "ack-wrappers")
 SCRIPTS = sorted(p for p in (ROOT / "bin").iterdir() if p.is_file()) + \
     [ROOT / "share" / "claude-with", ROOT / "share" / "lib.sh"]
 REFS = SKILL_DIR / "references"
-MACHINE = REFS / "machine.md"
+MACHINE_REFS = MACHINE_DIR / "references"
+MACHINE = MACHINE_REFS / "machine.md"
 TEAM_REFS = ("team-analysis.md", "team-answer-sheet.md", "team-agents.md", "team-rules.md",
              "team-board.md", "team-family.md", "team-second-copy.md", "team-without-code.md",
              "using-the-team.md")
@@ -33,9 +40,15 @@ def read(path):
         return f.read()
 
 
+def skill_docs(name):
+    """SKILL.md of one skill and every reference file next to it."""
+    base = SKILLS_DIR / name
+    return [base / "SKILL.md"] + sorted((base / "references").glob("*.md"))
+
+
 def docs():
-    """SKILL.md and every reference file next to it."""
-    return [SKILL] + sorted((SKILL_DIR / "references").glob("*.md"))
+    """SKILL.md and the references of all three skills."""
+    return [d for name in SKILL_NAMES for d in skill_docs(name)]
 
 
 def frontmatter(path):
@@ -54,6 +67,12 @@ def code_spans(text):
     """Contents of fenced blocks and of inline `code` spans."""
     rest = FENCE.sub("", text)
     return FENCE.findall(text) + re.findall(r"`([^`\n]+)`", rest)
+
+
+def named_references(text):
+    """`references/x.md` names of a skill's own folder; a link into another skill
+    (../agent-machine/references/x.md) is not one of them."""
+    return set(re.findall(r"(?<![\w./-])references/[\w.-]+\.md", text))
 
 
 def links(path):
@@ -119,53 +138,133 @@ def shipped_providers():
 
 class SkillTest(Sandbox):
     def test_frontmatter(self):
-        fm = frontmatter(SKILL)
-        self.assertEqual(fm["name"], "agent-construction-kit")
-        self.assertTrue(fm["description"].startswith("Use when"), fm["description"])
-        for word in ("agent teams", "claude_with_", "claude_with_danger", "proxy",
-                     "briefing", "skilletor", "build an agent team", "subagents",
-                     "project or folder", ".claude/agents", "ack-doctor", "ack-wrappers",
-                     "ack-proxy", "ack-repo", "ack-team",
-                     "I have a homelab and want to develop things", "not an ordinary coding"):
-            self.assertIn(word, fm["description"])
-        self.assertLessEqual(len(fm["description"]), 1024)
+        # three manual commands: nothing starts them but the user, so there is no
+        # "Use when" trigger text to match and no entry question
+        self.assertEqual(sorted(p.name for p in SKILLS_DIR.iterdir()), sorted(SKILL_NAMES))
+        for name in SKILL_NAMES:
+            path = SKILLS_DIR / name / "SKILL.md"
+            self.assertTrue(path.is_file(), name)
+            fm = frontmatter(path)
+            self.assertEqual(fm.get("name"), name)
+            self.assertEqual(fm.get("disable-model-invocation"), "true",
+                             "%s: frontmatter needs disable-model-invocation: true" % name)
+            description = fm.get("description", "")
+            self.assertTrue(description, "%s: frontmatter has no description" % name)
+            self.assertLessEqual(len(description), 200, "%s: a command's description "
+                                 "is one line, not a trigger text" % name)
+            self.assertFalse(description.startswith("Use when"), name)
+        for name in ("agent-setup", "agent-machine"):
+            text = " ".join(read(SKILLS_DIR / name / "SKILL.md").split())
+            self.assertNotRegex(text, r"(?i)team or (?:the )?machine", name)
+            self.assertNotIn("**Team**", text, name)
+            self.assertNotIn("**Machine**", text, name)
 
     def test_every_referenced_file_exists(self):
-        text = read(SKILL)
-        named = set(re.findall(r"references/[\w.-]+\.md", text))
-        self.assertTrue(named, "SKILL.md names no reference file")
-        for rel in named:
-            self.assertTrue((SKILL_DIR / rel).is_file(), rel)
-        for name in AWAITING_SKILL_LINK:
-            self.assertNotIn("references/" + name, named, "SKILL.md links %s now: remove "
-                             "it from AWAITING_SKILL_LINK in this file" % name)
-        reached, todo = set(), ["team-analysis.md"]
-        while todo:
-            name = todo.pop()
-            if name not in reached and (REFS / name).is_file():
-                reached.add(name)
-                todo += [t for t in links(REFS / name) if "/" not in t]
-        for p in REFS.glob("*.md"):   # no orphans either
-            if p.name in AWAITING_SKILL_LINK:
-                self.assertIn(p.name, reached, "%s: linked from neither SKILL.md nor "
-                              "team-analysis.md (or a file it links)" % p.name)
-            else:
-                self.assertIn("references/" + p.name, named)
+        for name in SKILL_NAMES[:2]:
+            base = SKILLS_DIR / name
+            named = named_references(read(base / "SKILL.md"))
+            self.assertTrue(named, "%s/SKILL.md names no reference file" % name)
+            for rel in named:
+                self.assertTrue((base / rel).is_file(), "%s: %s" % (name, rel))
+            own = sorted((base / "references").glob("*.md"))
+            if name == "agent-setup":
+                for aw in AWAITING_SKILL_LINK:
+                    self.assertNotIn("references/" + aw, named, "SKILL.md links %s now: remove "
+                                     "it from AWAITING_SKILL_LINK in this file" % aw)
+                reached, todo = set(), ["team-analysis.md"]
+                while todo:
+                    ref = todo.pop()
+                    if ref not in reached and (REFS / ref).is_file():
+                        reached.add(ref)
+                        todo += [t for t in links(REFS / ref) if "/" not in t]
+            for p in own:                # no orphans either
+                if name == "agent-setup" and p.name in AWAITING_SKILL_LINK:
+                    self.assertIn(p.name, reached, "%s: linked from neither SKILL.md nor "
+                                  "team-analysis.md (or a file it links)" % p.name)
+                else:
+                    self.assertIn("references/" + p.name, named, "%s: %s" % (name, p.name))
+
+    def test_absent_preset_starters_go_to_agent_machine_in_the_new_session(self):
+        step6 = " ".join(re.search(r"^## Step 6:.*?\n(.*?)(?=^## |\Z)", read(SKILL),
+                                   re.S | re.M).group(1).split())
+        self.assertRegex(step6, r"`ack-wrappers list` shows `absent`.{0,60}`/agent-machine`.{0,80}"
+                                r"in the new session after the restart")
+        use = " ".join(read(REFS / "using-the-team.md").split())
+        self.assertRegex(use, r"`ack-wrappers list` shows as `absent` and say that "
+                              r"`/agent-machine` sets them up: the user types it in the new session")
+        self.assertIn("Do not set them up inside `/agent-setup`", use)
+        self.assertNotRegex(step6, r"(?i)\boffer\w*\b[^.]{0,80}starters")
+
+    def test_the_machine_skill_leaves_out_a_survey_and_reads_the_preset_provider_line(self):
+        flat = " ".join(read(MACHINE_SKILL).split())
+        self.assertIn("Not in this version: a survey of the machine (its computers and services). "
+                      "Asked for: say so in a sentence and go on with the machine setup.", flat)
+        self.assertRegex(flat, r"take its `provider` line from its `## Answer sheet`.{0,200}"
+                               r"Step 2 of machine\.md asks openly: start from the preset's "
+                               r"providers \(offer those first\), then ask whether anything else "
+                               r"is wanted\. `none`: no starters from the preset\.")
+        steps = re.findall(r"^## (\d+)\. ", read(MACHINE), re.M)
+        self.assertIn("2", steps, "machine.md has no step 2 for the provider line to name")
+
+    def test_readme_defines_a_preset_and_the_setup_skill_points_at_providers_md(self):
+        reuse = " ".join(read(README).partition("## Reusing skills")[2].partition("\n## ")[0].split())
+        self.assertRegex(reuse, r"A preset is a skill the session lists whose description names "
+                                r"this kit's commands and that has a `## Answer sheet` section")
+        self.assertIn("`/agent-setup` and `/agent-machine` load it themselves", reuse)
+        self.assertIn("Nothing is searched for or installed on the kit's own initiative", reuse)
+        setup = " ".join(read(SKILL).split())
+        self.assertIn("(`ack-doctor`, `ack-wrappers`: [providers.md]"
+                      "(../agent-machine/references/providers.md))", setup)
+
+    def test_no_text_still_names_the_single_skill_or_its_entry(self):
+        self.assertFalse((SKILLS_DIR / "agent-construction-kit").exists())
+        self.assertFalse((SKILLS_DIR / "tune").exists())
+        for doc in docs() + [TUNE_SKILL, README]:
+            text = " ".join(read(doc).split())
+            for gone in ("skills/agent-construction-kit", "skills/tune/",
+                         "/agent-construction-kit:tune", "the agent-construction-kit skill"):
+                self.assertNotIn(gone, text, "%s: %s" % (doc.name, gone))
 
     def test_every_link_in_a_reference_resolves(self):
-        for doc in docs():
+        for doc in docs() + [TUNE_SKILL]:
             for target in links(doc):
                 self.assertTrue((doc.parent / target).is_file(), "%s links %s" % (doc.name, target))
+        # the skills lean on each other's files: the team skill on machine.md and
+        # providers.md, the machine skill on the answer sheet
+        self.assertIn("../agent-machine/references/machine.md", links(SKILL))
+        self.assertIn("../agent-machine/references/providers.md", links(SKILL))
+        self.assertIn("../agent-setup/references/team-answer-sheet.md", links(MACHINE_SKILL))
 
     def test_skill_links_every_reference(self):
-        linked = set(links(SKILL))
-        for p in sorted(REFS.glob("*.md")):
-            self.assertIn("references/" + p.name, linked, "SKILL.md does not link %s" % p.name)
+        for name in SKILL_NAMES[:2]:
+            base = SKILLS_DIR / name
+            linked = set(links(base / "SKILL.md"))
+            for p in sorted((base / "references").glob("*.md")):
+                self.assertIn("references/" + p.name, linked,
+                              "%s/SKILL.md does not link %s" % (name, p.name))
 
-    def test_skill_is_the_procedure_for_both_ways_in(self):
+    def test_the_machine_skill_is_the_procedure_for_the_machine(self):
+        text = read(MACHINE_SKILL)
+        self.assertEqual(re.findall(r"^## (Step \d+):", text, re.M), ["Step 0", "Step 1"])
+        flat = " ".join(text.split())
+        for words in ("Steps 0 and 1", "`ack-doctor`", "`session-model`",
+                      "`/reload-plugins`", "`/exit`", "`/agent-setup`",
+                      "`/agent-construction-kit:agent-setup`",
+                      "Shall I also build a team of agents for one of your projects?",
+                      "(references/machine.md)", "Nothing leaves this machine without their word",
+                      "never ask for one, never read or write a key file yourself"):
+            self.assertIn(words, flat, "agent-machine SKILL.md lacks %r" % words)
+        # presets: seen through ack-doctor on PATH, loaded by the skill itself
+        self.assertIn("`ack-doctor` is on PATH", flat)
+        self.assertIn("load every one yourself (Skill tool)", flat)
+        self.assertIn("`provider` line", flat)
+        self.assertIn("../agent-setup/references/team-answer-sheet.md", text)
+
+    def test_the_setup_skill_is_the_procedure_for_the_team(self):
         text = read(SKILL)
         self.assertEqual(re.findall(r"^## (Step \d+):", text, re.M),
                          ["Step %d" % n for n in range(7)])
+        self.assertIn("$ARGUMENTS", text)
         body = re.match(r"---\n.*?\n---\n(.*)", text, re.S).group(1)
         part = {"intro": " ".join(body.split("\n## ", 1)[0].split())}
         for head, rest in re.findall(r"^## ([^\n]+)\n(.*?)(?=^## |\Z)", body, re.S | re.M):
@@ -175,26 +274,22 @@ class SkillTest(Sandbox):
             for w in words:
                 self.assertIn(w, part[name], "SKILL.md %s lacks %r" % (name, w))
 
-        has("intro", "**Team**", "**Machine**", "set up agents for it",
-            "I have a homelab and want to develop things", "Step 0 after the answer",
+        has("intro", "I have a small shop website here",
+            "I have a homelab and want to develop things",
             "In Step 2, before its questions", "ask which one this folder is for",
-            "ask what will be made here", "## Answer sheet")
+            "ask what will be made here", "`/agent-machine`", "`## Answer sheet`",
+            "`ack-doctor` is on PATH", "load every one yourself (Skill tool)")
         later = re.search(r"Not in this version: (.*?)\. ", part["intro"])
         self.assertIsNotNone(later, "the intro does not say what this version leaves out")
         for words in ("a hub", "an issue tracker", "a survey of the machine"):
             self.assertIn(words, later.group(1))
         self.assertNotRegex(" ".join(text.split()), r"team[^.]*comes with a later version")
-        has("Talking with the user", "`/reload-plugins`", "`/exit`",
+        has("Talking with the user", "`/reload-plugins`", "`/exit`", "`/agent-machine`",
             "Nothing is written into the project before the user's yes to the short plan",
             "Nothing leaves this machine without their word")
-        machine_way, team_way = re.findall(r"^- (?:Machine|Team):.*?(?=^- |\Z)",
-                                           re.search(r"^## Step 1:.*?\n(.*?)(?=^## )", body,
-                                                     re.S | re.M).group(1), re.S | re.M)
-        for way in (machine_way, team_way):
-            self.assertIn("`/reload-plugins`", way)
-        self.assertIn("(references/machine.md)", machine_way)
-        self.assertIn("The team needs two free add-ons for Claude Code. May I install them? "
-                      "I recommend yes.", " ".join(team_way.split()))
+        has("Step 1", "`/reload-plugins`", "machine.md", "../agent-machine/references/machine.md",
+            "The team needs two free add-ons for Claude Code. May I install them? "
+            "I recommend yes.", "all `ok`: skip this step")
         has("Step 2", "`ack-repo inspect`", "`ack-repo init`", "`ack-repo disk-remote`",
             "question 1 first. Then `ack-team check`", "never overwrite an agent file unasked",
             "goes through Steps 3 and 4 first; then Steps 5 and 6")
@@ -203,14 +298,14 @@ class SkillTest(Sandbox):
         has("Step 6", "`/exit`", "Claude Code loads agents only when a session starts",
             "fixed start sentence and this folder's full path", "Remote Control",
             "on Windows a second team for this computer only",
-            "`ack-wrappers list` shows `absent`")
-        doctor = read(ROOT / "bin" / "ack-doctor")      # the team way fixes these lines
+            "`ack-wrappers list` shows `absent`", "`/agent-tune`")
+        doctor = read(ROOT / "bin" / "ack-doctor")      # Step 1 fixes these lines
         required = set(re.findall(r"\bemit ([a-z:]+) missing [^\n]* required\b", doctor))
         required |= {"plugin:" + n for n in re.findall(r"^plugin_line (\S+) required$",
                                                        doctor, re.M)}
         self.assertEqual(len(required), 5, sorted(required))
         for name in sorted(required):
-            self.assertIn("`%s`" % name, team_way, "Step 1 does not name `%s`" % name)
+            self.assertIn("`%s`" % name, part["Step 1"], "Step 1 does not name `%s`" % name)
 
     def test_step_references_name_their_file(self):
         steps = set(re.findall(r"^## (\d+)\. ", read(MACHINE), re.M))
@@ -280,8 +375,9 @@ class SkillTest(Sandbox):
             text = read(doc)
             m = re.search("[äöüÄÖÜß]", text)
             self.assertFalse(m, "%s contains %r" % (doc.name, m and m.group(0)))
-        n = len(read(SKILL).splitlines())
-        self.assertLessEqual(n, 120, "SKILL.md has %d lines" % n)
+        for name in SKILL_NAMES:
+            n = len(read(SKILLS_DIR / name / "SKILL.md").splitlines())
+            self.assertLessEqual(n, 120, "%s/SKILL.md has %d lines" % (name, n))
 
     def test_no_escaped_pipe_in_code(self):
         # the model reads raw Markdown: `a \| b` in a table would be run with the backslash
@@ -375,7 +471,7 @@ class SkillTest(Sandbox):
         head = header("ack-proxy")
         codes = set(re.findall(r"(?:Exit codes:|,)\s*(\d+) ", head))
         self.assertTrue({"0", "1", "5"} <= codes, codes)
-        text = read(SKILL_DIR / "references" / "openai-proxy.md")
+        text = read(MACHINE_REFS / "openai-proxy.md")
         named = re.findall(r"\b[Ee]xits? (\d+)", text)
         self.assertTrue(named)
         for n in named:
@@ -397,7 +493,7 @@ class SkillTest(Sandbox):
                             self.assertIn(opt, header(script), "%s: `%s %s`" % (doc.name, script, opt))
 
     def test_openai_reference_keeps_the_shipped_slots(self):
-        text = read(SKILL_DIR / "references" / "openai-proxy.md")
+        text = read(MACHINE_REFS / "openai-proxy.md")
         self.assertTrue("check-slots" in text)
         for word in ("largest", "step above"):     # the shipped slots are the authority
             self.assertFalse(word in text, "openai-proxy.md ranks models: %r" % word)
@@ -607,7 +703,8 @@ class SkillTest(Sandbox):
 
     def test_handover_recommends_manual_tuning_after_real_work(self):
         text = " ".join(read(REFS / "using-the-team.md").split())
-        self.assertIn("`/agent-construction-kit:tune`", text)
+        self.assertIn("`/agent-tune`", text)
+        self.assertIn("`/agent-construction-kit:agent-tune`", text)
         self.assertRegex(text, r"(?i)(?:after|once).{0,120}(?:real work|work has accumulated)")
         self.assertRegex(text, r"(?i)(?:manual|explicitly invoked).{0,120}tune")
         self.assertNotRegex(text, r"(?i)(?:continuous|automatic).{0,80}monitor")
@@ -847,7 +944,8 @@ class SkillTest(Sandbox):
     def test_presets_are_the_listed_skills_loaded_with_the_skill_tool(self):
         sheet = " ".join(FENCE.sub("", read(REFS / "team-answer-sheet.md")).split())
         presets = sheet.partition("## Presets")[2].partition("## The rules header")[0]
-        for words in ('"Preset for agent-construction-kit: …"', "says, in any words,",
+        for words in ('"Preset for agent-construction-kit: …"',
+                      '"Preset for agent-construction-kit (/agent-setup …)"', "says, in any words,",
                       '"Acme\'s preset: load it before the skill of the plugin '
                       'agent-construction-kit"', "look through the skills this "
                       "session lists: load each preset there with the Skill tool",
@@ -858,7 +956,11 @@ class SkillTest(Sandbox):
         load = analysis.find("First load the presets this session lists")
         self.assertTrue(0 < load < analysis.find("1. **Repository**"),
                         "the presets are not loaded before the questions")
-        self.assertIn("load it (Skill tool)", " ".join(read(SKILL).split()))
+        for skill in (SKILL, MACHINE_SKILL):     # both commands load the presets themselves
+            flat_skill = " ".join(read(skill).split())
+            self.assertIn("load every one yourself (Skill tool)", flat_skill, skill.parent.name)
+            self.assertIn("`ack-doctor` is on PATH", flat_skill, skill.parent.name)
+            self.assertIn("preset for this kit", flat_skill, skill.parent.name)
         for words in ("Trusting runs that source's code", "after the yes `skilletor trust <name>`"):
             self.assertIn(words, sheet)
 
@@ -931,13 +1033,13 @@ class SkillTest(Sandbox):
 
     def test_step_1_is_skipped_only_when_the_machine_lines_are_ok(self):
         step1 = re.search(r"^## Step 1:.*?\n(.*?)(?=^## )", read(SKILL), re.S | re.M).group(1)
-        team = " ".join(re.search(r"^- Team:.*?(?=^- |\Z)", step1, re.S | re.M).group(0).split())
+        team = " ".join(step1.split())
         self.assertIn("all `ok`: skip this step", team)
         skip = team.split("all `ok`: skip this step")[0]
         for name in ("claude", "git", "marketplace:getty", "plugin:briefing", "plugin:skilletor"):
             self.assertIn("`%s`" % name, skip)
         # node and python are no longer asked for, in the skill or in machine.md
-        for doc in (SKILL, MACHINE):
+        for doc in (SKILL, MACHINE_SKILL, MACHINE):
             for gone in ("runtime:node", "runtime:python"):
                 self.assertNotIn(gone, read(doc), doc.name)
 
@@ -1070,6 +1172,16 @@ class SkillTest(Sandbox):
             self.assertTrue((PROVIDER_DIR / (n + ".conf")).is_file(), n)
         self.assertEqual(sorted(names), shipped_providers())
 
+    def test_readme_names_the_three_commands(self):
+        text = read(README)
+        for name in SKILL_NAMES:
+            self.assertIn("`/%s`" % name, text, name)
+            self.assertIn("`/agent-construction-kit:%s`" % name, text, name)
+        for gone in ("/agent-construction-kit:tune", "Set up my machine for agent teams",
+                     "set up my machine for agent teams", "build an agent team for this project"):
+            self.assertNotIn(gone, text, "README still carries the old entry: %r" % gone)
+        self.assertRegex(" ".join(text.split()), r"never starts these three on its own")
+
     def test_readme_names_both_install_lines(self):
         text = read(README)
         self.assertIn("/plugin marketplace add Getty/marketplace", text)
@@ -1081,8 +1193,11 @@ class SkillTest(Sandbox):
         for word in ("Claude Code", "git", "Git for Windows", "](https://code.claude.com/"):
             self.assertTrue(word in before, "README names %r only after ## Install" % word)
         after = text.split("/plugin install agent-construction-kit@getty", 1)[1]
-        self.assertTrue("/reload-plugins" in after.split("Then say", 1)[0],
-                        "README: no /reload-plugins between the install and 'Then say'")
+        self.assertIn("Then type", after, "README: no 'Then type' after the install")
+        self.assertTrue("/reload-plugins" in after.split("Then type", 1)[0],
+                        "README: no /reload-plugins between the install and 'Then type'")
+        for command in ("/agent-machine", "/agent-setup"):
+            self.assertIn("`%s`" % command, after.split("##", 1)[0], command)
 
     def test_readme_says_what_the_user_does(self):
         text = read(README)
@@ -1092,9 +1207,11 @@ class SkillTest(Sandbox):
 
     def test_readme_team_example_is_what_the_kit_does(self):
         text = read(README)
-        step2 = text.partition("2. **Build the team.**")[2].partition("## What an agent team is")[0]
-        self.assertIn("**This works today.**", step2)
-        self.assertNotIn("next version", step2)
+        intro = text.partition("# agent-construction-kit")[2].partition("## What an agent team is")[0]
+        setup = re.search(r"^- `/agent-setup` (.*?)(?=^- |^\S|\Z)", intro, re.S | re.M)
+        self.assertIsNotNone(setup, "README: the intro does not describe /agent-setup")
+        self.assertIn("builds or checks the team", setup.group(1))
+        self.assertNotIn("next version", intro)       # the team build is not a promise
         example = text.partition("## Example: a team for a software project")[2].partition("\n## ")[0]
         for gone in ("hub", "issue tracker", "Who may commit", "in one table"):
             self.assertNotIn(gone, example)

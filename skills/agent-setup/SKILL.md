@@ -1,35 +1,36 @@
 ---
-name: agent-construction-kit
-description: "Use when the user wants to build an agent team or subagents for a project or folder, wants agents for what is in this folder ('I have a small shop website here, set up agents for it'), says in one sentence what they have or do so that a team can be proposed for it ('I have a homelab and want to develop things'; not an ordinary coding request), or has a .claude/agents folder to check or fix; when they want to set up a machine for agent teams, create a claude_with_<provider> or claude_with_danger starter, run Claude Code with another model provider, a local model or OpenAI models through a proxy, or check whether briefing and skilletor are installed; also for ack-doctor, ack-wrappers, ack-proxy, ack-repo and ack-team."
+name: agent-setup
+description: "Build or check the agent team for the project in this folder."
+disable-model-invocation: true
 ---
 
-# Agent Construction Kit
+# Agent setup
 
-End state: a checked team of agents for the project in this folder, or, if the user wants
-only the machine, one working `claude_with_<name>` starter per service; they need to know
-nothing about the kit. Open a reference when its step names it, not before. Two ways in:
-
-- **Team**: agents, helpers or a team for what is in this folder, in any words ("I have
-  a small shop website here, set up agents for it"), what they have or do ("I have a
-  homelab and want to develop things"), or a check of the agents here. Steps 0 to 6.
-- **Machine**: the computer set up, starters for other services (a ChatGPT
-  subscription, DeepSeek, a local model), what is installed. Steps 0 and 1, then offer
-  the team. Unclear which, or asked what the kit does: the two ways in two sentences,
-  ask which, recommending the team; Step 0 after the answer.
+End state: a checked team of agents for the project in this folder; the user needs to
+know nothing about the kit. Open a reference when its step names it, not before. The user
+ran this command to build the team, or to check the agents already here: Steps 0 to 6.
+Words typed after the command, in any form ("I have a small shop website here", "I have a
+homelab and want to develop things"): $ARGUMENTS
 
 Not in this version: a hub (one place steering several teams), an issue tracker as the
 board, a survey of the machine (its computers and services). Asked for, or called for by
 what the user says: say so in a sentence, build the team for this folder. In Step 2,
 before its questions: several areas ("a homelab, and I develop things"): ask which one
 this folder is for; an empty folder: ask what will be made here, and that answer is the
-one sentence of Step 3. A preset: a skill this session lists whose description calls it a
-preset for this kit; load it (Skill tool), use its `## Answer sheet` ([references/team-answer-sheet.md](references/team-answer-sheet.md)).
+one sentence of Step 3. The user wants only the machine set up (starters, a model
+service): that is `/agent-machine`; say so and stop.
+
+Presets: Claude does not see the commands in its skill list, but a preset sees that this
+plugin is there when `ack-doctor` is on PATH. A preset is a skill this session lists whose
+description calls it a preset for this kit (it may name `/agent-setup`) or says it is
+loaded before the kit's skill; load every one yourself (Skill tool) and use its
+`## Answer sheet` ([references/team-answer-sheet.md](references/team-answer-sheet.md)).
 
 ## Talking with the user
 
 - Run every kit command yourself; an `ack-*` command is never the user's homework. They
-  type only a sign-in that needs a browser, their key into an editor, and what you hand
-  them to type (`/reload-plugins`, `/exit`, then `claude` in a terminal window).
+  type only a sign-in that needs a browser, a command of this kit (`/agent-machine`), and
+  what you hand them to type (`/reload-plugins`, `/exit`, then `claude` in a terminal window).
 - One question per message, each with your recommendation, in everyday words ("Should
   this starter ask you before it changes files? I recommend yes."), never flag names;
   never again what the user already said.
@@ -41,9 +42,6 @@ preset for this kit; load it (Skill tool), use its `## Answer sheet` ([reference
 - Keys stay with the user: never ask for one, never read or write a key file yourself,
   never print a variable that may hold one. If they paste a key into the chat, do not
   use or repeat it; recommend replacing it at the provider, as it now sits in the chat.
-- After a machine setup, one line per starter you created: the name to type and what it
-  is for, e.g. "`claude_with_minimax`: Claude Code on MiniMax, asks before each action."
-  If PATH was changed, add once that the starters work from a new terminal window on.
 
 ## Running the commands
 
@@ -51,7 +49,7 @@ The base directory of this skill is shown when it loads; the commands are in `..
 from there. Call each by that full path with `bash` in front, which also works on
 Windows: `bash "<skill base dir>/../../bin/ack-doctor"`. They print tab-separated lines;
 a non-zero exit is part of the answer, not a crash; each line and exit code, with its
-next step, is in the step's reference (`ack-doctor`, `ack-wrappers`: [references/providers.md](references/providers.md)).
+next step, is in the step's reference (`ack-doctor`, `ack-wrappers`: [providers.md](../agent-machine/references/providers.md)).
 If `bash` itself is not found (Windows without Git for Windows), say exactly that, offer
 to run `winget install Git.Git`, and start over in a new Claude Code session afterwards.
 
@@ -67,26 +65,21 @@ model): `via <host>` means another provider, no `via` Anthropic; your system pro
   provider's largest model); go on only if the user explicitly says to go on anyway.
   Add that this holds for setting up; in the finished team, the model follows the work.
 
-## Step 1: the machine
+## Step 1: the prerequisites
 
-- Machine: [references/machine.md](references/machine.md) from its step 1 (it opens
-  [references/openai-proxy.md](references/openai-proxy.md) and [references/other-services.md](references/other-services.md)
-  where they apply), then one line per starter (above) and "Shall I also build a team of
-  agents for one of your projects? I recommend it." For this folder: if a plugin was
-  installed, the user types `/reload-plugins` first; then Step 2. Another folder: they
-  type `/exit`, start Claude there (`cd "<folder>"`, then `claude`), ask for the team.
-- Team: `claude`, `git`, `marketplace:getty`, `plugin:briefing`, `plugin:skilletor`,
-  `runtime:skilletor`, `runtime:briefing` all `ok`: skip this step; starters only if the user
-  asks. Else fix only those by step 1 of machine.md, the add-ons in one question ("The
-  team needs two free add-ons for Claude Code. May I install them? I recommend yes.");
-  after an install, the user types `/reload-plugins`. This kit's install brings both.
+`claude`, `git`, `marketplace:getty`, `plugin:briefing`, `plugin:skilletor`,
+`runtime:skilletor`, `runtime:briefing` all `ok`: skip this step. Else fix only those by
+step 1 of [machine.md](../agent-machine/references/machine.md), the add-ons in one question ("The
+team needs two free add-ons for Claude Code. May I install them? I recommend yes.");
+after an install, the user types `/reload-plugins`. This kit's install brings both. Starters
+for other services are `/agent-machine`, only if the user asks.
 
 ## Step 2: the repository
 
 `ack-repo inspect` in this folder (it only reads), then "Reading the repository" in
 [references/team-analysis.md](references/team-analysis.md). A home folder, desktop or
 drive is no project: ask where it is, or suggest a new folder for a new project; the
-user starts Claude there as in Step 1.
+user types `/exit`, starts Claude there (`cd "<folder>"`, then `claude`) and types `/agent-setup`.
 
 - Agents exist ("An existing team" there): without a repository of its own, question 1
   first. Then `ack-team check`, and say what the team has and what is missing; never
@@ -115,6 +108,7 @@ hook test once. Then build-order items 9 and 10: one commit, the drive copy if a
 One message as in [references/using-the-team.md](references/using-the-team.md): its fixed
 start sentence and this folder's full path; first `/exit` and `claude` here again, since
 Claude Code loads agents only when a session starts; at the end, Remote Control in one
-sentence. Then its "Next steps" that apply, one sentence each: the hub (several areas), on
-Windows a second team for this computer only, each later-version item from above, a
-preset's starters that `ack-wrappers list` shows `absent` (offered by step 2 of machine.md).
+sentence. Then its "Next steps" that apply, one sentence each: `/agent-tune` after real
+work, the hub (several areas), on Windows a second team for this computer only, each
+later-version item from above, a preset's starters that `ack-wrappers list` shows `absent`:
+name them and say `/agent-machine` sets them up, typed in the new session after the restart.

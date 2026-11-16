@@ -1,7 +1,7 @@
 # Synthetic tune walkthrough
 
 These fictional records are safe input for a fresh reviewer exercising the manual
-`/agent-construction-kit:tune` workflow. They are not personal conversation history and
+`/agent-tune` workflow. They are not personal conversation history and
 must never be replaced with records from a real machine.
 
 Start with `project-current/current-team.md`, then inspect only its `sessions/` records

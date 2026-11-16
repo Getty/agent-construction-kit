@@ -516,7 +516,7 @@ ack_proxy_ensure() {
   if ack_find_proxy; then bin="$REPLY"; else bin=""; fi
   if [ -z "$bin" ]; then
     echo "ack: claude-code-proxy is not installed." >&2
-    echo "ack: install it (see the skill's references/openai-proxy.md), then try again." >&2
+    echo "ack: install it (see the OpenAI proxy reference of /agent-machine), then try again." >&2
     return 5
   fi
   # only the user reads the state directory and the log; the proxy gets no key

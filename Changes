@@ -13,9 +13,14 @@ Revision history for agent-construction-kit
       service on Linux.
     - Add ack-doctor, a read-only check of the machine: Claude Code, git, the
       plugins agent teams build on, optional tools and the installed starters.
-    - Add the agent-construction-kit skill, which sets up a machine in plain
-      questions: prerequisites, a starter per provider, OpenAI through the
-      proxy, and local models.
+    - The kit works through three manual commands, which Claude never starts on
+      its own: /agent-machine, /agent-setup and /agent-tune (in full
+      /agent-construction-kit:agent-machine and so on). There is no single
+      skill and no entry question any more. /agent-machine sets up a machine
+      in plain questions (prerequisites, a starter per provider, OpenAI through
+      the proxy, local models) and ends by offering /agent-setup; its steps
+      are in references/machine.md of that command. A preset is loaded by
+      /agent-setup and /agent-machine.
     - Find claude-code-proxy in ~/.local/bin and ~/bin when it is not on PATH
       (or at ACK_PROXY_BIN); ack-proxy status and ack-doctor say so, and the
       sign-in hints then carry the full path.
@@ -24,10 +29,10 @@ Revision history for agent-construction-kit
       is its own; ack-wrappers --help prints the whole header.
     - ack-wrappers install reports "path pending" instead of "path missing"
       once path-fix has added the directory to the shell profile.
-    - Build an agent team for a project: the skill reads the folder, asks what
-      it could not read, shows a plan, and after a yes writes the agents, the
-      project skill, the rules, the board and the CLAUDE.md section, checks
-      the result and commits it.
+    - Build an agent team for a project with /agent-setup: it reads the
+      folder, asks what it could not read, shows a plan, and after a yes writes
+      the agents, the project skill, the rules, the board and the CLAUDE.md
+      section, checks the result and commits it.
     - Add ack-repo: inspect reads a folder and changes nothing (git, branch,
       remotes, tests, sibling projects, an existing team, accounts of git
       services), init creates the repository, disk-remote puts a copy on a
@@ -51,7 +56,7 @@ Revision history for agent-construction-kit
     - Build teams from planned as well as existing work, selecting only the
       capabilities each task needs. Each team has one OWNERS map, and
       ack-team owner resolves a path's assigned owner before work is handed out.
-    - Add /agent-construction-kit:tune: a manual, project-scoped, read-only
+    - Add /agent-tune: a manual, project-scoped, read-only
       review of past assignments that reports evidence, uncertainty and
       proposed routing changes without editing, publishing or installing.
     - A board without installing anything: BOARD.md, a table per column. karr
@@ -59,9 +64,8 @@ Revision history for agent-construction-kit
       and installed after a yes.
     - A preset (a skill with an answer sheet) can fix answers and add skills
       per role; the team build installs the sources, bundles and skills it
-      names, not its starters, which the hand-over offers.
+      names, not its starters: the hand-over points to /agent-machine for them.
     - Teams for folders without code: a reading check instead of a test
       command, no test-writer.
-    - The machine setup moved from SKILL.md to references/machine.md.
     - ack-doctor checks that skilletor and briefing run and prints their
       versions; it asks for neither Node.js nor Python 3.

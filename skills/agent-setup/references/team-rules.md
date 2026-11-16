@@ -168,7 +168,7 @@ Run `ack-team check` in the project folder; it only reads. One line per finding:
 `<what><TAB><status><TAB><file or name><TAB><text>`, status `ok`, `missing` or `warn`. Exit 0:
 no line is `missing`; 1: at least one is; 2: usage error or unusable folder. Fix, run again
 until none is; tell the user each `warn` in one sentence. `agent`, `skill`, `hook`, `settings`
-are briefing's; no briefing answers: one `missing` line, `briefing<TAB>missing<TAB>.`, whose text ends with the cure ([machine.md](machine.md)).
+are briefing's; no briefing answers: one `missing` line, `briefing<TAB>missing<TAB>.`, whose text ends with the cure ([machine.md](../../agent-machine/references/machine.md)).
 
 | What | Checks | On `missing` or `warn` |
 |---|---|---|

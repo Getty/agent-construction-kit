@@ -3,17 +3,22 @@
 # agent-construction-kit
 
 A Claude Code plugin for people who want a team of agents instead of one long chat.
-You talk to it in plain words; it asks one question at a time and does the work.
+You work with it through three commands; each asks one question at a time and does the work.
 
-It has two jobs:
+- `/agent-machine` **gets the machine ready.** It checks that the plugins and tools
+  agent teams build on are there, and it creates starter commands such as `claude_with_kimi`: Claude Code
+  running on another model provider, on a local model, or on OpenAI models through a
+  ChatGPT subscription. At its end it offers `/agent-setup`.
+- `/agent-setup` **builds or checks the team.** It reads your project, asks what it
+  cannot read, and writes the agents, their rules and their board into the repository.
+  [The example below](#example-a-team-for-a-software-project) shows how it goes.
+- `/agent-tune` **reviews a team after real work** and proposes improvements; it only reads.
 
-1. **Get the machine ready.** It checks that the plugins and tools agent teams build on
-   are there, and it creates starter commands such as `claude_with_kimi`: Claude Code
-   running on another model provider, on a local model, or on OpenAI models through a
-   ChatGPT subscription. **This works today.**
-2. **Build the team.** It reads your project, asks what it cannot read, and writes the
-   agents, their rules and their board into the repository. **This works today.**
-   [The example below](#example-a-team-for-a-software-project) shows how it goes.
+Claude never starts these three on its own: you type them. In full they are
+`/agent-construction-kit:agent-machine`, `/agent-construction-kit:agent-setup` and
+`/agent-construction-kit:agent-tune`; the short name works as long as no other plugin
+uses it. Skills you already have for agent teams (a preset) are loaded by `/agent-setup`
+and `/agent-machine` themselves; see "Reusing skills".
 
 ## What an agent team is
 
@@ -59,8 +64,8 @@ One install brings all three plugins an agent team builds on: this kit, skilleto
 briefing (the kit declares the other two as dependencies). The kit itself needs neither
 Node.js nor Python; skilletor and briefing ship their own binaries where available and
 otherwise keep working on their current runtime. `/reload-plugins` makes the new plugins
-available at once; restarting Claude Code does the same. Then say:
-**set up my machine for agent teams**.
+available at once; restarting Claude Code does the same. Then type
+`/agent-machine` to set up the machine, or `/agent-setup` in a project folder to build its team.
 
 ## Reusing skills
 
@@ -68,6 +73,10 @@ Once the team setup has installed skilletor, before writing a skill look through
 and trusted source catalogs, then load a relevant available skill with the Skill tool. Skilletor
 provides and updates skill files; the main session invokes a skill, while `briefing.skills` preloads
 what an agent needs when it starts.
+
+A preset is a skill the session lists whose description names this kit's commands and that has a
+`## Answer sheet` section: `/agent-setup` and `/agent-machine` load it themselves and ask only what
+it leaves open. Nothing is searched for or installed on the kit's own initiative.
 
 You may keep an optional personal or shared collection in a local directory, private repository
 or hosted source. Its source contains `skills/<name>/SKILL.md`; add a source you trust and install
@@ -80,7 +89,7 @@ remote, publish or push it.
 
 A session goes roughly like this:
 
-> **You:** Set up my machine for agent teams.
+> **You:** `/agent-machine`
 >
 > **Claude:** I checked the machine and changed nothing. Claude Code and git are there.
 > Two plugins that agent teams need are missing: briefing and skilletor. May I install
@@ -172,8 +181,8 @@ the agent tells you so.
 
 ## Example: a team for a software project
 
-You have a repository, say a web shop called `harbor`, and you say: **build an agent
-team for this project**.
+You have a repository, say a web shop called `harbor`, and you type:
+**`/agent-setup`**.
 
 The kit reads first: how the project is built and tested, how it is released, which
 conventions are written down, whether sibling repositories belong to it. Then it asks
@@ -255,7 +264,7 @@ must exist, and an agent that names an unknown skill must be refused at start.
 
 ## Tune a team after real work
 
-Once work has accumulated, run `/agent-construction-kit:tune` to make a manual,
+Once work has accumulated, type `/agent-tune` to make a manual,
 project-scoped, read-only review. It compares supported assignments with the current team and
 returns evidence, uncertainty and proposed routing changes; it does not edit, publish, push or
 install anything. A later explicit approval sends an accepted change through its normal owner
@@ -295,7 +304,7 @@ are the next version.
 You do not need to know which team you want, and you do not need to be an IT person. One sentence about what you have and what
 you like to do is enough, and the kit proposes a structure:
 
-> **You:** I have a homelab and want to develop things.
+> **You:** `/agent-setup` I have a homelab and want to develop things.
 >
 > **Claude:** Then I suggest three repositories, not one. An **admin** hub that you talk
 > to and that steers the other two. A **homelab** team that looks after the network and
@@ -359,7 +368,7 @@ A second disk is a full remote: `git push` works the same, and no account is nee
 
 ## The commands
 
-The skill runs these for you; you never need to type them. For the curious, they sit
+The commands above run these for you; you never need to type them. For the curious, they sit
 in the plugin's `bin/` folder:
 
 - `ack-doctor` checks the machine and changes nothing. One line per item:
