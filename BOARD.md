@@ -36,4 +36,4 @@ one at a time. A card moves by moving its row to another table.
 
 | ID | Card | Owner | Notes |
 |---|---|---|---|
-| c12 | ACK umbrella: dependencies on skilletor+briefing, ack-team via `briefing doctor --tsv`, ack-doctor via `--version` | ack-worker-scripts | Committed 4b32c26 on branch ack-paket. Linux: 533 tests OK, 3 Windows-only skips. macOS/Windows pending CI. |
+| c12 | ACK umbrella: dependencies on skilletor+briefing, ack-team via `briefing doctor --tsv`, ack-doctor via `--version` | ack-worker-scripts | Committed bdacc00 on branch ack-paket. Linux: 533 tests OK, 3 Windows-only skips. macOS/Windows pending CI. |
