@@ -1,57 +1,58 @@
-# Agents: roles, files and templates
+# Agents: capabilities, files and templates
 
-Each agent is one file `.claude/agents/<prefix>-<role>.md`: a frontmatter that routes and
-briefs it, and a body of a few sentences. Skilletor provides and updates skill files; the main
-session invokes relevant skills, while `briefing.skills` preloads what an agent needs at spawn; never copy skill text into a body.
+Each agent is `.claude/agents/<prefix>-<role>.md`: frontmatter routes and briefs it; its short
+body sets the lane. Skilletor provides/updates skills; the main invokes them while `briefing.skills` preloads them, never copy skill text.
 
 ## Contents
 
-- The roles
+- Choose capabilities from the work
 - Frontmatter contract and body
 - Base skills: superpowers and mattpocock-skills
 - The project skill `<prefix>-core`
-- Templates, one per role
-- Workers by path
+- Optional patterns and templates
+- Ownership and routing
 
-## The roles
+## Choose capabilities from the work
 
-| Role | Job | Built when | Tools | `model` |
-|---|---|---|---|---|
-| `scout` | reads, searches, finds gaps, reports | always | read-only | `haiku` |
-| `worker` | implements, refactors, debugs | always; one per part ("Workers by path") | all | `inherit` |
-| `test-writer` | writes and extends tests | the project has code or tests ([team-without-code.md](team-without-code.md)) | all | `sonnet` |
-| `reviewer` | checks a finished job against its card, runs the check itself | always | read-only | `opus` |
-| `release-manager` | commits (as the committer), changelog entry, card to done, release check | always | all | `sonnet` |
-| `doc-writer` | documentation in the project's own format | the project has one (POD, a docs site with rules) | all | `sonnet` |
-| `adr-auditor` | finds architecture decisions nobody wrote down | `docs/adr/` exists, or the user wants decisions recorded | all | `opus` |
-| `coordinator` | passes cards between the repositories of a family | `shape` is `family`, in the core repository | read-only | `sonnet` |
+Derive agents from intended deliverables, workflows, tools, knowledge and authority, including planned
+code/runtime parts. Establish acceptance checks, dependencies and approval boundaries first; choose a capability
+only for a useful context, resource, authority or parallelism boundary. Unnecessary hand-offs cost more than they save; no fixed or universal roster.
 
-`haiku` is cheap, `sonnet` middle, `opus` strong, `inherit` as strong as the session. A
-role exists only if its `description` tells when to use it, and no two fit the same job.
+These are optional starting patterns, not agents every team builds:
+
+| Pattern | Fits when | Tools | `model` |
+|---|---|---|---|
+| `scout` | a bounded investigation needs findings before another assignment | read-only | `haiku` |
+| `worker` | one owner changes a coherent deliverable or implementation part | all | `inherit` |
+| `test-writer` | a separate test or acceptance-proof assignment has value | all | `sonnet` |
+| `reviewer` | a check needs an independent, explicit evaluation | read-only | `opus` |
+| `release-manager` | the plan explicitly selects this agent as committer | all | `sonnet` |
+| `doc-writer` | project documentation has distinct format knowledge or acceptance rules | all | `sonnet` |
+| `adr-auditor` | architecture decisions need a bounded historical investigation | all | `opus` |
+| `operator` | distributed runtime or external-program integration creates real operating work | all | `sonnet` |
+| `coordinator` | a family needs read-only cross-repository card routing | read-only | `sonnet` |
+
+An operator needs stated runtime work and authority, never merely its pattern. Name agents for real
+purpose (`harbor-payments`, not a catch-all worker). Shared skills are allowed, but descriptions need narrow,
+unambiguous routing. `haiku` is cheap, `sonnet` middle, `opus` strong and `inherit` as strong as the session.
 
 ## Frontmatter contract and body
 
-- Keys, as in the templates: `name` (the file name without `.md`), `description`, `model`,
-  `disallowedTools`, `briefing.skills`; nothing else. The main session routes on
-  `description`: what the agent owns and never does; if vague, it does the work itself.
-- `disallowedTools: Edit, Write, NotebookEdit` only for the read-only roles (a reviewer
-  that can edit starts fixing instead of reporting); every other role has all tools. Never
-  `allowed-tools` (in an agent file Claude Code ignores it: every tool) nor `tools:` (an
-  allow-list: what it leaves out is gone).
-- `briefing.skills`: each entry must exist, as an installed skill, in `.claude/skills/`,
-  or as `<plugin>:<skill>` of an installed, enabled plugin; else briefing refuses the spawn.
-  Only what the role needs. A top-level `skills:` key does nothing for briefing.
-- Body: `You are the <prefix>-<role> for **<project>**.`, two or three sentences (lane, what
-  it hands back, what it never does), the card lines, "Apply the skills above silently.",
-  then only what is true here and in no skill (a trap of the check command), often nothing.
+- Use only `name` (file name without `.md`), `description`, `model`, `disallowedTools` and
+  `briefing.skills`. Route on a specific description; never `allowed-tools` (ignored) or `tools:`
+  (an allow-list that removes unlisted tools).
+- A read-only pattern gets `disallowedTools: Edit, Write, NotebookEdit`; other patterns have all tools.
+- Every `briefing.skills` entry exists in `.claude/skills/` or as an enabled `<plugin>:<skill>`;
+  a top-level `skills:` does nothing for briefing.
+- Body: `You are the <prefix>-<role> for **<project>**.`, two or three sentences on lane, return
+  and boundary, card lines, "Apply the skills above silently.", then only project-specific traps.
 
 ## Base skills
 
-Per topic, by the latest `ack-doctor` run: the superpowers skill if that plugin is `ok`,
-else (or where its cell is none) the mattpocock-skills one if that plugin is `ok`; never
-two. A preset's `roles` rows change only these: each role keeps `<prefix>-core`
-(coordinator: `<family>-coordination`) and, with karr, the card skill
-[team-board.md](team-board.md) gives it. No code: [team-without-code.md](team-without-code.md).
+For each selected pattern, take the relevant topic from the latest `ack-doctor`: superpowers when
+`ok`, otherwise the mattpocock-skills equivalent when `ok`, never both. Preset `roles` rows adjust
+only selected patterns. Every agent keeps `<prefix>-core` (a coordinator: `<family>-coordination`)
+and, with karr, its card skill ([team-board.md](team-board.md)); no code: [team-without-code.md](team-without-code.md).
 
 | Role | Topic | superpowers (wins) | mattpocock-skills |
 |---|---|---|---|
@@ -62,18 +63,17 @@ two. A preset's `roles` rows change only these: each role keeps `<prefix>-core`
 
 ## The project skill `<prefix>-core`
 
-What is true for this repository and nowhere else, from README, CONTRIBUTING, ADRs, CI config,
-`git log` and the code: layout, build and test commands with their traps, conventions, commit and
-changelog style, the release path; each fact with its file. Always write it, before the agents,
-from these rules alone: `.claude/skills/<prefix>-core/SKILL.md`, frontmatter `name: <prefix>-core`
-and a `description` starting "Use when working in <project>". A new project: from the user's
-sentence, what it is for, where code and tests will go, "no tests yet"; a card extends it.
+Repository-only facts from README, CONTRIBUTING, ADRs, CI, `git log` and code: layout, commands/traps,
+conventions, commit/changelog/release path, each with source. Always write `.claude/skills/<prefix>-core/SKILL.md`
+before agents, `name: <prefix>-core`, description starting "Use when working in <project>". For a new project,
+state its purpose, planned code/tests and "no tests yet"; a card extends it.
 
-## Templates
+## Optional patterns and templates
 
-`<project>`: the project's own name, not the prefix; `<base>`: the role's rows from "Base skills";
-`<check>`: the test command; `<card lines>`: from [team-board.md](team-board.md). Fill every
-placeholder; drop an entry with nothing. The coordinator: [team-family.md](team-family.md).
+Select patterns tied to accepted deliverables and routing. The templates are optional starting points:
+adapt purpose-specific names, descriptions, skills and checks, never a standard set. `<project>`: the project's own name, not the prefix;
+`<base>` is its selected Base skills; `<check>` its test command; `<card lines>` is from
+[team-board.md](team-board.md). Fill every placeholder; drop an empty entry. Coordinator: [team-family.md](team-family.md).
 
 ```markdown
 ---
@@ -155,10 +155,11 @@ check reports ready or what blocks. Push, tag or publish only on the user's word
 project rules allow it. Apply the skills above silently.
 ```
 
-`committer` `main` or `user`: its description drops "commits reviewed work" and "marks
-the card done"; its body says "Never commit; <the main agent|the user> does." in place of
-the commit sentences, the card lines and the drive push. No changelog in the project: the
-description drops "and the changelog entry", the body the changelog rule.
+With `committer` `main` or `user`, do not create a release-manager merely to fill a role. If
+the plan separately selects one for a changelog or release check, its description drops "commits
+reviewed work" and "marks the card done"; its body says "Never commit; <the main agent|the
+user> does." in place of the commit sentences, the card lines and the drive push. No changelog
+in the project: the description drops "and the changelog entry", the body the changelog rule.
 
 ```markdown
 ---
@@ -188,12 +189,11 @@ shapes), confirm each reason from git history and code; old plans only confirm. 
 highest ADR. Report ADRs written and gaps left. Never commit. <card lines> Apply the skills above silently.
 ```
 
-## Workers by path
+## Ownership and routing
 
-Split workers by the paths they own, never by activity: `<prefix>-worker-<part>` from the worker
-template, its `description` naming its paths ("harbor worker for the code under `web/`: …"), its
-body's second sentence "Your paths are `<paths>`; a change elsewhere goes into your report." Each
-file has one owner, in the Lanes ([team-rules.md](team-rules.md)) and in `CLAUDE.md`, one line per
-worker. Files no worker owns (top-level configuration, docs) stay with the main agent, the
-changelog with the committer. A job across two parts is one card per owner; no clear boundary: one
-worker, as an unclear owner is worse.
+`OWNERS` is the single authoritative path map: [team-ownership.md](team-ownership.md). Descriptions
+name responsibility/incoming work, not copied paths. The main agent or coordinator maintains `OWNERS`;
+before assigning or reviewing, resolve touched/planned paths with `ack-team owner`, fixing unknown
+ownership in `OWNERS` first. Split a cross-owner card per owner. Configuration or docs need a selected
+owner rule in `OWNERS`, for a specialist or `main`. The main or coordinator never bypasses or overrides
+`OWNERS`; registry upkeep follows its mapped writer. Map the changelog with the committer in `OWNERS` when selected.

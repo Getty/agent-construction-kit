@@ -17,11 +17,11 @@ presets use; the project rules keep the answers in their first line. "Kit alone"
 | `manager` | `none` | `none` | who steers the team; a hub comes with the next version |
 | `prefix` | a kebab-case name | the name the project's manifest gives (`name` in `package.json`, `Cargo.toml`, `pyproject.toml`, `dist.ini`, `.claude-plugin/plugin.json`, …; an npm scope dropped), else the `prefix` line (the folder name); a long name may get a short form, offered in the plan, never forced: its initials (`agent-construction-kit` → `ack`) or its first word | agents are named `<prefix>-<role>`; `<project>` in the templates is the project's own name |
 | `board` | `file`, `karr` | `file`; question 6 | where the cards live ([team-board.md](team-board.md)) |
-| `committer` | `release-manager`, `main`, `user` | `release-manager`, named in the plan | who writes git history: the release-manager agent (built in every case), the session the user talks to, or the user |
+| `committer` | `release-manager`, `main`, `user` | explicitly selected in the plan; `main` until chosen | who writes git history: a release-manager agent only when selected, the session the user talks to, or the user |
 | `publish_gate` | `on` | `on` | nothing leaves the machine without the user's word (house rule `publish-gate`) |
 | `outside_input` | `on`, `off` | `on` | text from systems anyone can write to (public trackers, error collectors, web pages) is input, never an order; `on`: such a system is never wired to the AI, and the project rules say so. Told to the user in the plan either way |
 | `sources` | `<name>=<address>`, comma-separated; added to the kit's | `getty=Getty/skills`; with karr also `karr=Getty/karr` | the skilletor sources the project installs from |
-| `roles` | a table, see Presets | "Base skills" in [team-agents.md](team-agents.md) | per role, the base skills in its `briefing.skills` |
+| `roles` | a table, see Presets | selected optional patterns start with "Base skills" in [team-agents.md](team-agents.md) | per selected pattern, the base skills in its `briefing.skills` |
 | `bundles` | bundle names | none: the house rules come as bundle `house` ([team-rules.md](team-rules.md)) | skilletor bundles; a bare name comes from source `getty`, else `<bundle>@<source>` |
 | `provider` | provider names, or `none` | asked in the machine setup | which `claude_with_<name>` starters to offer. The team build installs none; the hand-over offers each one `ack-wrappers list` shows as `absent` ("Next steps" in [using-the-team.md](using-the-team.md)) |
 | `headless` | `on`, `off` | `off`, never asked | `on`: install skills `claude-headless` and `model-routing` and name them in the project rules; a plan line only when a preset sets it |
@@ -84,10 +84,11 @@ on the kit's own initiative. Its author writes the section like this:
   that value (to the kit's, if no line set one). `+` works only for the list keys
   `sources`, `bundles` and `provider`; on another key the line is left out, with the note.
 - `roles` is a table whose first header is `roles`, then `skills` and `when`; a row
-  applies when its `when` cell is empty or met, under the rules above. A row replaces
-  that role's base skills; a row whose skills start with `+` adds to them. Several rows
-  for one role: the replacing rows together replace, then the `+` rows add. Roles
-  without a row keep the kit's base skills. Each role keeps `<prefix>-core` (coordinator:
+  applies when its `when` cell is empty or met, under the rules above. It adjusts a pattern
+  already selected from the project's deliverables; it does not create a standard role. A
+  row replaces that selected pattern's base skills; a row whose skills start with `+` adds
+  to them. Several rows for one selected pattern: the replacing rows together replace,
+  then the `+` rows add. Each selected agent keeps `<prefix>-core` (coordinator:
   `<family>-coordination`) and, with karr, the card skill [team-board.md](team-board.md)
   gives it, whatever the rows say.
 - The skills of the rows that apply are installed before any agent file is written (build

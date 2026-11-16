@@ -21,9 +21,10 @@ One Claude Code session that does everything fills its memory with everything: y
 conventions, the test output, the release steps, the half-read files. A team splits the
 work the way people do.
 
-- **Agents are roles.** A scout reads and reports. A worker changes code. A test writer
-  writes tests. A reviewer, who did not write the code, checks it. A release manager
-  commits. Each one is a small file in `.claude/agents/`.
+- **Agents are task-derived roles.** The kit starts with deliverables, workflows, tools,
+  knowledge and authority, then selects only the capabilities with a clear boundary. A scout
+  may read and report, a change owner may implement, an independent checker may review, and
+  a selected committer may save work. Each agent is a small file in `.claude/agents/`.
 - **Skills are the knowledge.** Your conventions live in skills, once. Each agent names
   the skills its role needs, and the briefing plugin loads exactly those before the
   agent's first step. A narrow agent has room left to think, and can run a cheaper model.
@@ -33,8 +34,9 @@ work the way people do.
 - **A board holds the work.** Every task is a card, so nothing exists only in a chat
   that scrolls away.
 
-More agents with narrow jobs beat a few that do everything: this is the one opinion the
-kit holds firmly.
+The kit uses task-derived boundaries for the work. An additional agent earns its place only when
+its different context, tools, knowledge or authority improves the result; unnecessary hand-offs
+add coordination cost. Skills may be shared, while routing stays narrow and unambiguous.
 
 ## Before you start
 
@@ -200,13 +202,15 @@ only what it could not read, one question at a time:
 >
 > **You:** the file
 >
-> **Claude:** Here is my plan for `harbor`. Five helpers ("agents"): `harbor-scout` reads
-> and reports; `harbor-worker` changes the code; `harbor-test-writer` writes the tests;
-> `harbor-reviewer` checks each finished job and runs the tests; `harbor-release-manager`
-> saves finished work as commits, the only one that does. Their know-how: `harbor-core`, a
-> skill written from your code and your `CONTRIBUTING.md`. The house rules: careful work,
-> the helpers do the work, nothing leaves without your word. The board: `BOARD.md`. At
-> the end I save all of this as one commit. Shall I build it?
+> **Claude:** Here is my plan for `harbor`. Its checkout work has separate investigation,
+> implementation, proof, independent review and selected commit boundaries, so this plan uses
+> five helpers: `harbor-scout` reads and reports; `harbor-worker` changes the code;
+> `harbor-test-writer` writes the tests; `harbor-reviewer` checks each finished job and runs
+> the tests; `harbor-release-manager` is the selected committer. Another project can select
+> fewer or different capabilities. Their know-how: `harbor-core`, a skill written from your
+> code and your `CONTRIBUTING.md`. `OWNERS` is the single map for write paths. The house rules:
+> careful work, the helpers do the work, nothing leaves without your word. The board:
+> `BOARD.md`. At the end I save all of this as one commit. Shall I build it?
 
 After your yes, the repository has:
 
@@ -214,6 +218,7 @@ After your yes, the repository has:
 harbor/
   CLAUDE.md                         the team, one line per agent
   BOARD.md                          the board: to do, in progress, review, done
+  OWNERS                            the single write-path map
   .claude/
     agents/
       harbor-scout.md               reads and reports, cannot write
@@ -247,6 +252,14 @@ code. Each agent starts fresh, with only the knowledge its role needs.
 The kit checks its own work before it calls the team done: every skill an agent names
 must exist, and an agent that names an unknown skill must be refused at start.
 
+## Tune a team after real work
+
+Once work has accumulated, run `/agent-construction-kit:tune` to make a manual,
+project-scoped, read-only review. It compares supported assignments with the current team and
+returns evidence, uncertainty and proposed routing changes; it does not edit, publish, push or
+install anything. A later explicit approval sends an accepted change through its normal owner
+and checks.
+
 ## Example: a team that does not write software
 
 A team is not only for code. Take an office PC with Windows, and a yearly chore:
@@ -270,9 +283,9 @@ The rules matter more here than in a code project:
 - "Done" has a meaning: every number carries the receipt it came from, and the sums
   match the statements.
 
-Today the kit builds a team for a folder without code (a reader, a worker, a reviewer
-that checks against a list, and one agent that saves the work), with these rules. The
-roles above, the browser work and a Windows team of its own are the next version.
+Today the kit builds a task-derived team for a folder without code, selecting only the
+capabilities its material and checks justify. The browser work and a Windows team of its own
+are the next version.
 
 ## Example: a homelab
 

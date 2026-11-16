@@ -155,6 +155,19 @@ class TeamTest(Sandbox):
         hits = [x for x in self.of(r, what) if x[1] == status]
         self.assertEqual(hits, [], r.stdout)
 
+    def owner(self, directory, *files, cwd=None, env=None):
+        """Run the public ownership lookup against DIRECTORY."""
+        return self.at("owner", "--dir", str(directory), "--", *files, cwd=cwd, env=env)
+
+    def ownable_team(self, name="owned harbor"):
+        """A valid team with purpose-specific names available to OWNERS."""
+        d = self.team(name=name)
+        self.agent(d, "api")
+        self.agent(d, "docs")
+        self.put(d, "CLAUDE.md", "# harbor\n\nAgents: harbor-scout, harbor-worker, "
+                 "harbor-test-writer, harbor-reviewer, harbor-api and harbor-docs.\n")
+        return d
+
     def cache_skill(self, plugin, skill, market="getty", version="1.0.0"):
         return self.write(".claude/plugins/cache/%s/%s/%s/skills/%s/SKILL.md"
                           % (market, plugin, version, skill), "---\nname: %s\n---\n" % skill)
@@ -268,7 +281,6 @@ class TeamTest(Sandbox):
             ["agent", "ok", "harbor-test-writer.md", ""],
             ["agent", "ok", "harbor-worker.md", ""],
             ["skill", "ok", "harbor-core", ""],
-            ["roles", "ok", ".claude/agents", ""],
             ["readonly", "ok", "harbor-reviewer.md", ""],
             ["readonly", "ok", "harbor-scout.md", ""],
             ["rules", "ok", ".claude/rules", ""],
@@ -285,7 +297,7 @@ class TeamTest(Sandbox):
         r = self.at("check", str(d), cwd=self.root)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual([x for x in self.rows(r) if x[1] != "ok"], [])
-        self.assertEqual(len([x for x in self.rows(r) if x[0] != "json-parser"]), 14)
+        self.assertEqual(len([x for x in self.rows(r) if x[0] != "json-parser"]), 13)
 
     def test_default_directory_is_the_current_one(self):
         d = self.team()
@@ -793,23 +805,22 @@ class TeamTest(Sandbox):
         self.assertEqual(r.returncode, 1)
         self.one(r, "skill", "missing", "harbor-*")
 
-    # ---- roles and readonly
+    # ---- configured read-only patterns
 
-    def test_missing_roles_warn_one_per_role(self):
+    def test_purpose_specific_agents_need_no_standard_roster(self):
         d = self.team()
-        os.remove(str(d / ".claude" / "agents" / "harbor-test-writer.md"))
-        os.remove(str(d / ".claude" / "agents" / "harbor-scout.md"))
+        shutil.rmtree(str(d / ".claude" / "agents"))
+        self.agent(d, "api-contract")
+        self.agent(d, "release-notes")
+        self.put(d, "CLAUDE.md", "# harbor\n\nAgents: harbor-api-contract and "
+                 "harbor-release-notes.\n")
         r = self.at("check", cwd=d)
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertEqual([x[2] for x in self.of(r, "roles")], ["scout", "test-writer"])
-        self.assertTrue(all(x[1] == "warn" for x in self.of(r, "roles")))
-
-    def test_worker_with_a_suffix_counts(self):
-        d = self.team()
-        os.remove(str(d / ".claude" / "agents" / "harbor-worker.md"))
-        self.put(d, ".claude/agents/harbor-worker-perl.md", agent_text("harbor-worker-perl"))
-        r = self.at("check", cwd=d)
-        self.one(r, "roles", "ok")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.of(r, "roles"), [], r.stdout)
+        self.one(r, "agent", "ok", "harbor-api-contract.md")
+        self.one(r, "agent", "ok", "harbor-release-notes.md")
+        self.one(r, "skill", "ok", "harbor-core")
+        self.one(r, "hook", "ok", "harbor-api-contract")
 
     def test_read_only_agent_without_disallowed_tools_warns(self):
         d = self.team()
@@ -841,6 +852,121 @@ class TeamTest(Sandbox):
         r = self.at("check", cwd=d)
         self.one(r, "readonly", "warn", "harbor-checker.md")
         self.one(r, "readonly", "warn", "harbor-coordinator.md")
+
+    # ---- owner
+
+    def test_owner_prefers_exact_and_longest_directory_rules(self):
+        d = self.ownable_team()
+        self.put(d, "OWNERS", "# paths are relative to this directory\n"
+                 "src/\tharbor-worker\n"
+                 "src/api/\tharbor-api\n"
+                 "src/api/health.sh\tharbor-docs\n"
+                 "README.md\tharbor-docs\n")
+        r = self.owner(d, "src/api/new file.sh", "src/api/health.sh", "README.md")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.rows(r), [
+            ["owner", "ok", "src/api/new file.sh", "harbor-api"],
+            ["owner", "ok", "src/api/health.sh", "harbor-docs"],
+            ["owner", "ok", "README.md", "harbor-docs"],
+        ])
+        self.assertEqual(r.stderr, "")
+
+    def test_owner_reports_unknown_and_out_of_repository_paths(self):
+        d = self.ownable_team()
+        self.put(d, "OWNERS", "src/\tharbor-worker\n")
+        r = self.owner(d, "unassigned.txt", "../other/file.txt")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        rows = self.rows(r)
+        self.assertEqual([row[:2] for row in rows], [["owner", "missing"],
+                                                       ["owner", "missing"]])
+        self.assertEqual(rows[0][2], "unassigned.txt")
+        self.assertEqual(rows[1][2], "../other/file.txt")
+        self.assertEqual(r.stderr, "")
+
+    def test_owner_accepts_planned_space_paths_and_crlf(self):
+        d = self.ownable_team()
+        self.put(d, "OWNERS", "drafts and notes/\tharbor-docs\r\n")
+        r = self.owner(d, "drafts and notes/future page.md")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.rows(r), [["owner", "ok", "drafts and notes/future page.md",
+                                         "harbor-docs"]])
+
+    def test_owner_rejects_invalid_maps_before_resolving(self):
+        d = self.ownable_team()
+        bad_maps = {
+            "duplicate normalized path": "docs/\tharbor-docs\ndocs//\tharbor-docs\n",
+            "malformed row": "docs/ harbor-docs\n",
+            "unknown owner": "docs/\tmissing-agent\n",
+            "path outside repository": "../outside/\tharbor-docs\n",
+        }
+        for label, owners in bad_maps.items():
+            with self.subTest(label=label):
+                self.put(d, "OWNERS", owners)
+                r = self.owner(d, "docs/future.md")
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                row = self.one(r, "owner", "missing", "OWNERS")
+                self.assertGreaterEqual(len([sentence for sentence in row[3].split(".")
+                                             if sentence.strip()]), 2, row)
+                self.assertEqual(r.stderr, "")
+
+    def test_owner_missing_map_and_child_directory_do_not_search_parents(self):
+        d = self.ownable_team()
+        r = self.owner(d, "README.md")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.one(r, "owner", "missing", "OWNERS")
+        self.put(d, "OWNERS", "README.md\tharbor-docs\n")
+        nested = d / "nested"
+        nested.mkdir()
+        r = self.owner(nested, "README.md")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.one(r, "owner", "missing", "OWNERS")
+
+    def test_owner_uses_its_directory_as_the_relative_path_root(self):
+        d = self.ownable_team()
+        self.put(d, "OWNERS", "README.md\tharbor-docs\n")
+        nested = d / "nested"
+        nested.mkdir()
+        r = self.owner(d, "README.md", cwd=nested)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.rows(r), [["owner", "ok", "README.md", "harbor-docs"]])
+        r = self.at("owner", "--", "README.md", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.rows(r), [["owner", "ok", "README.md", "harbor-docs"]])
+
+    def test_owner_is_read_only_and_needs_no_json_runtime(self):
+        d = self.ownable_team()
+        self.put(d, "OWNERS", "src/\tharbor-worker\n")
+        before = {str(p.relative_to(d)): p.read_bytes() for p in d.rglob("*")
+                  if p.is_file() and ".git" not in p.parts}
+        for command in ("jq", "node", "nodejs", "python3", "python", "py"):
+            self.fake(command, "#!/bin/sh\nexit 1\n")
+        r = self.owner(d, "src/new.sh")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.rows(r), [["owner", "ok", "src/new.sh", "harbor-worker"]])
+        after = {str(p.relative_to(d)): p.read_bytes() for p in d.rglob("*")
+                 if p.is_file() and ".git" not in p.parts}
+        self.assertEqual(after, before)
+        self.assertEqual(r.stderr, "")
+
+    def test_owner_rejects_drive_prefixed_rules_without_breaking_absolute_directory_use(self):
+        d = self.ownable_team()
+        bad_maps = {
+            "drive relative": ("C:outside/\tmain\n", "C:outside/file.txt"),
+            "dot drive relative": ("./C:outside/\tmain\n", "./C:outside/file.txt"),
+            "drive absolute": ("C:/outside/\tmain\n", "C:/outside/file.txt"),
+            "dot drive absolute": ("./C:/outside/\tmain\n", "./C:/outside/file.txt"),
+        }
+        for label, (owners, requested) in bad_maps.items():
+            with self.subTest(label=label):
+                self.put(d, "OWNERS", owners)
+                r = self.owner(d, requested, env={"OSTYPE": "msys"})
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.one(r, "owner", "missing", "OWNERS")
+                self.assertEqual(r.stderr, "")
+        self.put(d, "OWNERS", "src/\tharbor-worker\n")
+        r = self.owner(d, "src/in-root.sh", env={"OSTYPE": "msys"})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.rows(r), [["owner", "ok", "src/in-root.sh", "harbor-worker"]])
 
     # ---- rules
 
@@ -1312,7 +1438,6 @@ class TeamTest(Sandbox):
         self.put(d, ".claude/agents/team/harbor-worker.md", agent_text("harbor-worker"))
         r = self.at("check", cwd=d)
         self.one(r, "agent", "ok", "team/harbor-worker.md")
-        self.one(r, "roles", "ok")
         self.one(r, "hook", "ok", "harbor-worker")
 
     def test_local_prefix_is_stripped_from_the_file_name_only(self):
@@ -1554,7 +1679,6 @@ class TeamTest(Sandbox):
         r = self.at("check", cwd=d)
         self.assertEqual(r.returncode, 0, r.stdout)
         self.one(r, "agent", "ok", "harbor-worker.md")
-        self.one(r, "roles", "ok")
         self.one(r, "hook", "ok", "harbor-worker")
 
     def test_dangling_symlink_warns_and_is_no_agent(self):

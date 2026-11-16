@@ -22,8 +22,6 @@ AWAITING_SKILL_LINK = set()
 ANSWER_KEYS = ("shape", "manager", "prefix", "board", "committer", "publish_gate",
                "outside_input", "sources", "roles", "bundles", "provider", "headless")
 OLD_KEYS = ("bauform", "fremdeingaben", "quellen", "rollen")     # read the same
-ROLES = ("scout", "worker", "test-writer", "reviewer", "release-manager", "doc-writer",
-         "adr-auditor", "coordinator")
 FENCE = re.compile(r"^```[^\n]*\n(.*?)^```", re.S | re.M)
 
 
@@ -225,7 +223,9 @@ class SkillTest(Sandbox):
 
     def test_every_command_named_in_the_skill_exists(self):
         for doc in docs() + [README]:
-            names = set(re.findall(r"\b(ack-[a-z]+)\b", read(doc)))
+            # ack-tune is the generated adoption marker, not a bin/ command;
+            # test_tune.py owns its skill-discovery and marker contracts.
+            names = set(re.findall(r"\b(ack-[a-z]+)\b", read(doc))) - {"ack-tune"}
             for name in names:
                 p = ROOT / "bin" / name
                 self.assertTrue(p.is_file(), "%s names %s, which is not in bin/" % (doc.name, name))
@@ -498,39 +498,115 @@ class SkillTest(Sandbox):
                     out.append((name, m.group(1), block[m.end():]))
         return out
 
-    def test_agent_templates_follow_the_contract(self):
-        roles = {}
-        for head, row in tables(read(REFS / "team-agents.md"), "Role"):
-            if "Tools" in head:
-                roles[spans(row[0])[0]] = (row[head.index("Tools")],
-                                           spans(row[head.index("`model`")])[0])
-        self.assertEqual(sorted(roles), sorted(ROLES))
-        readonly = header("ack-team")
-        for role, (tools, _) in roles.items():
-            if tools == "read-only":       # ack-team warns about exactly these suffixes
-                self.assertIn("-" + role, readonly)
-        seen = set()
-        for doc, fm, body in self.agent_templates():
+    def test_agent_templates_are_optional_task_derived_patterns(self):
+        text = read(REFS / "team-agents.md")
+        self.assertRegex(text, r"(?is)(?:derive|choose).{0,180}"
+                               r"(?:deliverable|workflow|tool|knowledge|authority)")
+        self.assertRegex(text, r"(?is)(?:template|pattern).{0,180}"
+                               r"(?:optional|starting point|not universal)")
+        self.assertRegex(text, r"(?is)(?:no|not).{0,80}(?:fixed|universal).{0,80}"
+                               r"(?:roster|role)")
+        self.assertRegex(text, r"(?is)shared.{0,80}skills?")
+        templates = self.agent_templates()
+        self.assertTrue(templates, "team-agent patterns need at least one usable template")
+        for doc, fm, body in templates:
             name = re.search(r"^name: (\S+)$", fm, re.M).group(1)
-            role = next((r for r in sorted(ROLES, key=len, reverse=True)
-                         if name.endswith("-" + r)), None)
-            self.assertIsNotNone(role, "%s: template %s has no known role" % (doc, name))
-            seen.add(role)
             keys = {line.split(":")[0] for line in fm.splitlines() if not line.startswith(" ")}
             self.assertEqual(keys - {"name", "description", "model", "disallowedTools", "briefing"},
                              set(), "%s: %s carries other keys" % (doc, name))
             self.assertRegex(fm, r"(?m)^description: \S", "%s: %s" % (doc, name))
             self.assertRegex(fm, r"(?m)^briefing:\n  skills:\n    - \S", "%s: %s" % (doc, name))
-            tools, model = roles[role]
-            self.assertIn("model: %s\n" % model, fm + "\n", "%s: %s" % (doc, name))
-            dis = re.search(r"^disallowedTools: (.*)$", fm, re.M)
-            if tools == "read-only":
-                self.assertTrue(dis and {"Edit", "Write", "NotebookEdit"} <=
-                                set(re.split(r",\s*", dis.group(1))), "%s: %s" % (doc, name))
-            else:
-                self.assertIsNone(dis, "%s: %s is not read-only" % (doc, name))
             self.assertTrue(body.startswith("You are the %s for **" % name), "%s: %s" % (doc, name))
-        self.assertEqual(seen, set(ROLES), "a role without a template")
+
+    def test_owners_reference_is_the_single_path_authority(self):
+        ownership = REFS / "team-ownership.md"
+        self.assertTrue(ownership.is_file(), "team-ownership.md is required for OWNERS")
+        text = read(ownership)
+        for words in ("`OWNERS`", "`<path><TAB><owner>`", "exact", "longest", "directory",
+                      "no implicit", "`main`", "planned"):
+            self.assertIn(words, text)
+        self.assertIn("`ack-team owner [--dir DIR] [--] FILE...`", text)
+        self.assertIn("`owner<TAB>ok<TAB><relative-file><TAB><owner>`", text)
+        self.assertIn("`owner<TAB>missing", text)
+        routing = "\n".join(read(REFS / name) for name in
+                            ("team-analysis.md", "team-agents.md", "team-rules.md"))
+        self.assertRegex(routing, r"(?is)OWNERS.{0,180}(?:authoritative|single).{0,100}path")
+        self.assertRegex(routing, r"(?is)(?:assign|review).{0,180}OWNERS")
+
+    def test_family_coordination_skill_is_built_for_a_selected_family(self):
+        family = read(REFS / "team-family.md")
+        build = re.search(r"## Build order for a family\n(.*?)(?=^## |\Z)", family,
+                          re.S | re.M).group(1)
+        coordinator = re.search(r"## The agent `<family>-coordinator`\n(.*?)(?=^## |\Z)",
+                                family, re.S | re.M).group(1)
+        self.assertRegex(family, r"(?is)(?:selected|accepted).{0,120}family.{0,180}"
+                                 r"(?:build|write|create|install).{0,160}"
+                                 r"<family>-coordination")
+        self.assertRegex(build, r"(?is)(?:build|write|create).{0,120}"
+                                r"<family>-coordination")
+        self.assertRegex(family, r"(?is)(?:each|every).{0,100}"
+                                 r"(?:member|repository).{0,180}"
+                                 r"skilletor install <family>-coordination")
+        self.assertRegex(coordinator, r"(?is)(?:accepted|select).{0,100}"
+                                      r"(?:actual|cross.repository).{0,120}"
+                                      r"(?:coordinator|routing)")
+        self.assertNotRegex(build, r"(?is)<family>-coordination.{0,100}"
+                                   r"<family>-coordinator.{0,100}"
+                                   r"(?:only|when|if).{0,100}(?:cross.repository|routing)")
+
+    def test_docs_and_configuration_have_selected_owners_without_bypass(self):
+        routing = re.search(r"## Ownership and routing\n(.*?)(?=^## |\Z)",
+                            read(REFS / "team-agents.md"), re.S | re.M).group(1)
+        self.assertNotRegex(routing, r"(?is)unruled.{0,120}"
+                                     r"(?:configuration|docs).{0,120}main")
+        self.assertNotIn("mapped to `main`", routing)
+        self.assertRegex(routing, r"(?is)(?:configuration|docs).{0,120}"
+                                  r"(?:selected|specialist|owner).{0,120}OWNERS")
+        self.assertRegex(routing, r"(?is)(?:main|coordinator).{0,120}"
+                                  r"(?:not|never).{0,100}(?:bypass|override).{0,100}OWNERS")
+
+    def test_main_writes_only_paths_explicitly_mapped_to_main(self):
+        rules = read(REFS / "team-rules.md")
+        main = re.search(r"## What the main agent does itself\n(.*?)(?=^## |\Z)",
+                         rules, re.S | re.M).group(1)
+        self.assertRegex(main, r"(?is)(?:main.{0,100}(?:edit|write).{0,120}"
+                               r"(?:only|when).{0,120}(?:explicit|map).{0,120}OWNERS|"
+                               r"OWNERS.{0,120}(?:explicit|map).{0,120}main.{0,100}"
+                               r"(?:edit|write))")
+
+    def test_rules_template_marks_first_adoption_without_inventing_legacy_history(self):
+        rules = read(REFS / "team-rules.md")
+        template = [block for block in FENCE.findall(rules) if block.startswith("<!-- ack:")]
+        self.assertEqual(len(template), 1, "team-rules.md needs one generated rules template")
+        lines = template[0].splitlines()
+        self.assertRegex(lines[0], r"^<!-- ack: [^>]+ -->$")
+        self.assertEqual(lines[1], "<!-- ack-tune: since=<UTC-ISO-8601> schema=1 -->")
+        surrounding = " ".join(rules.split())
+        self.assertRegex(surrounding, r"(?i)(?:first|new).{0,100}"
+                                            r"(?:ACK|adoption|setup).{0,120}ack-tune")
+        self.assertRegex(surrounding, r"(?i)(?:existing|legacy).{0,120}"
+                                            r"(?:without|no).{0,100}marker.{0,160}"
+                                            r"(?:omit|absent|leave out)")
+        self.assertRegex(surrounding, r"(?i)(?:user|they).{0,100}"
+                                            r"(?:confirm|provide).{0,100}"
+                                            r"(?:historical|start).{0,100}date")
+        self.assertRegex(surrounding, r"(?i)(?:upgrade|current time).{0,100}"
+                                            r"(?:not|never).{0,100}"
+                                            r"(?:first|adoption|evidence)")
+        self.assertRegex(surrounding, r"(?i)(?:preserve|keep).{0,100}original.{0,100}ack-tune")
+
+    def test_handover_recommends_manual_tuning_after_real_work(self):
+        text = " ".join(read(REFS / "using-the-team.md").split())
+        self.assertIn("`/agent-construction-kit:tune`", text)
+        self.assertRegex(text, r"(?i)(?:after|once).{0,120}(?:real work|work has accumulated)")
+        self.assertRegex(text, r"(?i)(?:manual|explicitly invoked).{0,120}tune")
+        self.assertNotRegex(text, r"(?i)(?:continuous|automatic).{0,80}monitor")
+
+    def test_readme_describes_task_derived_boundaries_not_a_universal_roster(self):
+        text = read(README)
+        self.assertNotIn("More agents with narrow jobs beat a few that do everything", text)
+        self.assertRegex(text, r"(?is)(?:task|work).{0,120}derived.{0,120}boundar")
+        self.assertRegex(text, r"(?is)unnecessary.{0,100}hand.?off")
 
     def test_rules_template_fits_in_seventy_lines(self):
         text = read(REFS / "team-rules.md")
@@ -640,10 +716,12 @@ class SkillTest(Sandbox):
         for name in TEAM_REFS:     # pushes follow the project rules, and those say which
             for words in ("never uploads", "Never pushes", "headless` defaults to `on"):
                 self.assertNotIn(words, read(REFS / name), "%s: %r" % (name, words))
-        built = {spans(row[0])[0]: row[head.index("Built when")]
-                 for head, row in tables(read(REFS / "team-agents.md"), "Role")
-                 if "Built when" in head}
-        self.assertEqual(built["release-manager"], "always")
+        committer = "\n".join(read(REFS / name) for name in
+                             ("team-analysis.md", "team-agents.md", "team-rules.md"))
+        self.assertRegex(committer, r"(?is)(?:committer|commit).{0,160}"
+                                    r"(?:select|choose|explicit)")
+        self.assertRegex(committer, r"(?is)(?:release.manager|committer).{0,160}"
+                                    r"(?:not|no).{0,80}(?:always|universal|fixed)")
 
     def test_a_missing_runner_is_installed_for_the_project_after_the_yes(self):
         analysis = " ".join(read(REFS / "team-analysis.md").split())
@@ -778,20 +856,16 @@ class SkillTest(Sandbox):
         agents = " ".join(read(REFS / "team-agents.md").split())
         self.assertIn("`<project>`: the project's own name, not the prefix", agents)
 
-    def test_a_folder_without_code_has_no_test_writer(self):
-        built = {spans(row[0])[0]: row[head.index("Built when")]
-                 for head, row in tables(read(REFS / "team-agents.md"), "Role")
-                 if "Built when" in head}
-        self.assertTrue(built["test-writer"].startswith("the project has code or tests"))
-        for role in ("scout", "worker", "reviewer"):
-            self.assertTrue(built[role].startswith("always"), role)
+    def test_a_folder_without_code_uses_justified_capabilities_not_a_roster(self):
         text = " ".join(read(REFS / "team-without-code.md").split())
-        team = read(ROOT / "bin" / "ack-team")     # a missing role is a warn, not missing
-        self.assertRegex(team, r"for role in [^;\n]*\btest-writer\b")
-        self.assertIn('emit roles warn "$role" "no agent ending in -$role"', team)
-        for words in ("`roles<TAB>warn<TAB>test-writer` (`no agent ending in -test-writer`)",
-                      "Worker and reviewer get only `superpowers:verification-before-completion`",
-                      "`git diff --check`", "section `## Check`", "and only these",
+        team = read(ROOT / "bin" / "ack-team")
+        self.assertRegex(text, r"(?i)(?:derive|choose).{0,160}"
+                               r"(?:deliverable|workflow|knowledge|authority)")
+        self.assertRegex(text, r"(?i)(?:no|not).{0,80}(?:fixed|universal).{0,80}"
+                               r"(?:roster|role)")
+        self.assertNotIn("roles<TAB>", text)
+        self.assertNotIn("check_roles()", team)
+        for words in ("`git diff --check`", "section `## Check`",
                       "Login names, passwords, PINs, account and card numbers never go into"):
             self.assertIn(words, text)
         agents = read(REFS / "team-agents.md")
@@ -874,8 +948,11 @@ class SkillTest(Sandbox):
             for old in OLD_KEYS:
                 self.assertNotIn(old, text, "%s: %s" % (doc.name, old))
         self.assertNotIn("German", sheet)
-        self.assertIn("<!-- ack: shape=project manager=none board=file committer=release-manager "
-                      "outside_input=on headless=off -->", read(REFS / "team-rules.md"))
+        header_text = read(REFS / "team-rules.md")
+        header_match = re.search(r"<!-- ack: ([^>]*?) -->", header_text)
+        self.assertIsNotNone(header_match, "team-rules.md: no <!-- ack: ... --> header")
+        self.assertIn("committer=", header_match.group(1))
+        self.assertNotIn("committer=release-manager", header_match.group(1))
 
     def test_text_findings_of_the_final_review(self):
         flat = lambda n: " ".join(read(REFS / n).split())
@@ -909,10 +986,13 @@ class SkillTest(Sandbox):
         for words in ('"Every report names the platforms that ran."',
                       "leaves one line in `CLAUDE.md` pointing to the rules file"):
             self.assertIn(words, flat_rules)
-        workers = flat("team-agents.md").partition("## Workers by path")[2]
-        for words in ("Your paths are `<paths>`", "one line per worker", "stay with the main agent",
-                      "the changelog with the committer"):
-            self.assertIn(words, workers)
+        agents = flat("team-agents.md")
+        self.assertNotIn("## Workers by path", read(REFS / "team-agents.md"))
+        self.assertNotIn("Your paths are `<paths>`", agents)
+        self.assertRegex(agents, r"(?is)OWNERS.{0,140}(?:authoritative|single).{0,100}path")
+        self.assertRegex(agents, r"(?is)(?:main|coordinator).{0,120}"
+                                 r"(?:update|maintain).{0,100}OWNERS")
+        self.assertIn("the changelog with the committer", agents)
 
     def test_residual_findings_of_the_scoped_review(self):
         flat = lambda n: " ".join(read(REFS / n).split())
@@ -993,7 +1073,7 @@ class SkillTest(Sandbox):
         example = text.partition("## Example: a team for a software project")[2].partition("\n## ")[0]
         for gone in ("hub", "issue tracker", "Who may commit", "in one table"):
             self.assertNotIn(gone, example)
-        for words in ("`BOARD.md`", "karr", "`harbor-release-manager`", "house rules",
+        for words in ("`BOARD.md`", "karr", "house rules",
                       "Nothing is uploaded without your word.", "Shall I build it?"):
             self.assertIn(words, example)
         tree = [b for b in FENCE.findall(example) if "harbor/" in b]

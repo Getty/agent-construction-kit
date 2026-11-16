@@ -52,8 +52,8 @@ The last lines follow the second copy:
 ## Giving work
 
 - One sentence is enough: "The checkout page should show the total with tax." The
-  session makes a card of it, hands it to the agent that owns that part, and comes back
-  when the reviewer has checked it and the committer has saved it.
+  session makes a card, resolves its touched or planned paths through `OWNERS`, hands it to
+  that owner, and comes back when the selected check has passed and the committer has saved it.
 - "What is open?": the session reads the board and answers; the user can also open
   `BOARD.md` (with karr: `karr board`).
 - The session does something itself that an agent should do: "Give that to the
@@ -93,6 +93,10 @@ skipped), not with a starter for another service (`claude_with_<name>`).
 
 After the hand-over, a sentence or two each, for what applies; nothing else:
 
+- After real work has accumulated, recommend: "You can manually run
+  `/agent-construction-kit:tune` to review this team's project-scoped work and propose
+  improvements before any change. Shall I do that?" It is an explicitly invoked, read-only
+  review; it does not edit, publish or change permissions.
 - When project knowledge can help another project, offer once: "You can collect reusable skills in your
   own local, private or shared repository; I can show you how when you want." First look through
   installed skills and trusted source catalogs, then load a relevant one before authoring. An optional

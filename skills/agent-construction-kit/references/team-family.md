@@ -25,8 +25,8 @@ skilletor, which reads a repository's own `.claude/skills/` like a published sou
 - `skilletor add <family> <core address> --project`, with the `<url>` of the `remote`
   line for `origin` that `ack-repo inspect <core folder>` prints, credentials already
   stripped (`https://github.com/acme/harbor-core.git`).
-- `skilletor install <family>-coordination@<family> --project`, and the same for
-  `<family>-conventions` if it exists.
+- Every member repository runs `skilletor install <family>-coordination@<family> --project`,
+  and the same for `<family>-conventions` if it exists.
 
 A fresh clone on another machine asks once: `skilletor trust <family>`. A core without a
 hosted remote (no `remote` line, or only one of kind `disk`: a copy on a drive) has no address
@@ -67,7 +67,8 @@ Fill the table from the `sibling` lines and from what each repository says of it
 
 ## The agent `<family>-coordinator`
 
-Only in the core repository. Read-only: it decides where a card belongs; the main agent
+When the accepted family plan selects actual cross-repository card routing, this read-only
+capability exists only in the core repository. It decides where a card belongs; the main agent
 writes it.
 
 ```markdown
@@ -92,11 +93,14 @@ With the file board, drop `kanban-issues-karr-coordination` from the list.
 
 ## Build order for a family
 
-1. The core first: its team as for a project ([team-analysis.md](team-analysis.md),
-   "After the yes"), plus `<family>-coordination` and `<family>-coordinator`; commit.
-2. Then each other repository, one after another: its own analysis questions only where
+1. For every selected family, build the shared knowledge skill `<family>-coordination` in the
+   core, then build its project team as [team-analysis.md](team-analysis.md), "After the yes",
+   says; commit.
+2. Select the dedicated `<family>-coordinator` only when actual cross-repository card routing
+   needs it; the knowledge skill remains available either way.
+3. Then each other repository, one after another: its own analysis questions only where
    it differs, `skilletor add` and `skilletor install` as above, its own team; commit.
-3. `ack-team check` in each repository ("Verification" in [team-rules.md](team-rules.md)).
+4. `ack-team check` in each repository ("Verification" in [team-rules.md](team-rules.md)).
 
 The project rules of every member carry one line in `## Lanes`: "Work owned by another
 `<family>` repository: a card for it, by skill `<family>-coordination`."

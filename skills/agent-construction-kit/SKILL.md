@@ -102,8 +102,7 @@ order" from question 3, and "The plan", which ends "Shall I build it?"; only a y
 ## Step 4: build
 
 "After the yes: build order" in team-analysis.md, items 1 to 7 in order, each with the file it links:
-[references/team-agents.md](references/team-agents.md), [references/team-rules.md](references/team-rules.md), [references/team-board.md](references/team-board.md),
-a family also [references/team-family.md](references/team-family.md), no code also [references/team-without-code.md](references/team-without-code.md).
+[references/team-agents.md](references/team-agents.md), [references/team-ownership.md](references/team-ownership.md), [references/team-rules.md](references/team-rules.md), [references/team-board.md](references/team-board.md); a family also [references/team-family.md](references/team-family.md), no code also [references/team-without-code.md](references/team-without-code.md).
 
 ## Step 5: check
 

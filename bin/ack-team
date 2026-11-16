@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# ack-team: check a finished agent team in a repository. Read only.
+# ack-team: check a finished agent team or resolve repository file ownership. Read only.
 #   ack-team check [DIR]
+#   ack-team owner [--dir DIR] [--] FILE...
 # DIR defaults to the current directory. One finding per line, four fields separated by
 # tabs (the last may be empty, its tab stays):
 #   WHAT<TAB>ok|missing|warn<TAB>FILE-OR-NAME<TAB>TEXT
@@ -18,8 +19,6 @@
 #              or bare, in a plugin that is installed (installed_plugins.json, in the
 #              installed version's directory) and enabled (enabledPlugins, user, project,
 #              project-local settings), like the briefing hook decides.
-#   roles      ok when agents ending in -scout, -worker (or -worker-*), -test-writer and
-#              -reviewer all exist; else warn per missing role.
 #   readonly   per agent ending in -scout, -reviewer, -checker or -coordinator: warn
 #              unless its disallowedTools name Edit and Write.
 #   rules      missing without a *.md file in .claude/rules/.
@@ -47,6 +46,10 @@
 #              On Git for Windows and Cygwin the briefing-preload.exe beside the script
 #              runs; without one, a Python script runs under the Python 3 ack-doctor
 #              finds (python3, python or py -3), not through its shebang line.
+#   owner      with `owner`: ok for each requested relative file mapped by the selected
+#              directory's OWNERS file; missing for an invalid or missing map, an
+#              out-of-scope file or an unowned file. Exact paths win; otherwise the
+#              longest literal directory prefix wins. OWNERS rows are path<TAB>owner.
 # Exit codes: 0 no line is missing, 1 a line is missing, 2 usage error or unusable DIR.
 # Errors are two lines on stderr: "ack-team: <what>" and "ack-team: <what to do>".
 
@@ -91,7 +94,7 @@ fail() {
   exit "$1"
 }
 usage_err() {
-  fail 2 "$1" "usage: ack-team check [DIR] (see the header of $0)."
+  fail 2 "$1" "usage: ack-team check [DIR] | owner [--dir DIR] [--] FILE... (see the header of $0)."
 }
 
 # emit WHAT STATUS NAME [TEXT]: one finding; tabs and line ends in TEXT become spaces.
@@ -680,22 +683,6 @@ _role_match() { # NAME ROLE
   return 1
 }
 
-check_roles() {
-  local role n i missing=0
-  [ "${#AG_NAMES[@]}" -gt 0 ] || return 0
-  for role in scout worker test-writer reviewer; do
-    n=0
-    for ((i = 0; i < ${#AG_NAMES[@]}; i++)); do
-      _role_match "${AG_NAMES[$i]}" "$role" && n=1
-    done
-    if [ "$n" = 0 ]; then
-      emit roles warn "$role" "no agent ending in -$role"
-      missing=1
-    fi
-  done
-  [ "$missing" = 1 ] || emit roles ok ".claude/agents" ""
-}
-
 check_readonly() {
   local i name role ro
   for ((i = 0; i < ${#AG_NAMES[@]}; i++)); do
@@ -1146,6 +1133,178 @@ check_hook() {
   done
 }
 
+# ---------------------------------------------------------------- ownership
+
+# _owner_agents -> OWNER_AGENTS: declared agent names below the selected directory. This
+# deliberately reads only frontmatter, so owner lookup has no JSON-runtime dependency.
+_owner_agents() {
+  local f list
+  OWNER_AGENTS=()
+  [ -d "$DIR/.claude/agents" ] || return 0
+  list="$(find -H "$DIR/.claude/agents" \( -type f -o -type l \) -name '*.md' -print 2>/dev/null | LC_ALL=C sort)"
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    parse_agent "$f"
+    [ "$A_FM" = 1 ] && [ "$A_HASNAME" = 1 ] && [ -n "$A_NAME" ] || continue
+    OWNER_AGENTS[${#OWNER_AGENTS[@]}]="$A_NAME"
+  done <<EOT
+$list
+EOT
+}
+
+# _owner_known NAME: main or one of the selected directory's declared agents.
+_owner_known() {
+  local name
+  [ "$1" = main ] && return 0
+  for name in "${OWNER_AGENTS[@]}"; do
+    [ "$1" = "$name" ] && return 0
+  done
+  return 1
+}
+
+# _owner_rule_path PATH -> OWNER_RULE_PATH and OWNER_RULE_DIRECTORY. Rules are relative
+# forward-slash paths; a trailing slash describes a directory prefix.
+_owner_rule_path() {
+  local path="$1"
+  OWNER_RULE_PATH="" OWNER_RULE_DIRECTORY=0
+  case "$path" in
+    ''|*"$TAB"*|*$'\n'*|*$'\r'*|/*|[A-Za-z]:*) return 1 ;;
+  esac
+  case "$path" in
+    */) OWNER_RULE_DIRECTORY=1; path="${path%/}" ;;
+  esac
+  case "$path" in ''|*\\*) return 1 ;; esac
+  _collapse_path "$path" || return 1
+  [ -n "$REPLY" ] || return 1
+  case "$REPLY" in [A-Za-z]:*) return 1 ;; esac
+  OWNER_RULE_PATH="$REPLY"
+  return 0
+}
+
+# _owner_input_path PATH -> OWNER_INPUT_PATH. On Git for Windows and Cygwin a relative
+# backslash path follows the same spelling conversion as the command's own path.
+_owner_input_path() {
+  local path="$1"
+  OWNER_INPUT_PATH=""
+  case "$path" in *"$TAB"*|*$'\n'*|*$'\r'*) return 1 ;; esac
+  _slashes "$path"; path="$REPLY"
+  case "$path" in ''|/*|[A-Za-z]:*) return 1 ;; esac
+  _collapse_path "$path" || return 1
+  [ -n "$REPLY" ] || return 1
+  case "$REPLY" in [A-Za-z]:*) return 1 ;; esac
+  OWNER_INPUT_PATH="$REPLY"
+  return 0
+}
+
+# _owner_map_error TEXT: report an invalid selected-directory map once, before lookup.
+_owner_map_error() {
+  emit owner missing OWNERS "The OWNERS map $1. Correct the map and run ack-team owner again."
+  return 1
+}
+
+# _owner_read_map -> OWNER_RULE_PATHS, OWNER_RULE_DIRECTORIES, OWNER_RULE_OWNERS. A map
+# is validated completely before any requested file is resolved.
+_owner_read_map() {
+  local map="$DIR/OWNERS" line trimmed path owner i
+  OWNER_RULE_PATHS=() OWNER_RULE_DIRECTORIES=() OWNER_RULE_OWNERS=()
+  if [ ! -f "$map" ] || [ ! -r "$map" ]; then
+    _owner_map_error "is missing or unreadable"
+    return 1
+  fi
+  _owner_agents
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    _ack_trim "$line"; trimmed="$REPLY"
+    case "$trimmed" in ''|'#'*) continue ;; esac
+    case "$line" in
+      *"$TAB"*) path="${line%%"$TAB"*}"; owner="${line#*"$TAB"}" ;;
+      *) _owner_map_error "has a malformed row"; return 1 ;;
+    esac
+    case "$owner" in ''|*"$TAB"*|*$'\n'*|*$'\r'*)
+      _owner_map_error "has a malformed row"; return 1 ;;
+    esac
+    if ! _owner_rule_path "$path"; then
+      _owner_map_error "has a path outside the selected directory or not using forward slashes"
+      return 1
+    fi
+    if ! _owner_known "$owner"; then
+      _owner_map_error "names an owner that is neither main nor a declared agent"
+      return 1
+    fi
+    for ((i = 0; i < ${#OWNER_RULE_PATHS[@]}; i++)); do
+      if [ "${OWNER_RULE_PATHS[$i]}" = "$OWNER_RULE_PATH" ] &&
+         [ "${OWNER_RULE_DIRECTORIES[$i]}" = "$OWNER_RULE_DIRECTORY" ]; then
+        _owner_map_error "has a duplicate normalized path"
+        return 1
+      fi
+    done
+    OWNER_RULE_PATHS[${#OWNER_RULE_PATHS[@]}]="$OWNER_RULE_PATH"
+    OWNER_RULE_DIRECTORIES[${#OWNER_RULE_DIRECTORIES[@]}]="$OWNER_RULE_DIRECTORY"
+    OWNER_RULE_OWNERS[${#OWNER_RULE_OWNERS[@]}]="$owner"
+  done < "$map"
+  return 0
+}
+
+# _owner_for PATH -> REPLY: exact rules win; otherwise the longest directory prefix wins.
+_owner_for() {
+  local path="$1" i rule found="" length longest=-1
+  for ((i = 0; i < ${#OWNER_RULE_PATHS[@]}; i++)); do
+    [ "${OWNER_RULE_DIRECTORIES[$i]}" = 0 ] || continue
+    [ "${OWNER_RULE_PATHS[$i]}" = "$path" ] || continue
+    REPLY="${OWNER_RULE_OWNERS[$i]}"
+    return 0
+  done
+  for ((i = 0; i < ${#OWNER_RULE_PATHS[@]}; i++)); do
+    [ "${OWNER_RULE_DIRECTORIES[$i]}" = 1 ] || continue
+    rule="${OWNER_RULE_PATHS[$i]}"
+    length=${#rule}
+    [ "${#path}" -gt "$length" ] || continue
+    [ "${path:0:$length}" = "$rule" ] || continue
+    [ "${path:$length:1}" = / ] || continue
+    if [ "$length" -gt "$longest" ]; then
+      found="${OWNER_RULE_OWNERS[$i]}"
+      longest="$length"
+    fi
+  done
+  [ -n "$found" ] || return 1
+  REPLY="$found"
+  return 0
+}
+
+cmd_owner() {
+  local directory="." directory_set=0 file shown
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dir)
+        [ "$directory_set" = 0 ] || usage_err "owner takes --dir only once."
+        [ $# -ge 2 ] || usage_err "--dir needs a directory."
+        directory="$2"; directory_set=1; shift 2 ;;
+      --) shift; break ;;
+      -h|--help) _help; exit 0 ;;
+      -*) usage_err "unknown option '$1'." ;;
+      *) break ;;
+    esac
+  done
+  [ $# -gt 0 ] || usage_err "owner needs at least one file."
+  DIR="$(CDPATH= cd -- "$directory" 2>/dev/null && pwd)" && [ -n "$DIR" ] ||
+    fail 2 "'$directory' is not a directory." "pass the directory that contains OWNERS."
+  DIR="${DIR%/}"
+  _owner_read_map || exit "$RC"
+  for file in "$@"; do
+    if ! _owner_input_path "$file"; then
+      shown="${file//$TAB/ }"; shown="${shown//$'\r'/ }"; shown="${shown//$'\n'/ }"
+      emit owner missing "$shown" "The requested path is outside the selected directory or contains a tab or newline. Use a relative file path below the selected directory."
+      continue
+    fi
+    if _owner_for "$OWNER_INPUT_PATH"; then
+      emit owner ok "$OWNER_INPUT_PATH" "$REPLY"
+    else
+      emit owner missing "$OWNER_INPUT_PATH" "No owner is mapped for this path. Add an exact or directory rule to OWNERS."
+    fi
+  done
+  exit "$RC"
+}
+
 # ---------------------------------------------------------------- main
 
 cmd_check() {
@@ -1168,7 +1327,6 @@ cmd_check() {
     GITTOP="$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null)"
   fi
   check_agents
-  check_roles
   check_readonly
   check_rules
   check_settings
@@ -1185,6 +1343,7 @@ main() {
   shift
   case "$sub" in
     check) cmd_check "$@" ;;
+    owner) cmd_owner "$@" ;;
     -h|--help|help) _help; exit 0 ;;
     *) usage_err "unknown subcommand '$sub'." ;;
   esac

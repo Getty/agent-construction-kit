@@ -49,6 +49,12 @@ Revision history for agent-construction-kit
     - Team setup finds installed and trusted source skills before authoring,
       explains that managed skills are edited at their source then synced, and
       offers an optional local or private collection without publishing it.
+    - Build teams from planned as well as existing work, selecting only the
+      capabilities each task needs. Each team has one OWNERS map, and
+      ack-team owner resolves a path's assigned owner before work is handed out.
+    - Add /agent-construction-kit:tune: a manual, project-scoped, read-only
+      review of past assignments that reports evidence, uncertainty and
+      proposed routing changes without editing, publishing or installing.
     - A board without installing anything: BOARD.md, a table per column. karr
       is offered in the board question, recommended for a family of projects,
       and installed after a yes.

@@ -48,11 +48,10 @@ Run `ack-repo inspect` in the project folder; it only reads, offline. One fact p
 - `sibling<TAB><dir>`: a neighbour repository, same name start. `prefix<TAB><name>`: from
   the folder name; a name in the project's manifest wins (`prefix` in [team-answer-sheet.md](team-answer-sheet.md)).
 
-Then read, without asking: `README*`, `CONTRIBUTING*`, `CLAUDE.md`, `AGENTS.md`,
-`docs/adr/`, the `signal` files, the CI config: build and test commands and their traps,
-the release path, written conventions, clearly separate parts ("Workers by path" in
-[team-agents.md](team-agents.md)). The latest `ack-doctor` run's `plugin:superpowers`,
-`plugin:mattpocock-skills` and `tool:karr` lines decide the base skills and the board question.
+Then read, without asking: `README*`, `CONTRIBUTING*`, `CLAUDE.md`, `AGENTS.md`, `docs/adr/`,
+design material, signals and CI config: deliverables; planned/existing code/runtime parts; commands,
+traps, release path, conventions, checks, dependencies, tools/data and authority. The latest
+`ack-doctor` `plugin:superpowers`, `plugin:mattpocock-skills` and `tool:karr` decide base skills and board.
 
 ## An existing team
 
@@ -68,13 +67,16 @@ with `<!-- ack: ... -->` keeps the earlier answers; ask only about what the user
 
 ## From one sentence to a structure
 
-Propose a structure from what the user says (an empty folder: what will be made here) and
-what you read, with its reason in one sentence; they confirm or change it.
+Propose a structure from the user's words (an empty folder: what will be made), existing design material and planned work; they confirm or change it.
+For every deliverable or workflow, identify acceptance, dependencies, tools/data, knowledge and authority; choose agents only for a useful boundary.
+An empty folder can still have planned parts, while a direct job may need one owner. An operator needs real distributed-runtime or external-integration
+work with an explicit authority boundary, never a standard role.
 
 | The user says, or the repository shows | Propose |
 |---|---|
-| one project here ("I have a small web shop in this folder") | a project team |
-| clearly separate parts (`frontend/` and `backend/`, `packages/*`) | a project team, one worker per part |
+| one project here ("I have a small web shop in this folder") | a project team, with only the capabilities the work needs |
+| clearly separate existing or planned parts (`frontend/` and `backend/`, `packages/*`) | a purpose-specific owner for each part only where their work, knowledge or authority differs |
+| distributed runtime or external integration | an operator capability if its operating work and approval boundary are concrete |
 | `sibling` lines that share a core | a family ([team-family.md](team-family.md)) |
 
 ## The questions, in order
@@ -122,19 +124,19 @@ First load the presets this session lists ("Presets" in [team-answer-sheet.md](t
 
 ## The plan
 
-One message, in plain words, then "Shall I build it?"; the user may take out or change
-any line. Besides the team itself, it names:
+One plain-language message, then "Shall I build it?"; the user may take out or change any line. Besides the team itself, it names:
 
-- `commits<TAB>0`: the user's files, listed, for a first commit of their own; the user
-  may take files out. Caches and build output (`__pycache__/`, `node_modules/`) and what
-  looks like a key or password (`.env`, `*.pem`) go into `.gitignore`. Files dirty before
-  the build stay out of the team's commits; one the build must change as well (`.gitignore`,
-  `CLAUDE.md`, `.claude/settings.json`) is named here, and the yes covers it.
-- Ready skills: an installed superpowers or mattpocock-skills is used. Neither: "Two
-  free add-ons for Claude (plugins), superpowers and mattpocock-skills, give the agents
-  ready know-how for test-first work and finding bugs; I would install them."
-- Who commits: `<prefix>-release-manager`, unless a preset or the user wants the session
-  (`committer` `main`) or the user (`user`); the release manager is built either way.
+- `commits<TAB>0`: the user's files, listed, for their first commit; they may take files out.
+  Caches/build output (`__pycache__/`, `node_modules/`) and apparent keys (`.env`, `*.pem`) go
+  into `.gitignore`. Files dirty before the build stay out of the team's commits; a build-changed `.gitignore`,
+  `CLAUDE.md` or `.claude/settings.json` is named here, and the yes covers it.
+- Intended deliverables, planned parts and selected capabilities: purpose, routing, acceptance
+  check, relevant skills and authority. Use [team-agents.md](team-agents.md) only for a useful
+  boundary; agents may share skills, but routing stays narrow.
+- Who commits: explicitly select `<prefix>-release-manager`, the session (`committer` `main`) or
+  the user (`user`). A release manager is not always built; record the selected hand-off rule.
+- Ready skills: use installed superpowers or mattpocock-skills. Neither: "Two free add-ons for
+  Claude (plugins), superpowers and mattpocock-skills, give agents ready test-first and debugging know-how; I would install them."
 - The name and e-mail from question 4, the copy on a drive and its updates, the board (karr,
   downloaded into the folder `ack-wrappers dir` prints, and with `dir<TAB>missing` the line
   `ack-wrappers path-fix` adds to the shell's startup file), and what is not included that
@@ -145,12 +147,10 @@ Example for a new web shop `harbor`, with a copy on a USB drive:
 > Here is my plan for `harbor`.
 > - First your own files, saved as they are: `shop.py`, `templates/`, `tests/`,
 >   `README.md`. Tell me if one should stay out.
-> - Five helpers ("agents"), each a small file: `harbor-scout` reads and reports,
->   changes nothing; `harbor-worker` changes the code; `harbor-test-writer` writes the
->   tests; `harbor-reviewer` checks each finished job and runs the tests, changes
->   nothing; `harbor-release-manager` saves finished work (a commit).
-> - Their know-how: `harbor-core`, a short instruction file (a "skill") from your README
->   and code, plus skills from superpowers, which you have installed.
+> - Three purpose-specific helpers: `harbor-catalog` owns the product catalogue; `harbor-checkout`
+>   owns checkout changes and acceptance tests; `harbor-review` independently checks them. All share `harbor-core`.
+> - `harbor-release-manager` is the explicitly selected committer: it saves reviewed work.
+> - `OWNERS` is the write-path map; it assigns each planned and existing file to an agent or `main` before a card is handed out.
 > - Rules: careful work, the helpers do the work, nothing leaves without your word.
 > - A board: the file `BOARD.md` (to do, in progress, review, done); karr can come later.
 > - Public issue trackers stay outside: anyone can write there. You bring entries in as cards.
@@ -175,7 +175,7 @@ Example for a new web shop `harbor`, with a copy on a USB drive:
    project-local way; never system-wide, `sudo` or `--break-system-packages`. No `venv`:
    give the user the one command to type (Debian, Ubuntu `sudo apt install python3-venv`); wait.
    Then the check command runs once: a trap it shows (slow, the network) is a hazard.
-4. Skills and rules, before any agent names them. Per source in `sources`:
+4. Skills, before any agent names them. Per source in `sources`:
    `skilletor add <name> <address> --project` (the kit's `skilletor add Getty/skills --project`
    names it `getty`; trust: [team-answer-sheet.md](team-answer-sheet.md)); a user-level source
    of that name wins over the project's: if `skilletor source list` shows it with another
@@ -186,8 +186,8 @@ Example for a new web shop `harbor`, with a copy on a USB drive:
    A met `roles` row's skill not in `.claude/skills/`: `skilletor install <skill>@<source> --project`
    ([team-answer-sheet.md](team-answer-sheet.md) names the source); none has it: stop before
    any agent file, tell the user which. Then `<prefix>-core` ([team-agents.md](team-agents.md)).
-5. Agents: [team-agents.md](team-agents.md).
-6. Project rules, `.claude/settings.json`, `CLAUDE.md`: [team-rules.md](team-rules.md).
+5. Agents: select only the accepted capabilities ([team-agents.md](team-agents.md)).
+6. `OWNERS`, project rules, `.claude/settings.json`, `CLAUDE.md`: create the accepted map after agents exist; [team-ownership.md](team-ownership.md), then [team-rules.md](team-rules.md).
 7. The file board: [team-board.md](team-board.md); a family also [team-family.md](team-family.md).
 8. Check: "Verification" in [team-rules.md](team-rules.md), until no line is `missing`.
 9. One commit of what the build created or changed, with no changelog entry (the team is no

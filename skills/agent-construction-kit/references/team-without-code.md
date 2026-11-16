@@ -1,14 +1,15 @@
 # A folder without code
 
 For a folder that holds no code and no tests (notes, texts, documents, a collection), or
-an empty one for something other than software. The team is the one of
-[team-agents.md](team-agents.md), with a checklist in place of tests and its words
-fitted to what the folder holds.
+an empty one for something other than software. Derive the selected capabilities from its
+deliverables, workflow, knowledge and authority rather than a fixed or universal roster; use
+[team-agents.md](team-agents.md) only for optional patterns. The checklist replaces a program
+test where that is the observable acceptance check.
 
 ## Contents
 
 - The check: a checklist
-- Roles and base skills
+- Capabilities and base skills
 - Words in the templates
 - The secrets hazard
 
@@ -26,25 +27,23 @@ In the project rules, "Check and commits" reads: "`git diff --check` and the che
 `<prefix>-core` are the check; a card is done only when both pass, because <reason>."
 The worker and the reviewer go through the checklist point by point and report each one.
 
-## Roles and base skills
+## Capabilities and base skills
 
-- No test-writer: nothing here runs as a program. `ack-team check` then prints
-  `roles<TAB>warn<TAB>test-writer` (`no agent ending in -test-writer`); that is expected.
-  Say it in the hand-over in one sentence ("There is no test-writer: nothing here runs as
-  a program."). Leave out its Lanes row and its `CLAUDE.md` line, and in "With
-  superpowers" the words "(a test task: `-test-writer`)" ([team-rules.md](team-rules.md)).
-- Worker and reviewer get only `superpowers:verification-before-completion` (proof before
-  "done"): no test-first, no debugging skill. With only mattpocock-skills: none. Neither
-  plugin: the plan offers superpowers alone ("A free add-on for Claude (a plugin),
-  superpowers, gives the agents the habit of checking before they call work done; I
-  would install it.").
-- Scout, reviewer and release manager are built as for code; doc-writer and adr-auditor
-  only as their "Built when" says.
+Choose only capabilities justified by the material's deliverables, workflow, knowledge and
+authority. A direct, well-bounded update can have one owner; use an independent check only
+when the checklist or approval boundary needs it. Do not add a test-writing pattern when
+nothing runs as a program, and do not fill a fixed roster.
+
+Give a selected author or reviewer `superpowers:verification-before-completion` for proof
+before "done". With only mattpocock-skills, use none. Neither plugin: the plan offers
+superpowers alone ("A free add-on for Claude (a plugin), superpowers, gives the agents the
+habit of checking before they call work done; I would install it."). A selected committer,
+documentation specialist or investigator follows its accepted routing, not a default role name.
 
 ## Words in the templates
 
-Where a template speaks of code, tests or a changelog, these replacements are allowed,
-and only these; everything else stays as written.
+Where a selected optional pattern speaks of code, tests or a changelog, these replacements are
+allowed, and only these; everything else stays as written.
 
 | Template | Here |
 |---|---|
