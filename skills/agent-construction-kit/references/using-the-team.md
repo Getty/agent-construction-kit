@@ -93,6 +93,12 @@ skipped), not with a starter for another service (`claude_with_<name>`).
 
 After the hand-over, a sentence or two each, for what applies; nothing else:
 
+- When project knowledge can help another project, offer once: "You can collect reusable skills in your
+  own local, private or shared repository; I can show you how when you want." First look through
+  installed skills and trusted source catalogs, then load a relevant one before authoring. An optional
+  personal or shared skill collection may be a local or private repository with `skills/<name>/SKILL.md`;
+  edit it at the source, then run `skilletor sync`, never hand-edit an installed copy. Choosing one does
+  not create a remote, publish or push it.
 - The analysis saw several repositories or areas: "The next version of the kit can
   steer several teams from one place (a hub); this team would become one of them."
 - On Windows, always: "I recommend a second team later, in a folder of its own, only

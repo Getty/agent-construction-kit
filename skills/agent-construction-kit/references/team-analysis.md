@@ -38,10 +38,10 @@ Run `ack-repo inspect` in the project folder; it only reads, offline. One fact p
   `make`, `ci`); that file has the build, test and release commands. None: question 5.
 - `tests<TAB><dir><TAB><n><TAB>nested`: tests in subfolders (not helpers like `fixtures/`),
   which many runners skip: check that the test command reaches them. `flat`: one folder.
-- `team<TAB>agents<TAB><n>`, `team<TAB>rules<TAB><n>`, `team<TAB>skills<TAB><n>`: team parts
-  that exist. `team<TAB>board<TAB>karr`, `file` or `none`: the board that exists; keep it.
-  `team<TAB>skilletor<TAB>yes`: a skilletor config exists. Read `.claude/skilletor.json`
-  whenever it exists: it names the sources, skills and bundles already installed.
+- `team<TAB>agents<TAB><n>`, `team<TAB>rules<TAB><n>`, `team<TAB>skills<TAB><n>`: team parts. `team<TAB>board<TAB>karr`,
+  `file` or `none`: the board that exists; keep it. `team<TAB>skilletor<TAB>yes`: a skilletor config;
+  read `.claude/skilletor.json` for sources, skills and bundles. Before authoring, discover available installed
+  skills and trusted source catalogs; load each relevant available skill with the Skill tool.
 - `account<TAB><service><TAB><source><TAB><name>`: an account at `github`, `gitlab` or
   `codeberg` on this machine. Source `gh` or `glab`: that tool is signed in as `<name>`;
   `ssh` or `gitconfig`: only the host is known.

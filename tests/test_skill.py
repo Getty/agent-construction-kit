@@ -409,6 +409,53 @@ class SkillTest(Sandbox):
             for bad in (r"\bbrain\b", "citilan", "reuben", "/home/", "getty"):
                 self.assertFalse(re.search(bad, low), "%s contains %r" % (p.relative_to(ROOT), bad))
 
+    def skill_reuse_text(self):
+        return "\n".join(read(REFS / name) for name in
+                         ("team-analysis.md", "team-agents.md", "using-the-team.md"))
+
+    def test_skill_reuse_guidance_discovers_and_loads_available_skills(self):
+        text = self.skill_reuse_text()
+        self.assertRegex(text, r"(?is)(?:discover|look through|find).{0,180}"
+                               r"(?:installed|available).{0,100}skill")
+        self.assertRegex(text, r"(?is)trusted.{0,100}(?:source|catalog)")
+        self.assertRegex(text, r"(?is)(?:load|invoke).{0,100}(?:Skill tool|relevant skill)")
+
+    def test_skill_reuse_guidance_separates_installation_from_preloading(self):
+        text = self.skill_reuse_text()
+        self.assertRegex(text, r"(?is)skilletor.{0,140}(?:install|provide|update|sync)")
+        self.assertRegex(text, r"(?is)briefing\.skills.{0,140}(?:preload|spawn|start)")
+
+    def test_skill_reuse_guidance_offers_a_local_or_private_collection(self):
+        text = self.skill_reuse_text()
+        self.assertRegex(text, r"(?is)(?:optional|may|can).{0,100}"
+                               r"(?:personal|shared).{0,100}(?:skill )?(?:repository|collection)")
+        self.assertRegex(text, r"(?is)(?:local|private).{0,100}(?:source|repository)")
+        self.assertIn("skills/<name>/SKILL.md", text)
+        readme = read(README)
+        self.assertIn("skills/<name>/SKILL.md", readme)
+        self.assertRegex(readme, r"\bskilletor\s+(?:add|install|source)\b")
+
+    def test_skill_reuse_guidance_edits_the_source_then_syncs(self):
+        text = self.skill_reuse_text()
+        self.assertRegex(text, r"(?is)(?:edit|change).{0,140}source.{0,140}(?:sync|update)")
+        self.assertRegex(text, r"(?is)(?:do not|never).{0,100}"
+                               r"(?:hand.edit|generated|installed cop)")
+
+    def test_skill_reuse_guidance_requires_consent_to_publish_a_collection(self):
+        text = self.skill_reuse_text()
+        self.assertRegex(text, r"(?is)(?:skill (?:collection|repository)|source).{0,240}"
+                               r"(?:never|does not|do not|not).{0,140}"
+                               r"(?:create.{0,30}remote|publish|push)")
+
+    def test_json_parser_finding_is_documented_with_a_non_node_recovery(self):
+        rules = read(REFS / "team-rules.md")
+        self.assertRegex(rules, r"json-parser<TAB>ok(?:<TAB>|\|)")
+        self.assertIn("json-parser<TAB>missing", rules)
+        parser_text = " ".join(line for line in rules.splitlines() if "json-parser" in line)
+        self.assertRegex(parser_text, r"(?i)(?:jq|node|python)")
+        self.assertRegex(parser_text, r"(?i)(?:install|add|make available)")
+        self.assertNotRegex(parser_text, r"(?i)(?:must|need to) install node")
+
     # ---- the team references
 
     def test_team_references_are_short_and_list_their_sections(self):

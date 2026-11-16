@@ -46,6 +46,9 @@ Revision history for agent-construction-kit
     - ack-team check validates settings and plugin metadata with a usable,
       strict standard JSON parser, reports its selected backend and stops
       before briefing hooks when none is available.
+    - Team setup finds installed and trusted source skills before authoring,
+      explains that managed skills are edited at their source then synced, and
+      offers an optional local or private collection without publishing it.
     - A board without installing anything: BOARD.md, a table per column. karr
       is offered in the board question, recommended for a family of projects,
       and installed after a yes.

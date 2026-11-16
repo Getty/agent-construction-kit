@@ -1,8 +1,8 @@
 # Agents: roles, files and templates
 
 Each agent is one file `.claude/agents/<prefix>-<role>.md`: a frontmatter that routes and
-briefs it, and a body of a few sentences. Its knowledge comes from skills, which the
-briefing plugin loads when the agent starts; never copy skill text into a body.
+briefs it, and a body of a few sentences. Skilletor provides and updates skill files; the main
+session invokes relevant skills, while `briefing.skills` preloads what an agent needs at spawn; never copy skill text into a body.
 
 ## Contents
 

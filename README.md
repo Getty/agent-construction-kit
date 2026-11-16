@@ -59,6 +59,20 @@ In Claude Code, type:
 `/reload-plugins` makes the new plugin available at once; restarting Claude Code does
 the same. Then say: **set up my machine for agent teams**.
 
+## Reusing skills
+
+Once the team setup has installed skilletor, before writing a skill look through installed skills
+and trusted source catalogs, then load a relevant available skill with the Skill tool. Skilletor
+provides and updates skill files; the main session invokes a skill, while `briefing.skills` preloads
+what an agent needs when it starts.
+
+You may keep an optional personal or shared collection in a local directory, private repository
+or hosted source. Its source contains `skills/<name>/SKILL.md`; add a source you trust and install
+from it with `skilletor add mine "<local-directory-or-private-address>" --project` and
+`skilletor install <name>@mine --project`. Edit a managed skill in its source, then run
+`skilletor sync`; never hand-edit an installed copy. Choosing a collection does not create a
+remote, publish or push it.
+
 ## Example: setting up the machine
 
 A session goes roughly like this:
