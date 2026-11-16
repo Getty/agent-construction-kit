@@ -23,6 +23,9 @@
 #   readonly   per agent ending in -scout, -reviewer, -checker or -coordinator: warn
 #              unless its disallowedTools name Edit and Write.
 #   rules      missing without a *.md file in .claude/rules/.
+#   json-parser ok with the first usable standard JSON parser (jq, Node or Python 3), named
+#              in the third field; missing when none is usable, before metadata or a hook is
+#              read.
 #   settings   .claude/settings.json is readable, every plugin set to true in
 #              enabledPlugins has its marketplace in extraKnownMarketplaces
 #              (claude-plugins-official excepted), briefing is enabled; missing otherwise.
@@ -340,39 +343,125 @@ _under() {
   return 1
 }
 
-# _json_ok FILE: the file holds one complete JSON object (balanced, strings closed); the
-# hook reads anything else as {}
+# The parser is chosen once, before any metadata is read. jq and Python accept JSON-like
+# NaN and Infinity by default, so their standard parser APIs are told to reject them. jq
+# also rejects numbers it represents as infinity (for example 1e999); Node and Python may
+# accept those valid but out-of-range JSON numbers.
+JSON_PARSER_DONE=0 JSON_PARSER="" JSON_JQ="" JSON_NODE="" JSON_PYTHON="" JSON_PYTHON_ARGS=""
+JQ_JSON_OBJECT='length == 1 and (.[0] | type == "object") and all(.. | numbers; (isnan | not) and (isinfinite | not))'
+NODE_JSON_PROBE='try {
+  const value = JSON.parse("{}");
+  let rejected = false;
+  try { JSON.parse("{\"value\":NaN}"); } catch (_) { rejected = true; }
+  const ok = value !== null && !Array.isArray(value) && typeof value === "object" && rejected;
+  process.stdout.write(ok ? "true" : "false");
+  process.exit(ok ? 0 : 1);
+} catch (_) { process.exit(1); }'
+NODE_JSON_OBJECT='const fs = require("fs");
+try {
+  const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  process.exit(value !== null && !Array.isArray(value) && typeof value === "object" ? 0 : 1);
+} catch (_) { process.exit(1); }'
+PYTHON_JSON_PROBE='import json, sys
+def reject_constant(value):
+    raise ValueError
+try:
+    value = json.loads("{}")
+    try:
+        json.loads("{\"value\":NaN}", parse_constant=reject_constant)
+    except ValueError:
+        pass
+    else:
+        raise ValueError
+except Exception:
+    sys.exit(1)
+sys.stdout.write("true")'
+PYTHON_JSON_OBJECT='import json, sys
+def reject_constant(value):
+    raise ValueError
+try:
+    with open(sys.argv[1], encoding="utf-8") as stream:
+        value = json.load(stream, parse_constant=reject_constant)
+except Exception:
+    sys.exit(1)
+sys.exit(0 if type(value) is dict else 1)'
+
+# _json_jq_usable PARSER: jq at PARSER parses an object and rejects known non-JSON numbers.
+_json_jq_usable() {
+  local parser="$1" probe rc
+  ack_run_bounded 15 sh -c 'printf "%s\\n" "{}" | "$1" -e -s "$2"' sh "$parser" "$JQ_JSON_OBJECT"
+  rc=$?
+  [ "$rc" = 0 ] && [ "$ACK_BOUNDED_OUT" = true ] || return 1
+  for probe in '{"value":NaN}' '{"value":01}' '{"value":+1}' '{"value":.1}' '{"value":1.}'; do
+    ack_run_bounded 15 sh -c 'printf "%s\\n" "$3" | "$1" -e -s "$2"' sh "$parser" "$JQ_JSON_OBJECT" "$probe"
+    [ "$?" != 0 ] || return 1
+  done
+  return 0
+}
+
+# _json_node_usable FILE: Node at FILE has JSON.parse and rejects a non-JSON constant.
+_json_node_usable() {
+  local parser="$1"
+  ack_run_bounded 15 "$parser" -e "$NODE_JSON_PROBE"
+  [ "$?" = 0 ] && [ "$ACK_BOUNDED_OUT" = true ]
+}
+
+# _json_python_run CODE [FILE]: run CODE under the Python ack_find_python selected.
+_json_python_run() {
+  local code="$1"
+  shift
+  if [ -n "$ACK_PYTHON_ARGS" ]; then
+    "$ACK_PYTHON" "$ACK_PYTHON_ARGS" -I -c "$code" "$@"
+  else
+    "$ACK_PYTHON" -I -c "$code" "$@"
+  fi
+}
+
+# _json_python_usable: the Python ack_find_python selected has strict JSON parsing support.
+_json_python_usable() {
+  ack_run_bounded 15 _json_python_run "$PYTHON_JSON_PROBE"
+  [ "$?" = 0 ] && [ "$ACK_BOUNDED_OUT" = true ]
+}
+
+# _select_json_parser -> JSON_PARSER (jq, node or python): the first usable standard parser.
+_select_json_parser() {
+  local parser=""
+  [ "$JSON_PARSER_DONE" = 0 ] || { [ -n "$JSON_PARSER" ]; return; }
+  JSON_PARSER_DONE=1
+  parser="$(type -P jq 2>/dev/null)"
+  if [ -n "$parser" ] && _json_jq_usable "$parser"; then
+    JSON_PARSER=jq JSON_JQ="$parser"
+    return 0
+  fi
+  parser="$(type -P node 2>/dev/null)"
+  if [ -n "$parser" ] && _json_node_usable "$parser"; then
+    JSON_PARSER=node JSON_NODE="$parser"
+    return 0
+  fi
+  if ack_find_python && _json_python_usable; then
+    JSON_PARSER=python JSON_PYTHON="$ACK_PYTHON" JSON_PYTHON_ARGS="$ACK_PYTHON_ARGS"
+    return 0
+  fi
+  return 1
+}
+
+# _json_ok FILE: FILE holds exactly one complete JSON object. It returns 0 when valid, 1
+# when invalid or unreadable, and 2 when no usable standard JSON parser is available.
 _json_ok() {
-  awk 'BEGIN { RS = "\001" }
-  {
-    s = $0; n = length(s); depth = 0; started = 0; i = 1
-    while (i <= n) {
-      c = substr(s, i, 1)
-      if (c == "\"") {
-        j = i + 1; closed = 0
-        while (j <= n) {
-          d = substr(s, j, 1)
-          if (d == "\\") { j += 2; continue }
-          if (d == "\"") { closed = 1; break }
-          j++
-        }
-        if (!closed || depth == 0) exit 1
-        i = j + 1; continue
-      }
-      if (c == "{" || c == "[") {
-        if (depth == 0 && started) exit 1
-        if (!started) { if (c != "{") exit 1; started = 1 }
-        depth++
-      } else if (c == "}" || c == "]") {
-        depth--
-        if (depth < 0) exit 1
-      } else if (c != " " && c != "\t" && c != "\n" && c != "\r") {
-        if (depth == 0) exit 1
-      }
-      i++
-    }
-    exit (started && depth == 0) ? 0 : 1
-  }' "$1" 2>/dev/null
+  local rc
+  [ -f "$1" ] && [ -r "$1" ] || return 1
+  _select_json_parser || return 2
+  case "$JSON_PARSER" in
+    jq) "$JSON_JQ" -e -s "$JQ_JSON_OBJECT" -- "$1" >/dev/null 2>&1 ;;
+    node) "$JSON_NODE" -e "$NODE_JSON_OBJECT" -- "$1" >/dev/null 2>&1 ;;
+    python)
+      ACK_PYTHON="$JSON_PYTHON" ACK_PYTHON_ARGS="$JSON_PYTHON_ARGS" \
+        _json_python_run "$PYTHON_JSON_OBJECT" "$1" >/dev/null 2>&1 ;;
+    *) return 2 ;;
+  esac
+  rc=$?
+  [ "$rc" = 0 ] && return 0
+  return 1
 }
 
 # _segments PATH STRICT -> REPLY: PATH's "." and ".." segments resolved, joined by "/"
@@ -666,10 +755,10 @@ check_settings() {
     emit settings missing "$name" "not found or not readable"
     return 0
   fi
-  case "$text" in
-    *'{'*) ;;
-    *) emit settings missing "$name" "not a JSON object"; return 0 ;;
-  esac
+  if ! _json_ok "$f"; then
+    emit settings missing "$name" "the settings file is not a valid JSON object. Correct the JSON syntax and run ack-team check again."
+    return 0
+  fi
   json_member "$text" enabledPlugins; ep="$REPLY"
   json_member "$text" extraKnownMarketplaces; mk="$REPLY"
   _json_keys "$mk"; markets="$KEYS"
@@ -1068,6 +1157,12 @@ cmd_check() {
   # the cwd the hook is handed: under Git for Windows the C:/... form (pwd -W), else DIR
   DIRW="$(CDPATH= cd -- "$DIR" && pwd -W 2>/dev/null)" || DIRW=""
   [ -n "$DIRW" ] || DIRW="$DIR"
+  if _select_json_parser; then
+    emit json-parser ok "$JSON_PARSER" ""
+  else
+    emit json-parser missing "." "no usable standard JSON parser is available. Make available Node or Python 3, then run ack-team check again."
+    exit "$RC"
+  fi
   GITTOP=""
   if command -v git >/dev/null 2>&1; then
     GITTOP="$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null)"

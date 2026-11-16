@@ -52,7 +52,9 @@ can write there; none is wired to the AI, the user brings single entries in as c
 ## Hazards
 
 - bash 3.2 is the floor, as macOS ships it: no associative arrays, no `mapfile`, no
-  `${var,,}`, no `&>>`. No `jq`, no Python at runtime: a bare machine has neither.
+  `${var,,}`, no `&>>`. Machine setup and starters require neither jq nor Python.
+  `ack-team` alone may use an available jq, Node or Python 3 for JSON. Without one,
+  report the check as missing; never accept unchecked JSON or install from a check.
 - Only tools and flags common to GNU, BSD (macOS) and Git for Windows, since all of them
   work on Linux and a Linux run stays green: never `stat`, `readlink -f`, `realpath`,
   `sed -i`, `date -d`, `grep -P`, `/dev/tcp`, `mktemp` with a switch other than `-d`.

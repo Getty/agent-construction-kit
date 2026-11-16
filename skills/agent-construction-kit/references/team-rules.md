@@ -181,7 +181,7 @@ and run again until no line is `missing`; tell the user each `warn` in one sente
 | `claude-md` | `CLAUDE.md` names every agent | add the name to the section |
 | `git` | a repository, and a remote | no remote: fine when the user chose "only on this computer". `missing` with "git cannot read the repository: <reason>": the reason (dubious ownership, a broken `.git`); tell the user, change nothing until they fixed it |
 | `hook` | runs the briefing hook as if each agent were started; the first worker (else the first agent) must also get a briefing | every agent passes: ONE line `hook<TAB>ok<TAB><first worker>`, standing for all of them. `missing`: one line per agent the hook refuses, or for the first worker when it hands an abort; the text is briefing's reason: fix that entry. `warn` (one line; the hook part stops there): hook not found, only an installed and enabled briefing counts (`claude plugin install briefing@getty`), no answer in time (run again), or it briefs nothing for the first worker (give it `briefing.skills`) |
-
+| `json-parser` | selects a standard parser that passes strict JSON capability probes: a `jq` build that accepts malformed number forms is skipped, while a suitable Node or Python 3 parser may be used instead; success is `json-parser<TAB>ok<TAB><backend>` | missing is `json-parser<TAB>missing<TAB><capability><TAB><text>`: install or make a suitable `jq`, Node or Python 3 parser available, then rerun. An installed `jq` alone can be unsuitable. It exits 1 and does not run a briefing hook from unchecked metadata |
 That the hook refuses a broken agent is checked once by hand, in a scratch folder:
 
 ```bash

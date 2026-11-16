@@ -186,6 +186,75 @@ class TeamTest(Sandbox):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data))
 
+    def json_check(self, text, relpath="json input/object file.json", env=None):
+        """Run the internal object boundary against a file under the sandbox HOME."""
+        f = self.write(relpath, text)
+        return self.run_cmd("bash", "-c", '. "$1"; _json_ok "$2"', "ack-json-check", AT,
+                            str(f), env=env)
+
+    def expose_host_node(self):
+        """Make the host Node available through fakebin with the Sandbox environment."""
+        import shlex
+        node = shutil.which("node", path=os.environ.get("PATH"))
+        if not node:
+            return None
+        self.fake("node", "#!/bin/sh\nexec %s \"$@\"\n" % shlex.quote(node))
+        return node
+
+    def require_node_json_parser(self, fixture):
+        if not self.expose_host_node():
+            self.skipTest("%s requires host Node as an independent JSON parser" % fixture)
+
+    def restore_json_backend(self, backend):
+        """Undo a prior subtest's stand-in before selecting this real backend."""
+        if backend == "node":
+            self.expose_host_node()
+            return
+        for command in self.json_parser_commands(backend):
+            fake = self.fakebin / command
+            if fake.exists() or fake.is_symlink():
+                fake.unlink()
+
+    def json_parser_commands(self, backend):
+        if backend == "python":
+            return ("python3", "python", "py") if os.name == "nt" else ("python3",)
+        return (backend,)
+
+    def json_parser_version_args(self, command):
+        return ("-3", "--version") if command == "py" else ("--version",)
+
+    def available_json_parsers(self):
+        self.expose_host_node()
+        self.json_parser_probe_backends = []
+        available = []
+        for backend in ("jq", "node", "python"):
+            command = next((name for name in self.json_parser_commands(backend)
+                            if shutil.which(name, path=self.env["PATH"])), None)
+            if command:
+                probe = self.run_cmd(command, *self.json_parser_version_args(command))
+                if probe.returncode == 0:
+                    available.append((backend, command))
+                    self.json_parser_probe_backends.append(backend)
+        return available
+
+    def require_real_json_parser(self):
+        available = self.available_json_parsers()
+        if not available:
+            self.skipTest("no real standard JSON parser in Sandbox PATH (unavailable: jq, node, "
+                          "python)")
+        return available
+
+    def jq_accepts_invalid_number(self):
+        fixture = self.write("json input/jq leading zero.json", '{"value":01}')
+        r = self.run_cmd("jq", "-e", "-s",
+                         'length == 1 and (.[0] | type == "object")', str(fixture))
+        return r.returncode == 0
+
+    def corrupt_with_a_trailing_comma(self, path):
+        text = path.read_text().rstrip()
+        self.assertTrue(text.endswith("}"), text)
+        path.write_text(text[:-1] + ",}\n")
+
     # ---- the good team
 
     def test_good_team_prints_only_ok(self):
@@ -209,14 +278,14 @@ class TeamTest(Sandbox):
             ["git", "ok", ".", ""],
             ["hook", "ok", "harbor-worker", ""],
         ]
-        self.assertEqual(self.rows(r), expect)
+        self.assertEqual([x for x in self.rows(r) if x[0] != "json-parser"], expect)
 
     def test_directory_argument_and_spaces_in_the_path(self):
         d = self.team(name="my harbor")
         r = self.at("check", str(d), cwd=self.root)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual([x for x in self.rows(r) if x[1] != "ok"], [])
-        self.assertEqual(len(self.rows(r)), 14)
+        self.assertEqual(len([x for x in self.rows(r) if x[0] != "json-parser"]), 14)
 
     def test_default_directory_is_the_current_one(self):
         d = self.team()
@@ -286,6 +355,160 @@ class TeamTest(Sandbox):
                  "briefing:\n  skills:\n    - harbor-core\n---\nbody\n")
         r = self.at("check", cwd=d)
         self.one(r, "agent", "ok", "harbor-worker.md")
+
+    # ---- JSON validation
+
+    def test_json_parser_reports_an_eligible_standard_backend_or_missing(self):
+        available = self.require_real_json_parser()
+        d = self.team(name="json parser")
+        r = self.at("check", cwd=d)
+        rows = self.of(r, "json-parser")
+        self.assertEqual(len(rows), 1, r.stdout)
+        row = rows[0]
+        if row[1] == "missing":
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        else:
+            self.assertEqual(row[1], "ok", row)
+            self.assertIn(row[2].lower(), [backend for backend, _ in available], row)
+        self.assertEqual(r.stderr, "", r.stderr)
+
+    def test_json_boundary_accepts_a_complete_crlf_object_at_a_space_path(self):
+        self.require_real_json_parser()
+        r = self.json_check('{\r\n  "a": {"b": [1, true, null]},\r\n  "escaped": "a\\\"b"\r\n}\r\n')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout + r.stderr, "")
+
+    def test_json_boundary_rejects_malformed_complete_looking_input(self):
+        self.require_real_json_parser()
+        for text in ('{"x":}', '{]', '{"a":1 "b":2}', '{"a":true,}', '{}{}', '[]',
+                     '{"x":NaN}', '{"x":01}', '{"x":+1}', '{"x":.1}', '{"x":1.}'):
+            with self.subTest(text=text):
+                r = self.json_check(text)
+                self.assertEqual(r.returncode, 1, "%r returned %d" % (text, r.returncode))
+                self.assertEqual(r.stdout + r.stderr, "")
+
+    def test_json_boundary_rejects_non_json_constants_with_each_real_backend(self):
+        present = dict(self.available_json_parsers())
+        if not present:
+            self.skipTest("no real standard JSON parser in Sandbox PATH (unavailable: jq, node, "
+                          "python)")
+        backends = ("jq", "node", "python")
+        for backend in backends:
+            with self.subTest(backend=backend):
+                if backend not in present:
+                    self.skipTest("real %s JSON backend unavailable in Sandbox PATH" % backend)
+                self.assertIn(backend, self.json_parser_probe_backends)
+                jq_is_permissive = backend == "jq" and self.jq_accepts_invalid_number()
+                self.restore_json_backend(backend)
+                for other in backends:
+                    if other != backend:
+                        for command in self.json_parser_commands(other):
+                            self.fake(command, "#!/bin/sh\nexit 1\n")
+                valid = self.json_check('{"value": [1, true, null]}',
+                                        "json input/%s valid.json" % backend)
+                expected = 2 if jq_is_permissive else 0
+                self.assertEqual(valid.returncode, expected,
+                                 "%s parser eligibility for valid JSON" % backend)
+                self.assertEqual(valid.stdout + valid.stderr, "")
+                for text in ('{"value":NaN}', '{"value":01}', '{"value":+1}',
+                             '{"value":.1}', '{"value":1.}'):
+                    with self.subTest(backend=backend, text=text):
+                        invalid = self.json_check(text, "json input/%s invalid.json" % backend)
+                        expected = 2 if jq_is_permissive else 1
+                        self.assertEqual(invalid.returncode, expected,
+                                         "%s parser eligibility for %r" % (backend, text))
+                        self.assertEqual(invalid.stdout + invalid.stderr, "")
+
+    def test_json_parser_falls_back_after_a_broken_preferred_backend(self):
+        fallbacks = [backend for backend, _ in self.available_json_parsers()
+                     if backend in ("node", "python")]
+        if not fallbacks:
+            self.skipTest("no real fallback after jq (unavailable: node, python)")
+        marker = self.root / "broken-jq-was-tried"
+        self.fake("jq", '#!/bin/sh\nprintf jq > "$ACK_JSON_PROBE_MARKER"\nexit 1\n')
+        d = self.team()
+        r = self.at("check", cwd=d, env={"ACK_JSON_PROBE_MARKER": str(marker)})
+        row = self.one(r, "json-parser", "ok")
+        self.assertTrue(marker.exists(), "the broken jq was not probed")
+        self.assertNotIn("jq", row[2].lower(), row)
+        self.assertTrue(any(name in row[2].lower() for name in fallbacks), row)
+        self.assertEqual(r.stderr, "", r.stderr)
+
+    def test_json_parser_missing_is_silent_and_does_not_run_the_hook(self):
+        marker = self.root / "hook-was-run"
+        for name in ("jq", "node", "nodejs", "python3", "python", "py"):
+            self.fake(name, '#!/bin/sh\nprintf parser-secret >&2\nexit 1\n')
+        hook = self.fake("would-be-unsafe-hook",
+                         '#!/bin/sh\nprintf ran > "$ACK_HOOK_MARKER"\nprintf "{}"\n')
+        d = self.team()
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(hook),
+                                          "ACK_HOOK_MARKER": str(marker)})
+        row = self.one(r, "json-parser", "missing")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertRegex(row[3], r"(?i)json.*parser")
+        self.assertRegex(row[3], r"(?i)(install|add|make available).*(jq|node|python)")
+        self.assertGreaterEqual(len([s for s in row[3].split(".") if s.strip()]), 2, row)
+        self.assertFalse(marker.exists(), "the hook ran with unchecked JSON metadata")
+        self.assertEqual(r.stderr, "", r.stderr)
+
+    def test_json_parser_rejects_malformed_project_settings_silently(self):
+        d = self.team()
+        self.corrupt_with_a_trailing_comma(d / ".claude" / "settings.json")
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.one(r, "settings", "missing", ".claude/settings.json")
+        self.assertEqual(r.stderr, "", r.stderr)
+
+    def test_json_parser_rejects_malformed_installed_plugin_index(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "kit:deploy"))
+        self.install_plugin("kit", "deploy")
+        self.corrupt_with_a_trailing_comma(self.home / ".claude" / "plugins" /
+                                           "installed_plugins.json")
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.one(r, "skill", "missing", "kit:deploy")
+        self.assertEqual(r.stderr, "", r.stderr)
+
+    def test_json_parser_rejects_numeric_malformed_plugin_index_before_hook(self):
+        d = self.team()
+        self.install_plugin("briefing", "x")
+        hooks = (self.home / ".claude" / "plugins" / "cache" / "getty" / "briefing" /
+                 "1.0.0" / "hooks")
+        hooks.mkdir()
+        shutil.copy(HOOK_OK, str(hooks / "briefing-preload"))
+        (hooks / "briefing-preload").chmod(0o755)
+        index = self.home / ".claude" / "plugins" / "installed_plugins.json"
+        index.write_text(index.read_text().replace('"version": 2', '"version": 02', 1))
+        log = self.root / "unchecked-index-hook.json"
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": "",
+                                          "ACK_FAKE_HOOK_LOG": str(log)})
+        parser_rows = self.of(r, "json-parser")
+        self.assertEqual(len(parser_rows), 1, r.stdout)
+        parser = parser_rows[0]
+        self.assertFalse(log.exists(), "the hook ran with malformed plugin metadata")
+        if parser[1] == "missing":
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertEqual(self.of(r, "hook"), [])
+        else:
+            self.assertEqual(parser[1], "ok", parser)
+            if self.jq_accepts_invalid_number():
+                self.assertNotEqual(parser[2], "jq", parser)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.one(r, "hook", "warn", "harbor-worker")
+        self.assertEqual(r.stderr, "", r.stderr)
+
+    def test_json_parser_rejects_malformed_plugin_manifest(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "pocket:tdd"))
+        self.manifest_plugin('["./skills/deep/tdd"]', ["skills/deep/tdd/SKILL.md"])
+        manifest = (self.home / ".claude" / "plugins" / "cache" / "getty" / "pocket" /
+                    "1.0.0" / ".claude-plugin" / "plugin.json")
+        self.corrupt_with_a_trailing_comma(manifest)
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.one(r, "skill", "missing", "pocket:tdd")
+        self.assertEqual(r.stderr, "", r.stderr)
 
     # ---- agent
 
@@ -1372,6 +1595,7 @@ class TeamTest(Sandbox):
                         os.symlink(os.path.join(src, n), str(tools / n))
                     except OSError:
                         pass
+        self.require_node_json_parser("test_python_hook_without_python_says_so")
         r = self.at("check", cwd=d, env={"ACK_BRIEFING_HOOK": str(hook),
                                          "PATH": "%s:%s" % (self.fakebin, tools)})
         self.assertEqual(r.returncode, 0, r.stdout)
@@ -1432,6 +1656,7 @@ class TeamTest(Sandbox):
         self.write_fake("python3", "#!/bin/sh\nexit 9009\n")
         env = {"ACK_BRIEFING_HOOK": str(hook), "OSTYPE": "msys", "ACK_FAKE_PY_LOG": str(log),
                "PATH": "%s:%s" % (self.fakebin, self.tools_without_python())}
+        self.require_node_json_parser("test_windows_runs_a_python_hook_with_the_python_it_finds")
         r = self.at("check", cwd=d, env=env)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]])
