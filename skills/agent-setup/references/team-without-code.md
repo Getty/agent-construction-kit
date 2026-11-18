@@ -18,10 +18,15 @@ test where that is the observable acceptance check.
 `<check>` is `git diff --check` (no stray spaces, no conflict marks left over) and a
 checklist of three to six points in `<prefix>-core`, section `## Check`. The points come
 from the answer to "How can you tell that a piece of work here is right?" (question 5 in
-[team-analysis.md](team-analysis.md)) and from what you read: a naming scheme, a heading
-every file has, a date format, how links are written. An empty folder: from what the user
-said will be made here. Each point is one line a reader can tick off: "Every note starts
-with a title line." The plan names the checklist; the user may change any point.
+[team-analysis.md](team-analysis.md)), from what you read, and in an empty folder from what
+the user said will be made here. Derive them from the result first: every expected document
+is there, sums and units agree, each claim has a source, open exceptions stay visible. A
+receipt collection: complete, no duplicates, the sums match the statements; research: every
+claim sourced, uncertainty marked; an export: schema, types, nothing missing. Form points (a
+naming scheme, a title line, a date format) follow where they serve the result. Each point
+is one line a reader can tick off: "Every receipt in the list has its file." A point that
+can be measured is checked by a command where one exists (a count, a sum); a judgement call
+stays marked as one. The plan names the checklist; the user may change any point.
 
 In the project rules, "Check and commits" reads: "`git diff --check` and the checklist in
 `<prefix>-core` are the check; a card is done only when both pass, because <reason>."

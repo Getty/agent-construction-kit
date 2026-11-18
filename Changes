@@ -103,3 +103,6 @@ Revision history for agent-construction-kit
     - A team build with several presets asks when two of them set one key to
       different values (or one source alias to different addresses), naming
       both presets; list keys combine, and nothing is switched silently.
+    - Teams for folders without code derive the check from the result first
+      (every document there, sums and units agree, each claim sourced, open
+      exceptions shown), form points after, and a command where one measures.
