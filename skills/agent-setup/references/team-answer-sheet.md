@@ -94,6 +94,18 @@ on the kit's own initiative. Its author writes the section like this:
   then the `+` rows add. Each selected agent keeps `<prefix>-core` (coordinator:
   `<family>-coordination`) and, with karr, the card skill [team-board.md](team-board.md)
   gives it, whatever the rows say.
+- Several presets: each settles its own values by the rules above; where they agree,
+  nothing is asked. Two that set one key to different plain values (`board`, `committer`,
+  …) are a conflict: the plan names both with their presets and the user picks: "<preset
+  a> sets `<key>` to `<value a>`, <preset b> to `<value b>`; which one do you want?" The
+  list keys `sources`, `bundles` and `provider` combine instead, each preset's items added
+  as a `+` line adds them; the `roles` rows of all presets count as rows of one table.
+  `provider` `none` from one preset and provider names from another do not combine: a
+  conflict, asked like a plain value. A source alias that two presets point at different
+  addresses is a conflict too, and so is a preset's alias the kit already knows at another
+  address (its own `getty`, or one `skilletor source list` shows): asked the same way, the
+  addresses as values, the kit or `skilletor source list` in place of a preset; never
+  switched silently.
 - The skills of the rows that apply are installed before any agent file is written (build
   item 4 in [team-analysis.md](team-analysis.md)): each one `.claude/skills/` lacks, by
   `skilletor install <skill>@<source> --project`. A row may write `<skill>@<source>`; in

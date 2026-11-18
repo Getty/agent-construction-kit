@@ -100,3 +100,6 @@ Revision history for agent-construction-kit
     - /agent-tune: every proposal to split a role names the failure, knowledge
       gap, context conflict or bottleneck it fixes and the hand-over it costs;
       a split that only redistributes work is shown as that.
+    - A team build with several presets asks when two of them set one key to
+      different values (or one source alias to different addresses), naming
+      both presets; list keys combine, and nothing is switched silently.
