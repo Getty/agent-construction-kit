@@ -97,3 +97,6 @@ Revision history for agent-construction-kit
       (refs/karr) to the copy, on creation and on every later git push <name>;
       it reports only what was pushed, and running it again on an older copy
       adds the missing push lines.
+    - /agent-tune: every proposal to split a role names the failure, knowledge
+      gap, context conflict or bottleneck it fixes and the hand-over it costs;
+      a split that only redistributes work is shown as that.

@@ -66,11 +66,14 @@ Find boundaries in recurring work type, deliverable, resource or authority. Shar
 allowed: split responsibility and routing, not knowledge merely to make separate agents.
 When a supported share is at least 30%, give a specific split even if its expected
 redistribution remains uncertain; if no defensible boundary exists, name the unresolved
-decision and evidence instead of inventing roles. For every split, reassign observed
-assignments to proposed roles and calculate the projected distribution; apply the same
-concentration policy and thresholds again. Moving or renaming a hotspot is not a solved split.
-For a remaining concentrated hotspot, refine the proposal or state the unresolved decision and
-reason.
+decision and evidence instead of inventing roles. A threshold starts this look and a proposal;
+the share alone is no defect. Every split proposal names the observed failure, knowledge gap,
+context conflict or bottleneck it fixes, with its evidence, and the hand-over it costs. A split
+without such a finding only redistributes work: show it as that, never as an improvement.
+For every split, reassign observed assignments to proposed roles and calculate the projected
+distribution; apply the same concentration policy and thresholds again. Moving or renaming a
+hotspot is not a solved split. For a remaining concentrated hotspot, refine the proposal or
+state the unresolved decision and reason.
 
 ## Report, then stop
 
@@ -79,9 +82,10 @@ Produce a short, prioritized report with:
 1. scope, baseline, history coverage and limitations;
 2. observed workload counts, denominator, distribution and unknown attribution;
 3. a few prioritized findings with compact evidence and expected benefit;
-4. proposed changes, each naming the resulting purpose, routing description, ownership,
-   relevant shared or specialized skills, representative incoming assignment, and expected
-   redistribution with its evidence and uncertainty; and
+4. proposed changes, each naming the problem it fixes and the hand-over it costs, the
+   resulting purpose, routing description, ownership, relevant shared or specialized skills,
+   representative incoming assignment, and expected redistribution with its evidence and
+   uncertainty; and
 5. uncertainties and the next decision for the user.
 
 This command does not edit team files, publish, push, install dependencies or change
