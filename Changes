@@ -73,3 +73,7 @@ Revision history for agent-construction-kit
       skilletor or briefing names as missing (Node.js, perl) instead of
       updating the plugin; a plugin enabled only in a project scope is not
       taken for enabled everywhere, and the advice says where to enable it.
+    - Team texts follow the roles the plan chose: without a reviewer the main
+      agent checks before the commit, a card names a result and its delegated
+      steps sit below it, the reviewer reads git status and git diff HEAD, and
+      read-only roles are described as changing nothing, not as unable to write.

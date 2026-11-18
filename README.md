@@ -231,10 +231,10 @@ harbor/
   OWNERS                            the single write-path map
   .claude/
     agents/
-      harbor-scout.md               reads and reports, cannot write
+      harbor-scout.md               reads and reports, changes nothing
       harbor-worker.md              implements, refactors, debugs
       harbor-test-writer.md         writes and extends tests
-      harbor-reviewer.md            checks the diff and runs the tests, cannot write
+      harbor-reviewer.md            checks the diff and runs the tests, changes nothing
       harbor-release-manager.md     commits, changelog, moves the card to done
     rules/
       harbor-rules.md               what is true only for this project
@@ -280,7 +280,7 @@ The same kit builds a team for that, with other roles:
 |---|---|
 | `tax-collector` | fetches statements and receipts with the browser |
 | `tax-extractor` | turns the downloads into structured data |
-| `tax-checker` | compares sums and counts with the sources, cannot write |
+| `tax-checker` | compares sums and counts with the sources, changes nothing |
 | `tax-preparer` | fills in the forms and the overview, sends nothing |
 
 The rules matter more here than in a code project:
@@ -340,7 +340,7 @@ The `homelab` team could look like this:
 | `homelab-scout` | reads configurations and states of the machines, changes nothing |
 | `homelab-operator` | changes a machine: packages, services, containers |
 | `homelab-networker` | addresses, DNS, VLANs, firewall rules |
-| `homelab-checker` | checks after every change that the services still answer, cannot write |
+| `homelab-checker` | checks after every change that the services still answer, changes nothing |
 | `homelab-scribe` | keeps the inventory and the notes on what was changed and why |
 
 Everything such a team knows about your network lives in a git repository, so every

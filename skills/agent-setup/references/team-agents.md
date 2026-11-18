@@ -41,7 +41,7 @@ unambiguous routing. `haiku` is cheap, `sonnet` middle, `opus` strong and `inher
 - Use only `name` (file name without `.md`), `description`, `model`, `disallowedTools` and
   `briefing.skills`. Route on a specific description; never `allowed-tools` (ignored) or `tools:`
   (an allow-list that removes unlisted tools).
-- A read-only pattern gets `disallowedTools: Edit, Write, NotebookEdit`; other patterns have all tools.
+- Only a read-only pattern gets `disallowedTools: Edit, Write, NotebookEdit`; it keeps Bash.
 - Every `briefing.skills` entry exists in `.claude/skills/` or as an enabled `<plugin>:<skill>`;
   a top-level `skills:` does nothing for briefing.
 - Body: `You are the <prefix>-<role> for **<project>**.`, two or three sentences on lane, return
@@ -117,9 +117,9 @@ briefing:
     - <base>
 ---
 You are the <prefix>-test-writer for **<project>**. Whoever hands you the job decides which
-behaviour matters; you decide how the test proves it; unclear: ask. You do only the failing-test
-step; making it pass is the worker's. Report the test with its command and result. Never commit.
-<card lines> Apply the skills above silently.
+behaviour matters; you decide how the test proves it; unclear: ask. Your step is the test: a
+failing test finishes your step, not the card; making it pass is the worker's step. Report the
+test with its command and result. Never commit. <card lines> Apply the skills above silently.
 ```
 
 ```markdown
@@ -133,10 +133,10 @@ briefing:
     - <prefix>-core
     - <base>
 ---
-You are the <prefix>-reviewer for **<project>**. Read the card, `git diff` and the report,
-run `<check>` yourself: no passing run, no "ready". Report the verdict and each finding
-with file, line and reason, most important first. Never change a file; fixes go back to
-the worker. You start no agents. <card lines> Apply the skills above silently.
+You are the <prefix>-reviewer for **<project>**. Read the card, the report, `git status`,
+`git diff HEAD` and new files; run `<check>` yourself: no passing run, no "ready". Report the
+verdict and each finding with file, line and reason, most important first. Never change a file;
+fixes go back to the worker. You start no agents. <card lines> Apply the skills above silently.
 ```
 
 ```markdown
@@ -148,11 +148,11 @@ briefing:
   skills:
     - <prefix>-core
 ---
-You are the <prefix>-release-manager for **<project>**. Commit only work the reviewer passed: one
-commit per change, staged by path, never `git add -A` (other files in the tree are not yours). <The
-changelog rule, if any.> Then <card lines>. <The drive push, if any: team-rules.md.> A release
-check reports ready or what blocks. Push, tag or publish only on the user's word, or where the
-project rules allow it. Apply the skills above silently.
+You are the <prefix>-release-manager for **<project>**. Commit only what <the reviewer|the main
+agent> passed, unchanged since: one commit per change, staged by path, never `git add -A` (other
+files in the tree are not yours). <The changelog rule, if any.> Then <card lines>. <The drive push,
+if any: team-rules.md.> A release check reports ready or what blocks. Push, tag or publish only on
+the user's word, or where the project rules allow it. Apply the skills above silently.
 ```
 
 With `committer` `main` or `user`, do not create a release-manager merely to fill a role. If
@@ -194,6 +194,6 @@ highest ADR. Report ADRs written and gaps left. Never commit. <card lines> Apply
 `OWNERS` is the single authoritative path map: [team-ownership.md](team-ownership.md). Descriptions
 name responsibility/incoming work, not copied paths. The main agent or coordinator maintains `OWNERS`;
 before assigning or reviewing, resolve touched/planned paths with `ack-team owner`, fixing unknown
-ownership in `OWNERS` first. Split a cross-owner card per owner. Configuration or docs need a selected
+ownership in `OWNERS` first. One card per result, not per owner. Configuration or docs need a selected
 owner rule in `OWNERS`, for a specialist or `main`. The main or coordinator never bypasses or overrides
 `OWNERS`; registry upkeep follows its mapped writer. Map the changelog with the committer in `OWNERS` when selected.

@@ -57,12 +57,17 @@ Nothing found: `Todo` stays without rows.
 How a card moves:
 
 1. The main agent writes the row into `Todo`.
-2. Handing it out: the row goes to `In progress`, `Owner` is the agent.
-3. The agent reports (what changed, the check with its result): the row goes to
-   `Review`, the result into `Notes`.
-4. The reviewer says ready: the committer commits and moves the row to `Done`, the
-   commit hash into `Notes`; that edit of `BOARD.md` goes into the next commit, never
-   amended into this one. Changes needed: back to `In progress`, the finding in `Notes`.
+2. Handing it out: the row goes to `In progress`. A card is one checkable result; the main
+   agent hands out its steps (failing test, fix, check, commit) one at a time, `Owner` is
+   the agent of the current step, `Notes` names that step.
+3. The agent reports (what changed, the check with its result). A step that leaves the
+   card unfinished, such as a failing test, keeps it in `In progress` and the next step
+   goes to its owner; the finished result moves the row to `Review`, the result into `Notes`.
+4. Whoever checks before the commit says ready: the reviewer when the plan selected one,
+   otherwise the main agent. The committer commits exactly the checked state and moves
+   the row to `Done`, the commit hash into `Notes`; that edit of `BOARD.md` goes into the
+   next commit, never amended into this one. A change after the check needs a new check.
+   Changes needed: back to `In progress`, the finding in `Notes`.
 
 Only the main agent and the committer write the file, one at a time, since two writers
 at once lose rows; with `committer` `user`, the main agent moves the row to `Done` after
@@ -76,7 +81,7 @@ The `<card lines>` of the templates in [team-agents.md](team-agents.md), file bo
 | Role | Card lines |
 |---|---|
 | worker, test-writer, doc-writer, adr-auditor | "Your card is the one you were handed, in `BOARD.md`. Never edit that file: your report carries the state, the main agent moves the card." |
-| reviewer | "Your verdict goes into your report; the main agent moves the card." |
+| reviewer | "Your verdict, naming the files and the check you ran, goes into your report; the main agent moves the card." |
 | release-manager | "move the card's row from `Review` to `Done` in `BOARD.md`, the commit hash in `Notes`; that edit goes into your next commit, never `git commit --amend`" |
 | scout | none |
 
@@ -87,9 +92,11 @@ Into the section `## Board` of [team-rules.md](team-rules.md)'s template, file b
 ```markdown
 `BOARD.md` holds the cards (`c1`, `c2`, …); a card moves by moving its row. Only the main
 agent and <the committer> write it, one at a time, since two writers lose rows; workers
-report their state. A card is done only after its commit, its hash in Notes; that edit
-goes into the next commit, never amended. Write ids as `c12`, never `#12`: hosting
-services link that to their issue 12.
+report their state. A card is one checkable result: the main agent hands out its steps
+(failing test, fix, check, commit) one at a time, each to the owner of its paths, and
+names the current step in Notes. A card is done only after its commit, its hash in Notes;
+that edit goes into the next commit, never amended. Write ids as `c12`, never `#12`:
+hosting services link that to their issue 12.
 ```
 
 ## karr
@@ -151,8 +158,8 @@ Card lines with karr:
 
 | Role | Card lines |
 |---|---|
-| worker, test-writer, doc-writer, adr-auditor | "Work the karr card you were handed: note progress on it, block it with a reason when stuck, hand it to `review` when done. Never `done`, never create cards." |
-| reviewer | "Note your verdict on the card; never move it to `done`." |
+| worker, test-writer, doc-writer, adr-auditor | "Work the karr card you were handed: note progress on it, block it with a reason when stuck, hand it to `review` when the card's result is complete, not after a step that leaves it unfinished (a failing test). Never `done`, never create cards." |
+| reviewer | "Note your verdict on the card, naming the files and the check you ran; never move it to `done`." |
 | release-manager | "move the card to `done` with a note naming the commit hash" |
 | scout | none |
 
@@ -161,7 +168,10 @@ The board section of the project rules, with karr:
 ```markdown
 The board is karr (`karr board`); a card id in text is `k12`, as karr writes it. Only
 the main agent creates and hands out cards; <the committer> moves a card to done after
-its commit. karr sends each board change to `origin`; allowed when karr was chosen.
+its commit. A card is one checkable result: the main agent hands out its steps (failing
+test, fix, check, commit) one at a time, each to the owner of its paths, and notes the
+current step on the card. karr sends each board change to `origin`; allowed when karr
+was chosen.
 ```
 
 Without a remote `origin`, the last sentence reads: "The board stays in this repository;

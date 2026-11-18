@@ -25,7 +25,8 @@ with a title line." The plan names the checklist; the user may change any point.
 
 In the project rules, "Check and commits" reads: "`git diff --check` and the checklist in
 `<prefix>-core` are the check; a card is done only when both pass, because <reason>."
-The worker and the reviewer go through the checklist point by point and report each one.
+The worker and whoever checks before the commit (the reviewer when the plan selected one,
+otherwise the main agent) go through the checklist point by point and report each one.
 
 ## Capabilities and base skills
 

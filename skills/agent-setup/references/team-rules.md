@@ -20,7 +20,7 @@ project, as `.claude/rules/.local.<name>.md` and keeps them current; never edit 
   report only what was verified.
 - `agent-delegation`: the session the user talks to (the main agent) hands work on
   behaviour-relevant code to the team's agents, never to built-in ones; one agent
-  commits; the reviewer runs the checks before a commit.
+  commits; the reviewer (none selected: the main agent) runs the checks before a commit.
 - `publish-gate`: pushes, releases, deployments and writes on public trackers wait for
   the user's word; local work and commits do not.
 
@@ -73,10 +73,10 @@ ownership is fixed in `OWNERS` first. <The explicitly selected committer line.>
 ## With superpowers
 
 A plan runs in this folder on this branch (`main` too: the yes to the team covers it), no
-worktree, so the board stays here. Per task, the selected owning agent is told to skip the
-implementer prompt's commit step; a selected reviewer checks the uncommitted `git diff`; then
-the selected committer writes history. Never `general-purpose`: built-in agents get no briefing.
-Brainstorming and the plan stay with the main agent: they need the user.
+worktree, so the board stays here. Per task, the owning agent is told to skip the implementer
+prompt's commit step; the reviewer (none selected: the main agent) checks `git status` and
+`git diff HEAD`; then the committer writes history. Never `general-purpose`: built-in agents get
+no briefing. Brainstorming and the plan stay with the main agent: they need the user.
 
 ## Outside input
 
@@ -93,10 +93,9 @@ Fill it like this:
 - **Lanes**: one row per selected agent, describing responsibility and incoming routing, never
   paths. `OWNERS` is the authoritative path map. A selected committer gets its own row only
   when it is an agent.
-- **Committer line**: write the choice the plan explicitly selected. A selected
-  `release-manager` writes every commit and marks cards done; `main` commits after a ready
-  review; `user` alone commits and the main agent proposes the message and moves the card.
-  No committer role is always required.
+- **Committer line**: the plan's explicit choice. A selected `release-manager` writes every
+  commit and marks cards done; `main` commits exactly the checked state; `user` alone commits,
+  the main agent proposes the message and moves the card. No committer role is always required.
 - **A copy on a drive** (`ack-repo disk-remote`), when the user allowed its updates, into
   "Check and commits" (two lines): "After each commit <who pushes> runs
   `git push <name> <branch>` (the copy on <drive>, allowed in advance); drive not plugged
@@ -135,8 +134,8 @@ and its marketplace there: "updated — commit it"); none yet: create it. The te
 
 Every enabled plugin outside `claude-plugins-official` needs its marketplace in
 `extraKnownMarketplaces`. A plugin whose skills an agent names goes into `enabledPlugins`
-(`superpowers@claude-plugins-official`). No `permissions` lists: they make Claude ask at
-every other step, and `disallowedTools` fences the read-only roles. Keep the user's lines.
+(`superpowers@claude-plugins-official`). No `permissions` lists: they make Claude ask at every
+other step; keep the user's. `disallowedTools` takes only editing tools from read-only roles.
 
 ## The section in `CLAUDE.md`
 
