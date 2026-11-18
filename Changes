@@ -69,3 +69,7 @@ Revision history for agent-construction-kit
       command, no test-writer.
     - ack-doctor checks that skilletor and briefing run and prints their
       versions; it asks for neither Node.js nor Python 3.
+    - ack-doctor and ack-team advise installing the program a failing
+      skilletor or briefing names as missing (Node.js, perl) instead of
+      updating the plugin; a plugin enabled only in a project scope is not
+      taken for enabled everywhere, and the advice says where to enable it.

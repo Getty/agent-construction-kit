@@ -55,8 +55,9 @@ to run `winget install Git.Git`, and start over in a new Claude Code session aft
 
 ## Step 0: the model of this session
 
-Run `ack-doctor` (it only reads). Line `session-model` (`default`: the account's default
-model): `via <host>` means another provider, no `via` Anthropic; your system prompt names it.
+Run `ack-doctor` (it changes none of the user's files; skilletor may fetch and cache its
+program). Line `session-model` (`default`: the account's default model): `via <host>` means
+another provider, no `via` Anthropic; your system prompt names it.
 
 - Anthropic's Opus or Fable tier, or another provider's largest model: go on; if unsure, ask.
 - Anything else, local models included: stop. Say why in two sentences: setting up makes

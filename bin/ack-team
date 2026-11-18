@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# ack-team: check a finished agent team or resolve repository file ownership. Read only.
+# ack-team: check a finished agent team or resolve repository file ownership. It changes
+# no file in DIR; check's call of briefing keeps its output in a temporary directory that
+# it removes.
 #   ack-team check [DIR]
 #   ack-team owner [--dir DIR] [--] FILE...
 # DIR defaults to the current directory. One finding per line, four fields separated by
@@ -168,6 +170,20 @@ _segments() {
   return "$rc"
 }
 
+# _missing_program TEXT -> REPLY: the program a first stderr line says is missing, from
+# "X is required but was not found ..." or "...: X: command not found"; fails otherwise.
+# ack-doctor has the same function.
+_missing_program() {
+  local t="$1"
+  case "$t" in
+    *" is required but was not found"*) t="${t%%" is required but was not found"*}" ;;
+    *": command not found"*) t="${t%%": command not found"*}" ;;
+    *) return 1 ;;
+  esac
+  _ack_trim "${t##*": "}"
+  [ -n "$REPLY" ]
+}
+
 # _collapse_path PATH -> REPLY: a relative path inside its start; fails when PATH is
 # absolute or leaves the start after resolving
 _collapse_path() {
@@ -198,7 +214,8 @@ _briefing_doctor() {
 # ACK_BRIEFING_WAIT seconds (1 to 5 digits, no leading zero; default 30). Anything else is
 # one missing line: no command on PATH, no answer in time, exit 2 or more, or no settings
 # line among the contract lines; the text names the command's path and, when the command
-# failed, its exit status and first stderr line.
+# failed, its exit status and first stderr line. The advice is to install the program
+# that line names as missing (perl, Node.js), else to update or install the plugin.
 check_briefing() {
   local bin rc line r what st name text valid="" wait="${ACK_BRIEFING_WAIT:-30}" settings=0 why
   local tail="so the agent, skill, hook and settings checks cannot run"
@@ -217,6 +234,8 @@ check_briefing() {
     why=" (exit $rc"
     [ -n "$ACK_BOUNDED_ERR" ] && why="$why: $ACK_BOUNDED_ERR"
     why="$why)"
+    # a program briefing needs is missing: installing it helps, updating the plugin not
+    _missing_program "$ACK_BOUNDED_ERR" && fix="Install $REPLY and run this again."
   fi
   if [ "$rc" = 124 ]; then
     emit briefing missing "." "The briefing command at $bin did not answer within $wait seconds, $tail. $fix"

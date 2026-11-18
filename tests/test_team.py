@@ -673,8 +673,9 @@ class TeamTest(Sandbox):
     def sentences(self, text):
         return re.split(r"(?<=\.)\s+", text.strip())
 
-    def only_briefing_missing(self, r, d):
-        """The run printed no line of briefing's, only the one missing line; returns it."""
+    def only_briefing_missing(self, r, d, fix=FIX):
+        """The run printed no line of briefing's, only the one missing line; returns it.
+        The text ends with fix (None: the ending is not checked)."""
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertEqual(r.stderr, "")
         row = self.one(r, "briefing", "missing", ".")
@@ -684,7 +685,8 @@ class TeamTest(Sandbox):
         self.assertEqual([x[0] for x in self.rows(r)],
                          ["briefing", "readonly", "readonly", "rules", "board", "claude-md", "git"])
         self.assertEqual(len(self.sentences(row[3])), 2, row[3])      # what is wrong, what to do
-        self.assertTrue(row[3].endswith(" " + FIX), row[3])
+        if fix is not None:
+            self.assertTrue(row[3].endswith(" " + fix), row[3])
         return row
 
     def test_briefing_is_called_with_tsv_and_runs_in_the_checked_directory(self):
@@ -733,6 +735,27 @@ class TeamTest(Sandbox):
                 r = self.at("check", cwd=d)
                 row = self.only_briefing_missing(r, d)
                 self.assertIn("did not run the check (exit %d)" % code, row[3])
+
+    def test_a_briefing_failure_that_names_a_missing_program_says_to_install_it(self):
+        for code in (2, 127):
+            with self.subTest(code):
+                d = self.team(name="harbor-perl%d" % code)
+                self.briefing_says(tsv(BRIEFING_GOOD), exit_code=code)
+                err = "briefing: perl: command not found"
+                r = self.at("check", cwd=d, env={"FAKE_BRIEFING_STDERR": err})
+                row = self.only_briefing_missing(r, d, fix=None)
+                self.assertIn("(exit %d: %s)" % (code, err), row[3])   # the error text stays
+                self.assertIn("Install perl and run this again", row[3])
+                self.assertNotIn("claude plugin update", row[3])
+                self.assertNotIn("claude plugin install", row[3])
+
+    def test_a_briefing_failure_with_another_error_keeps_the_update_advice(self):
+        d = self.team()
+        self.briefing_says(tsv(BRIEFING_GOOD), exit_code=2)
+        r = self.at("check", cwd=d, env={"FAKE_BRIEFING_STDERR": "briefing: unknown option --tsv"})
+        row = self.only_briefing_missing(r, d)
+        self.assertIn("claude plugin update briefing@getty", row[3])
+        self.assertNotIn("Install ", row[3])
 
     def test_the_first_stderr_line_of_a_failing_briefing_is_in_the_text(self):
         d = self.team()

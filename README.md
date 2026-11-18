@@ -371,7 +371,8 @@ A second disk is a full remote: `git push` works the same, and no account is nee
 The commands above run these for you; you never need to type them. For the curious, they sit
 in the plugin's `bin/` folder:
 
-- `ack-doctor` checks the machine and changes nothing. One line per item:
+- `ack-doctor` checks the machine and changes none of your files; skilletor may fetch and cache
+  its program. One line per item:
 
   ```
   plugin:briefing    ok    briefing is installed and enabled

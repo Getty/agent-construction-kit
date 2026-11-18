@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# ack-doctor: read-only check of this machine. Prints name<TAB>status<TAB>detail,
+# ack-doctor: check this machine. Prints name<TAB>status<TAB>detail,
 # status ok|missing|warn|info. Exit 0 when no required line is missing, 1 when one
 # is, 2 when the install is broken (the share directory next to bin/ is missing).
-# It creates, changes and deletes nothing and starts no proxy.
+# It installs nothing and starts no proxy. It asks claude, git, skilletor and briefing
+# for their version or lists; skilletor's launcher, without Node.js, may then fetch and
+# cache its pinned binary, and each bounded call keeps its output in a temporary
+# directory that it removes.
 
 # Git for Windows may hand over a backslash path (bash 'D:\x\ack-doctor').
 _slashes() { case "$OSTYPE" in msys*|cygwin*) REPLY="${1//\\//}" ;; *) REPLY="$1" ;; esac; }
@@ -52,48 +55,70 @@ url_host() {
   REPLY="$h"
 }
 
-# parse_plugins TEXT -> PLUGIN_ENTRIES: lines "ID<TAB>enabled|disabled", one per block
-# of the text of `claude plugin list` ("  ❯ id@market", then "Status: ✔ enabled" or
-# "Status: ✘ disabled"; one block per scope). A block without a recognizable status
-# counts as disabled.
+# parse_plugins TEXT -> PLUGIN_ENTRIES: lines "ID<TAB>enabled|disabled<TAB>SCOPE", one
+# per block of the text of `claude plugin list` ("  ❯ id@market", then "Scope: user" and
+# "Status: ✔ enabled" or "Status: ✘ disabled"; one block per scope, and one per project
+# for the project scope, without naming the project). A block without a recognizable
+# status counts as disabled; SCOPE is the Scope line's first word, empty without one.
 parse_plugins() {
-  local line id="" st=""
+  local line id="" st="" sc=""
   PLUGIN_ENTRIES=""
   while IFS= read -r line; do
     line="${line//$'\r'/}"
     case "$line" in
       *"❯"*)
-        [ -n "$id" ] && PLUGIN_ENTRIES="$PLUGIN_ENTRIES$id$TAB${st:-disabled}"$'\n'
+        [ -n "$id" ] && PLUGIN_ENTRIES="$PLUGIN_ENTRIES$id$TAB${st:-disabled}$TAB$sc"$'\n'
         line="${line#*❯}"; _ack_trim "$line"
-        id="${REPLY%%[[:space:]]*}"; st="" ;;
+        id="${REPLY%%[[:space:]]*}"; st="" sc="" ;;
       *[Ss]tatus:*)
         [ -n "$id" ] || continue
         case "$line" in
           *disabled*) st=disabled ;;
           *enabled*) st=enabled ;;
         esac ;;
+      *[Ss]cope:*)
+        [ -n "$id" ] || continue
+        _ack_trim "${line#*[Ss]cope:}"; sc="${REPLY%%[[:space:]]*}" ;;
     esac
   done <<EOT
 $1
 EOT
-  [ -n "$id" ] && PLUGIN_ENTRIES="$PLUGIN_ENTRIES$id$TAB${st:-disabled}"$'\n'
+  [ -n "$id" ] && PLUGIN_ENTRIES="$PLUGIN_ENTRIES$id$TAB${st:-disabled}$TAB$sc"$'\n'
   return 0
 }
 
-# plugin_state NAME -> PSTATE: enabled | disabled | absent (from PLUGIN_ENTRIES).
-# A plugin counts as enabled if any entry (one per scope) is enabled.
+# plugin_state NAME -> PSTATE: enabled | disabled | absent (from PLUGIN_ENTRIES), and
+# PSCOPE: project when every enabled entry is of the project or local scope (a project's,
+# perhaps another one's), else all. A plugin counts as enabled if any entry is enabled.
 plugin_state() {
-  local name="$1" id st seen=0 on=0
-  PSTATE=absent
-  while IFS="$TAB" read -r id st; do
+  local name="$1" id st sc seen=0 on=0 wide=0
+  PSTATE=absent PSCOPE=all
+  while IFS="$TAB" read -r id st sc; do
     case "$id" in "$name"@*) ;; *) continue ;; esac
     seen=1
-    [ "$st" = enabled ] && on=1
+    [ "$st" = enabled ] || continue
+    on=1
+    case "$sc" in project|local) ;; *) wide=1 ;; esac
   done <<EOT
 $PLUGIN_ENTRIES
 EOT
   if [ "$on" = 1 ]; then PSTATE=enabled; elif [ "$seen" = 1 ]; then PSTATE=disabled; fi
+  [ "$on" = 1 ] && [ "$wide" = 0 ] && PSCOPE=project
   return 0
+}
+
+# _missing_program TEXT -> REPLY: the program a first stderr line says is missing, from
+# "X is required but was not found ..." or "...: X: command not found"; fails otherwise.
+# ack-team has the same function.
+_missing_program() {
+  local t="$1"
+  case "$t" in
+    *" is required but was not found"*) t="${t%%" is required but was not found"*}" ;;
+    *": command not found"*) t="${t%%": command not found"*}" ;;
+    *) return 1 ;;
+  esac
+  _ack_trim "${t##*": "}"
+  [ -n "$REPLY" ]
 }
 
 # ---------------------------------------------------------------- platform
@@ -171,9 +196,11 @@ fi
 # Not needed for the starters, needed to build and run an agent team, so a missing one
 # counts as missing (exit 1). Both plugins ship their command in their bin/, which is on
 # the Bash tool's PATH. Only an answer to --version counts: a command that is found but
-# does not answer (too old, broken) is a warning that says to update; one that is not
-# found is missing, and the advice follows the plugin's own state (plugin list): update
-# when it is installed and enabled, enable when disabled, install only when absent.
+# does not answer (too old, broken) is a warning that says to update, or to install the
+# program its first stderr line names as missing (Node.js, perl); one that is not found
+# is missing, and the advice follows the plugin's own state (plugin list): update when it
+# is installed and enabled, enable in the user scope or in this project when it is
+# enabled only in a project scope, enable when disabled, install only when absent.
 runtime_line() { # NAME
   local n="$1" b v why have="" what="and building and running an agent team needs it" reload=", then run /reload-plugins."
   if b="$(type -P "$n" 2>/dev/null)" && [ -n "$b" ]; then
@@ -183,13 +210,19 @@ runtime_line() { # NAME
     else
       why=""
       [ -n "$ACK_BOUNDED_ERR" ] && why=" ($ACK_BOUNDED_ERR)"
-      emit "runtime:$n" warn "$b did not answer --version$why. Update the plugin with: claude plugin update $n@getty$reload"
+      if _missing_program "$ACK_BOUNDED_ERR"; then
+        emit "runtime:$n" warn "$b did not answer --version$why. Install $REPLY and run this again."
+      else
+        emit "runtime:$n" warn "$b did not answer --version$why. Update the plugin with: claude plugin update $n@getty$reload"
+      fi
     fi
   else
     # the plugin's own state decides the advice: update what is installed, install the rest
     if [ "$ASKED_P" = 1 ]; then plugin_state "$n"; have="$PSTATE"; fi
+    [ "$have" = enabled ] && [ "$PSCOPE" = project ] && have=project
     case "$have" in
       enabled) emit "runtime:$n" missing "$n is installed and enabled but its command was not found on PATH, $what. Update the plugin with: claude plugin update $n@getty$reload" required ;;
+      project) emit "runtime:$n" missing "$n is enabled only in a project scope (this project's or another's), so its command was not found on PATH, $what. Enable it in the user scope with: claude plugin enable $n --scope user (or for this project only: claude plugin enable $n --scope project, run in this project)$reload" required ;;
       disabled) emit "runtime:$n" missing "$n is installed but disabled, so its command was not found on PATH, $what. Enable the plugin with: claude plugin enable $n$reload" required ;;
       absent) emit "runtime:$n" missing "$n is not installed, $what. Install the plugin with: claude plugin install $n@getty$reload" required ;;
       *) emit "runtime:$n" missing "$n was not found on PATH, $what. Update or install the plugin with: claude plugin update $n@getty (or claude plugin install $n@getty)$reload" required ;;
@@ -247,7 +280,10 @@ plugin_line() { # NAME required|optional
   fi
   plugin_state "$n"
   case "$PSTATE" in
-    enabled) emit "plugin:$n" ok "$n is installed and enabled" ;;
+    enabled)
+      if [ "$PSCOPE" = project ]; then
+        emit "plugin:$n" ok "$n is installed and enabled, but only in a project scope (this project's or another's)"
+      else emit "plugin:$n" ok "$n is installed and enabled"; fi ;;
     disabled) emit "plugin:$n" warn "$n is installed but disabled; run: claude plugin enable $n" ;;
     *) if [ "$2" = required ]; then
          emit "plugin:$n" missing "$n is not installed; run: claude plugin install $n@getty" required

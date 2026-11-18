@@ -473,6 +473,58 @@ class RuntimeTest(Sandbox):
         self.assertTrue(row[2].endswith("claude plugin update skilletor@getty, then run /reload-plugins."),
                         row[2])
 
+    def test_a_failure_that_names_a_missing_program_says_to_install_it(self):
+        cases = {
+            "skilletor": ("skilletor: Node.js is required but was not found on PATH", "Node.js"),
+            "briefing": ("briefing: perl: command not found", "perl"),
+        }
+        for name, (err, program) in cases.items():
+            with self.subTest(name):
+                self.fake(name, "#!/bin/sh\necho '%s' >&2\necho 'second stderr line' >&2\nexit 127\n" % err)
+                r = self.doc()
+                row = self.line(r, "runtime:" + name)
+                self.assertEqual(row[1], "warn", r.stdout)       # still a warning, exit code unchanged
+                self.assertIn(err, row[2])                         # the error text stays
+                self.assertNotIn("second stderr line", row[2])
+                self.assertIn("Install %s and run this again" % program, row[2])
+                self.assertNotIn("claude plugin update", row[2])
+                self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_a_project_or_local_scoped_only_enabled_plugin_is_not_taken_for_enabled_here(self):
+        self.assertEqual(self.doc().returncode, 0, "the baseline must be green")
+        for scope, name in [(sc, n) for sc in ("project", "local") for n in self.NAMES]:
+            with self.subTest(scope=scope, name=name):
+                other = [n for n in self.NAMES if n != name][0]
+                self.write("plugins.txt", plugin_blocks(
+                    (other + "@getty", "user", "enabled"), (name + "@getty", scope, "enabled")))
+                (self.fakebin / name).unlink()
+                r = self.doc()
+                row = self.line(r, "runtime:" + name)
+                self.assertEqual(row[1], "missing", r.stdout)
+                self.assertIn("enabled only in a project scope", row[2])
+                self.assertIn("claude plugin enable %s" % name, row[2])
+                self.assertIn("user scope", row[2])
+                self.assertIn("this project", row[2])
+                self.assertNotIn("claude plugin update", row[2])
+                self.assertEqual(r.returncode, 1, r.stdout)
+                # the plugin line stays ok (a plugin enabled somewhere counts) but says where
+                pl = self.line(r, "plugin:" + name)
+                self.assertEqual(pl[1], "ok", r.stdout)
+                self.assertIn("project", pl[2])
+                shutil.copy(str(FAKE_SKILLETOR if name == "skilletor" else FAKE_BRIEFING),
+                            str(self.fakebin / name))
+                (self.fakebin / name).chmod(0o755)
+
+    def test_a_user_scoped_enabled_plugin_keeps_the_update_advice_next_to_a_project_one(self):
+        (self.fakebin / "briefing").unlink()
+        self.write("plugins.txt", plugin_blocks(
+            ("skilletor@getty", "user", "enabled"),
+            ("briefing@getty", "project", "enabled"), ("briefing@getty", "user", "enabled")))
+        row = self.line(self.doc(), "runtime:briefing")
+        self.assertIn("is installed and enabled but its command was not found", row[2])
+        self.assertIn("claude plugin update briefing@getty", row[2])
+        self.assertNotIn("project scope", row[2])
+
     # the advice of a command that is not on PATH follows the state of its plugin
     ABSENT = {
         "enabled": ("is installed and enabled but its command was not found on PATH",
