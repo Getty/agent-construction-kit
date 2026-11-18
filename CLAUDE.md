@@ -17,7 +17,7 @@ Run the tests: `python3 -m unittest discover -s tests -v`
 - Files a human edits are read the same with and without `\r`.
 - `.claude-plugin/plugin.json` carries no `version`; the version comes from the commit.
 - License Artistic-2.0; `Changes` keeps `{{$NEXT}}` until a release.
-- Never push, tag, create a remote or publish unasked.
+- Never push, tag, create a remote or publish unasked, unless the project rules allow it.
 
 ## The agent team
 

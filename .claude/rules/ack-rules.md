@@ -26,22 +26,29 @@ run, because `tests/test_skill.py` holds the skill text, `README.md` and the scr
 each other, and a change on one side breaks the other.
 `ack-release-manager` writes every commit and marks cards done, so the history has one author.
 
+The main agent or `ack-release-manager` may push reviewed, committed work to a branch
+`review/<topic>` on `origin` without asking (allowed in advance by the maintainer,
+2026-11-18), so CI runs it on Linux, macOS and Windows; the result goes onto the cards.
+Never `main`, a tag or a release, and never a force push: those wait for the user's word.
+
 ## Board
 
 `BOARD.md` holds the cards (`c1`, `c2`, …); a card moves by moving its row. Only the main
 agent and `ack-release-manager` write it, one at a time, since two writers lose rows;
-workers report their state. A card is done only after its commit, its hash in Notes; that
-edit goes into the next commit, never amended. Write ids as `c12`, never `#12`: hosting
-services link that to their issue 12.
+workers report their state. A card is one checkable result: the main agent hands out its
+steps (failing test, fix, check, commit) one at a time, each to the owner of its paths,
+and names the current step in Notes. A card is done only after its commit, its hash in
+Notes; that edit goes into the next commit, never amended. Write ids as `c12`, never
+`#12`: hosting services link that to their issue 12.
 
 ## With superpowers
 
 A plan runs in this folder on this branch (`main` too: the yes to the team covers it), no
 worktree, so the board stays here. Per task, one after another: the owning worker
 (`ack-worker-scripts` or `ack-worker-skill`; a test task: `ack-test-writer`) is told to
-skip the implementer prompt's commit step; `ack-reviewer` reviews the uncommitted
-`git diff`; then `ack-release-manager` commits, so one writes history. Never
-`general-purpose`: built-in agents get no briefing.
+skip the implementer prompt's commit step; `ack-reviewer` reviews the uncommitted change
+(`git status`, `git diff HEAD`, new files); then `ack-release-manager` commits that state,
+so one writes history. Never `general-purpose`: built-in agents get no briefing.
 Brainstorming and the plan stay with the main agent: they need the user.
 
 ## Outside input
