@@ -398,6 +398,165 @@ class RepoTest(Sandbox):
                          ["feature", "main"])
         self.assertIn("origin", self.git(d, "remote").split())
 
+    def test_disk_remote_carries_tags_and_karr_refs(self):
+        d = self.repo("my proj")
+        self.git(d, "tag", "v1")
+        head = self.git(d, "rev-parse", "HEAD")
+        self.git(d, "update-ref", "refs/karr/board", head)
+        t = self.disk()
+        r = self.ar("disk-remote", str(t), cwd=d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        bare = t / "my proj.git"
+        refs = self.git(bare, "for-each-ref", "--format=%(refname) %(objectname)").splitlines()
+        self.assertIn("refs/heads/main " + head, refs)
+        self.assertIn("refs/tags/v1 " + head, refs)
+        self.assertIn("refs/karr/board " + head, refs)
+        push = self.fact(r, "push")
+        self.assertEqual(len(push), 1)
+        self.assertEqual(push[0][1], "ok")
+        for word in ("branches", "tags", "refs/karr"):
+            self.assertIn(word, push[0][2], push)
+
+    def test_disk_remote_names_only_what_it_pushed(self):
+        d = self.repo("my proj")
+        r = self.ar("disk-remote", str(self.disk()), cwd=d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        detail = self.fact(r, "push")[0][2]
+        self.assertIn("branches", detail)
+        self.assertNotIn("tags", detail)
+        self.assertNotIn("karr", detail)
+
+    PUSH_SPECS = ["refs/heads/*:refs/heads/*", "refs/tags/*:refs/tags/*",
+                  "+refs/karr/*:refs/karr/*"]
+
+    def karr_repo(self, name="my proj"):
+        d = self.repo(name)
+        self.git(d, "tag", "v1")
+        self.git(d, "update-ref", "refs/karr/board", self.git(d, "rev-parse", "HEAD"))
+        return d
+
+    def test_disk_remote_writes_the_push_refspecs_for_a_named_remote(self):
+        d = self.karr_repo()
+        r = self.ar("disk-remote", str(self.disk()), "--name", "usb", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.git(d, "config", "--get-all", "remote.usb.push").splitlines(),
+                         self.PUSH_SPECS)
+
+    def gitrc(self, d, *args):
+        r = subprocess.run(["git"] + list(args), cwd=str(d), env=dict(os.environ, **self.env),
+                           text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return r
+
+    def test_disk_remote_named_origin_writes_heads_and_tags_but_no_karr_refspec(self):
+        # origin is the default name (and --name origin is allowed while no origin exists):
+        # a plain `git push origin` with no upstream must work, but karr syncs origin itself
+        for args in ((), ("--name", "origin")):
+            with self.subTest(args=args):
+                d = self.karr_repo("proj%d" % len(args))
+                r = self.ar("disk-remote", str(self.disk("disk%d" % len(args))), *args, cwd=d)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self.fact(r, "remote")[0][2], "origin")
+                self.assertEqual(self.git(d, "config", "--get-all", "remote.origin.push").splitlines(),
+                                 self.PUSH_SPECS[:2])
+                (d / "more").write_text("y\n")
+                self.git(d, "add", "more")
+                self.git(d, "commit", "-q", "-m", "second")
+                p = self.gitrc(d, "push", "origin")
+                self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_disk_remote_again_adds_missing_push_lines_once(self):
+        d = self.karr_repo()
+        t = self.disk()
+        self.assertEqual(self.ar("disk-remote", str(t), "--name", "usb", cwd=d).returncode, 0)
+        # an older team: the copy exists, its remote has no push lines
+        self.gitrc(d, "config", "--unset-all", "remote.usb.push")
+        for round_ in (1, 2):
+            with self.subTest(round=round_):
+                r = self.ar("disk-remote", str(t), "--name", "usb", cwd=d)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                rem = self.fact(r, "remote")
+                self.assertEqual(len(rem), 1, r.stdout)
+                self.assertEqual(rem[0][1:3], ["updated", "usb"])
+                self.assertEqual(self.fact(r, "push")[0][1], "ok")
+                # a non-origin copy gets karr's cards with the push lines: the report says so
+                self.assertIn(", refs/karr", self.fact(r, "push")[0][2])
+                self.assertEqual(self.git(d, "config", "--get-all", "remote.usb.push").splitlines(),
+                                 self.PUSH_SPECS)
+
+    def test_disk_remote_again_without_name_completes_an_origin_copy(self):
+        # an older team: origin is the drive copy; a re-run without --name must recognise it
+        # (not turn it into `backup`), add the lines for heads and tags, never karr's
+        d = self.karr_repo()
+        t = self.disk()
+        self.assertEqual(self.ar("disk-remote", str(t), cwd=d).returncode, 0)
+        bare = t / "my proj.git"
+        self.gitrc(d, "config", "--unset-all", "remote.origin.push")
+        for round_ in (1, 2):
+            with self.subTest(round=round_):
+                r = self.ar("disk-remote", str(t), cwd=d)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                rem = self.fact(r, "remote")
+                self.assertEqual(len(rem), 1, r.stdout)
+                self.assertEqual(rem[0][1:3], ["updated", "origin"])
+                self.assertTrue(rem[0][3].endswith("disk target/my proj.git"), rem)
+                push = self.fact(r, "push")
+                self.assertEqual(push[0][1], "ok")
+                self.assertIn("tags", push[0][2])
+                self.assertNotIn("karr", push[0][2])
+                self.assertEqual(self.git(d, "config", "--get-all", "remote.origin.push").splitlines(),
+                                 self.PUSH_SPECS[:2])
+                self.assertNotIn("backup", self.git(d, "remote").split())
+
+    def test_disk_remote_again_for_a_remote_pointing_elsewhere_still_fails(self):
+        d = self.karr_repo()
+        t = self.disk()
+        self.assertEqual(self.ar("disk-remote", str(t), "--name", "usb", cwd=d).returncode, 0)
+        self.git(d, "remote", "set-url", "usb", str(self.root / "elsewhere.git"))
+        self.gitrc(d, "config", "--unset-all", "remote.usb.push")
+        r = self.ar("disk-remote", str(t), "--name", "usb", cwd=d)
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertEqual(len(r.stderr.splitlines()), 2)
+        self.assertEqual(self.gitrc(d, "config", "--get-all", "remote.usb.push").stdout, "")
+
+    def test_a_later_plain_push_carries_rewritten_karr_tags_and_branches(self):
+        d = self.karr_repo()
+        t = self.disk()
+        self.assertEqual(self.ar("disk-remote", str(t), "--name", "usb", cwd=d).returncode, 0)
+        bare = t / "my proj.git"
+        # karr rewrites its refs without fast-forward: a new commit with no parent
+        new = self.git(d, "commit-tree", "-m", "rewritten board", "HEAD^{tree}")
+        self.git(d, "update-ref", "refs/karr/board", new)
+        self.git(d, "tag", "v2")
+        (d / "more").write_text("y\n")
+        self.git(d, "add", "more")
+        self.git(d, "commit", "-q", "-m", "second")
+        head = self.git(d, "rev-parse", "HEAD")
+        self.git(d, "checkout", "-q", "-b", "feature")
+        r = subprocess.run(["git", "push", "usb"], cwd=str(d), env=dict(os.environ, **self.env),
+                           text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        refs = dict(l.split(" ")[::-1] for l in
+                    self.git(bare, "for-each-ref", "--format=%(objectname) %(refname)").splitlines())
+        self.assertEqual(refs["refs/karr/board"], new)
+        self.assertIn("refs/tags/v2", refs)
+        self.assertEqual(refs["refs/heads/main"], head)
+        self.assertEqual(refs["refs/heads/feature"], head)
+
+    def test_a_later_push_still_refuses_a_moved_tag(self):
+        d = self.karr_repo()
+        t = self.disk()
+        self.assertEqual(self.ar("disk-remote", str(t), "--name", "usb", cwd=d).returncode, 0)
+        bare = t / "my proj.git"
+        old = self.git(bare, "rev-parse", "refs/tags/v1")
+        (d / "more").write_text("y\n")
+        self.git(d, "add", "more")
+        self.git(d, "commit", "-q", "-m", "second")
+        self.git(d, "tag", "-f", "v1")
+        r = subprocess.run(["git", "push", "usb"], cwd=str(d), env=dict(os.environ, **self.env),
+                           text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.git(bare, "rev-parse", "refs/tags/v1"), old)
+
     def test_disk_remote_without_commit_skips_the_push(self):
         d = self.repo("empty", commit=False)
         t = self.disk()
@@ -595,7 +754,7 @@ class RepoTest(Sandbox):
         self.assertIn("origin", self.git(d, "remote").split())
         lines = r.stderr.splitlines()
         self.assertEqual(len(lines), 2)
-        self.assertIn("push origin --all", lines[1])
+        self.assertIn("push origin 'refs/heads/*:refs/heads/*'", lines[1])
 
     def test_disk_remote_dir_option_on_a_non_repo(self):
         p = self.work / "plain"

@@ -97,12 +97,12 @@ Fill it like this:
   commit and marks cards done; `main` commits exactly the checked state; `user` alone commits,
   the main agent proposes the message and moves the card. No committer role is always required.
 - **A copy on a drive** (`ack-repo disk-remote`), when the user allowed its updates, into
-  "Check and commits" (two lines): "After each commit <who pushes> runs
-  `git push <name> <branch>` (the copy on <drive>, allowed in advance); drive not plugged
-  in: one line saying so, the next push catches up." It is the go-ahead `publish-gate`
-  asks for. `<who pushes>`: `<prefix>-release-manager` (its body carries the same
-  sentence, in "you" form: [team-agents.md](team-agents.md)); with `committer` `main` or
-  `user` the main agent, after the commit.
+  "Check and commits" (two lines): "After each commit <who pushes> runs `git push <name>`
+  (the copy on <drive>, allowed in advance); drive not plugged in: one line saying so, the
+  next push catches up." It is the go-ahead `publish-gate` asks for. `<who pushes>`:
+  `<prefix>-release-manager` (its body carries the same sentence, in "you" form:
+  [team-agents.md](team-agents.md)); with `committer` `main` or `user` the main agent,
+  after the commit.
 - **Outside input**: with `outside_input` `off` leave the section out; the user was told.
 - **Hazards**: what the agents would trip over, found while reading: a test that needs the network
   or a real account, a generated file nobody edits by hand, a folder never to touch, a slow suite

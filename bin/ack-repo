@@ -44,13 +44,21 @@
 # disk-remote needs DIR to be the top folder of a repository of its own (not inside
 # another one, not the home folder); it creates TARGET-DIR/<repo>.git as a bare
 # repository, adds it as remote NAME (default origin; backup when origin is taken) and
-# pushes all branches. It prints "remote<TAB>created<TAB>NAME<TAB>PATH" and
-# "push<TAB>ok|skipped<TAB>REASON" (skipped while there is no commit). --dir DIR selects
-# the repository (default: current directory).
-# Exit codes: 0 ok, 1 the push failed, 2 usage error or unusable target (missing, not
-# writable, inside the repository, DIR is no repository of its own, the home folder), 3
-# something is in the way: that name already exists, git refuses the .git there, or the
-# other repository tracks files in DIR (nothing changed).
+# pushes all branches, the tags and karr's cards (refs/karr/*). It writes the remote's
+# push lines (remote.NAME.push), so a later plain "git push NAME" carries all branches
+# and the tags, never forced, and, when NAME is not origin, karr's cards, forced (karr
+# writes each card as a commit without parent; origin it keeps in sync itself). Run
+# again with the same TARGET-DIR (and --name) when that remote exists and names the same
+# repository, it adds the push lines that are missing and pushes. It prints
+# "remote<TAB>created|updated<TAB>NAME<TAB>PATH" and "push<TAB>ok|skipped<TAB>REASON"
+# (skipped while there is no commit); after ok, REASON is "all branches", followed by
+# ", tags" and ", refs/karr" when those were pushed. --dir DIR selects the repository
+# (default: current directory).
+# Exit codes: 0 ok, 1 the push failed or the push lines could not be written, 2 usage
+# error or unusable target (missing, not writable, inside the repository, DIR is no
+# repository of its own, the home folder), 3 something is in the way: that name already
+# exists for another repository, the copy exists without that remote, git refuses the
+# .git there, or the other repository tracks files in DIR (nothing changed).
 # On Git for Windows a folder is printed as git prints it (C:/Users/...), in every line.
 # Errors are two lines on stderr: "ack-repo: <what>" and "ack-repo: <what to do>".
 
@@ -134,6 +142,18 @@ _same_dir() {
       a="$(printf '%s' "$a" | tr 'A-Z' 'a-z')"; b="$(printf '%s' "$b" | tr 'A-Z' 'a-z')" ;;
   esac
   [ "$a" = "$b" ]
+}
+
+# _remote_is TOP NAME DIR: the URL of TOP's remote NAME names the folder DIR, however it is
+# spelled: as written at creation, as git writes it on Git for Windows (C:/Users/...,
+# where bash says /tmp/... or /c/...), with backslashes, relative to TOP. The folders are
+# compared as _same_dir does, so both must exist.
+_remote_is() {
+  local u
+  u="$(git -C "$1" config --get "remote.$2.url" 2>/dev/null)" && [ -n "$u" ] || return 1
+  _slashes "$u"; u="$REPLY"
+  case "$u" in /*|[A-Za-z]:/*) ;; *) u="$1/$u" ;; esac
+  _same_dir "$u" "$3"
 }
 
 # _where DIR -> WHERE and REPLY (the top folder) for a DIR in a work tree: WHERE is ok
@@ -470,6 +490,7 @@ cmd_init() {
 
 cmd_disk_remote() {
   local target="" name="" dir="." explicit=0 top ptop ptarget bare repo branch ok shown sbare
+  local specs=() what hint spec push=() have state
   while [ $# -gt 0 ]; do
     case "$1" in
       --name) [ $# -ge 2 ] || usage_err "--name needs a value."; name="$2"; explicit=1; shift 2 ;;
@@ -503,13 +524,12 @@ cmd_disk_remote() {
   repo="${top##*/}"
   bare="$target/$repo.git"
   _shown "$target"; sbare="$REPLY/$repo.git"
-  if [ -e "$bare" ] || [ -L "$bare" ]; then
-    fail 3 "'$sbare' already exists." "pick another target or remove it yourself; nothing was changed."
-  fi
   if [ "$explicit" = 0 ]; then
     name=origin
     if git -C "$top" remote | grep -Fxq origin; then
       name=backup
+      # run again for a copy made as origin
+      _remote_is "$top" origin "$bare" && name=origin
     fi
   fi
   case "$name" in
@@ -519,25 +539,62 @@ cmd_disk_remote() {
   [ "$ok" = 0 ] || fail 2 "'$name' cannot be the name of a remote." \
     "pass a name of letters, digits and dashes with --name, such as --name usb."
   if git -C "$top" remote | grep -Fxq -- "$name"; then
-    fail 3 "the remote '$name' already exists." "pick another name with --name; nothing was changed."
+    # the same copy again (a team made before the push lines): complete them, push
+    _remote_is "$top" "$name" "$bare" ||
+      fail 3 "the remote '$name' already exists and is not the copy at '$sbare'." \
+        "pick another name with --name; nothing was changed."
+    state=updated
+  elif [ -e "$bare" ] || [ -L "$bare" ]; then
+    fail 3 "'$sbare' already exists." "pick another target or remove it yourself; nothing was changed."
+  else
+    git init -q --bare "$bare" >/dev/null 2>&1 ||
+      fail 1 "cannot create '$sbare'." "check that the target is writable."
+    branch="$(git -C "$top" symbolic-ref -q HEAD 2>/dev/null)" || branch=""
+    [ -n "$branch" ] && git --git-dir="$bare" symbolic-ref HEAD "$branch" >/dev/null 2>&1
+    if ! git -C "$top" remote add "$name" "$bare" >/dev/null 2>&1; then
+      rm -rf "$bare"
+      fail 1 "cannot add the remote '$name'." "check the repository's config."
+    fi
+    state=created
   fi
-  git init -q --bare "$bare" >/dev/null 2>&1 ||
-    fail 1 "cannot create '$sbare'." "check that the target is writable."
-  branch="$(git -C "$top" symbolic-ref -q HEAD 2>/dev/null)" || branch=""
-  [ -n "$branch" ] && git --git-dir="$bare" symbolic-ref HEAD "$branch" >/dev/null 2>&1
-  if ! git -C "$top" remote add "$name" "$bare" >/dev/null 2>&1; then
-    rm -rf "$bare"
-    fail 1 "cannot add the remote '$name'." "check the repository's config."
-  fi
-  printf 'remote%screated%s%s%s%s\n' "$TAB" "$TAB" "$name" "$TAB" "$sbare"
+  # what a plain `git push NAME` carries from now on: branches and tags, never forced (a
+  # moved tag is refused); karr's cards forced, since karr writes each card as a new
+  # commit without parent, but not to origin, which karr itself keeps in sync
+  push=('refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*')
+  [ "$name" = origin ] || push+=('+refs/karr/*:refs/karr/*')
+  have="$(git -C "$top" config --get-all "remote.$name.push" 2>/dev/null)"
+  for spec in "${push[@]}"; do
+    printf '%s\n' "$have" | grep -Fxq -- "$spec" && continue
+    git -C "$top" config --add "remote.$name.push" "$spec" >/dev/null 2>&1 ||
+      fail 1 "cannot write the push lines of the remote '$name'." \
+        "check the repository's config, then run ack-repo disk-remote again."
+  done
+  printf 'remote%s%s%s%s%s%s\n' "$TAB" "$state" "$TAB" "$name" "$TAB" "$sbare"
   if ! git -C "$top" rev-parse --verify -q HEAD >/dev/null 2>&1; then
     printf 'push%sskipped%sno commit yet\n' "$TAB" "$TAB"
     return 0
   fi
-  if git -C "$top" push -q "$name" --all >/dev/null 2>&1; then
-    printf 'push%sok%sall branches\n' "$TAB" "$TAB"
+  # branches always, tags and karr's cards (refs/karr/*) when there are any. Into the new,
+  # empty repository every ref is a new one, so nothing needs force, and origin gets the
+  # cards once; a copy made before is updated with the push lines, as later pushes are.
+  what="all branches"
+  specs=()
+  [ "$state" = created ] && specs=('refs/heads/*:refs/heads/*')
+  if [ -n "$(git -C "$top" for-each-ref --count=1 refs/tags 2>/dev/null)" ]; then
+    [ "$state" = created ] && specs+=('refs/tags/*:refs/tags/*')
+    what="$what, tags"
+  fi
+  if [ -n "$(git -C "$top" for-each-ref --count=1 refs/karr 2>/dev/null)" ] &&
+     { [ "$state" = created ] || [ "$name" != origin ]; }; then
+    [ "$state" = created ] && specs+=('refs/karr/*:refs/karr/*')
+    what="$what, refs/karr"
+  fi
+  if git -C "$top" push -q "$name" ${specs[@]+"${specs[@]}"} >/dev/null 2>&1; then
+    printf 'push%sok%s%s\n' "$TAB" "$TAB" "$what"
   else
-    fail 1 "the push to '$sbare' failed." "run: git -C '$top' push $name --all"
+    hint=""
+    for spec in ${specs[@]+"${specs[@]}"}; do hint="$hint '$spec'"; done
+    fail 1 "the push to '$sbare' failed." "run: git -C '$top' push $name$hint"
   fi
 }
 

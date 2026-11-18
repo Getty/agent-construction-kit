@@ -195,5 +195,5 @@ Example for a new web shop `harbor`, with a copy on a USB drive:
    (`commit it`: `.claude/skilletor.json`, `.claude/.gitignore`, `.worktreeinclude`,
    `.claude/settings.json`). `git status --short -uall` first, against the list from before
    the build: a file on that list stays out, unless the plan named it as one the build changes.
-10. A copy on a drive: `git push <name> <branch>` (`<name>` as `ack-repo disk-remote`
-    printed it, `<branch>` from `git branch --show-current`). Then [using-the-team.md](using-the-team.md).
+10. A copy on a drive: `git push <name>` (`<name>` from `ack-repo`; no push lines yet:
+    [team-second-copy.md](team-second-copy.md)). Then [using-the-team.md](using-the-team.md).

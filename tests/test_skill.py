@@ -859,7 +859,7 @@ class SkillTest(Sandbox):
         def flat(name):
             return " ".join(read(REFS / name).split())
         rules = flat("team-rules.md")
-        for words in ("After each commit <who pushes> runs `git push <name> <branch>`",
+        for words in ("After each commit <who pushes> runs `git push <name>`",
                       "the next push catches up", "(`main` too: the yes to the team covers it)",
                       "the implementer prompt's commit step"):
             self.assertIn(words, rules)

@@ -93,3 +93,7 @@ Revision history for agent-construction-kit
       /healthz answer: another program on the proxy port ends with exit 5 and
       a message to pick a free port, and is never stopped; ack-proxy status
       shows it as not the proxy.
+    - ack-repo disk-remote carries branches, tags and karr's cards
+      (refs/karr) to the copy, on creation and on every later git push <name>;
+      it reports only what was pushed, and running it again on an older copy
+      adds the missing push lines.
