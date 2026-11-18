@@ -43,3 +43,7 @@ It emits `owner<TAB>ok<TAB><relative-file><TAB><owner>` for every resolved file.
 invalid or out-of-repository request emits `owner<TAB>missing<TAB><file-or-map><TAB><two-sentence-guidance>`.
 Exit 0 means every file resolved, 1 means a map or ownership failure, and 2 means usage or an
 unusable directory. The lookup does not create or change files.
+
+`ack-team check` validates the same map on its `owners` line: `ok` for a valid map, `missing`
+(the check fails) for one `ack-team owner` would refuse, and `warn` without `OWNERS`, as in a
+team made before the map; a `warn` does not fail the check.

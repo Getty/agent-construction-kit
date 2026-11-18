@@ -174,6 +174,7 @@ are briefing's; no briefing answers: one `missing` line, `briefing<TAB>missing<T
 | `agent` | each agent file: frontmatter, `name` equal to the file name (`.local.` dropped), a description, a readable `briefing.skills`; no `allowed-tools`, no top-level `skills:` | fix the file ([team-agents.md](team-agents.md)) |
 | `skill` | each `briefing.skills` entry resolves: in `.claude/skills/`, `~/.claude/skills/`, or in a plugin that is installed and enabled | install it, enable its plugin, write it, or drop the entry |
 | `owner` | resolves supplied files through root `OWNERS` without changing files | fix the map or assign the path, then run `ack-team owner` again ([team-ownership.md](team-ownership.md)) |
+| `owners` | root `OWNERS` is a valid map, by the rules `ack-team owner` applies | `missing`: fix the map ([team-ownership.md](team-ownership.md)); `warn`: no `OWNERS`, as in a team made before the map; it does not fail the check: tell the user and propose the map |
 | `readonly` | agents ending in `-scout`, `-reviewer`, `-checker`, `-coordinator` carry `disallowedTools` naming Edit and Write | add the line |
 | `rules` | a file in `.claude/rules/` | write the project rules |
 | `settings` | `.claude/settings.json`: readable, every marketplace declared, briefing enabled | merge as above |

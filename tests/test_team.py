@@ -174,6 +174,14 @@ class TeamTest(Sandbox):
         """Run the public ownership lookup against DIRECTORY."""
         return self.at("owner", "--dir", str(directory), "--", *files, cwd=cwd, env=env)
 
+    def complete_team(self, name="harbor"):
+        """A good team that also carries a valid OWNERS map, committed."""
+        d = self.team(name=name)
+        self.put(d, "OWNERS", "README\tmain\n.claude/\tmain\n")
+        self.git(d, "add", "-A")
+        self.git(d, "commit", "-q", "-m", "owners")
+        return d
+
     def ownable_team(self, name="owned harbor"):
         """A valid team with purpose-specific names available to OWNERS."""
         d = self.team(name=name)
@@ -186,7 +194,7 @@ class TeamTest(Sandbox):
     # ---- the good team
 
     def test_good_team_prints_only_ok(self):
-        d = self.team()
+        d = self.complete_team()
         r = self.at("check", cwd=d)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(r.stderr, "")
@@ -198,14 +206,15 @@ class TeamTest(Sandbox):
             ["board", "ok", "BOARD.md", ""],
             ["claude-md", "ok", "CLAUDE.md", ""],
             ["git", "ok", ".", ""],
+            ["owners", "ok", "OWNERS", ""],
         ])
 
     def test_directory_argument_and_spaces_in_the_path(self):
-        d = self.team(name="my harbor")
+        d = self.complete_team(name="my harbor")
         r = self.at("check", str(d), cwd=self.root)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual([x for x in self.rows(r) if x[1] != "ok"], [])
-        self.assertEqual(len(self.rows(r)), len(BRIEFING_GOOD) + 6)
+        self.assertEqual(len(self.rows(r)), len(BRIEFING_GOOD) + 7)
 
     def test_default_directory_is_the_current_one(self):
         d = self.team()
@@ -286,6 +295,40 @@ class TeamTest(Sandbox):
         r = self.at("check", cwd=d)
         self.one(r, "readonly", "warn", "harbor-checker.md")
         self.one(r, "readonly", "warn", "harbor-coordinator.md")
+
+    # ---- check and OWNERS (c18)
+
+    def test_check_reports_an_invalid_owners_map_as_missing(self):
+        d = self.ownable_team()
+        bad_maps = {
+            "malformed row": "docs/ harbor-docs\n",
+            "unknown owner": "docs/\tmissing-agent\n",
+            "path outside repository": "../outside/\tharbor-docs\n",
+            "duplicate normalized path": "docs/\tharbor-docs\ndocs//\tharbor-docs\n",
+        }
+        for label, owners in bad_maps.items():
+            with self.subTest(label=label):
+                self.put(d, "OWNERS", owners)
+                r = self.at("check", cwd=d)
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                row = self.one(r, "owners", "missing", "OWNERS")
+                self.assertGreaterEqual(len([x for x in row[3].split(".") if x.strip()]), 2, row)
+                self.assertEqual(r.stderr, "")
+
+    def test_check_without_owners_warns_and_still_passes(self):
+        d = self.ownable_team()
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.one(r, "owners", "warn", "OWNERS")
+        self.none(r, "owners", "missing")
+
+    def test_check_with_a_valid_owners_map_says_ok(self):
+        d = self.ownable_team()
+        self.put(d, "OWNERS", "src/\tharbor-worker\nREADME.md\tmain\n")
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.one(r, "owners", "ok", "OWNERS")
+        self.assertEqual([x for x in self.rows(r) if x[1] != "ok"], [])
 
     # ---- owner
 
@@ -668,7 +711,7 @@ class TeamTest(Sandbox):
         self.assertEqual(lines[3], "hook\tok\tharbor-worker\t")
         # the kit's own lines follow, once each
         self.assertEqual([x[0] for x in self.kit_rows(r)],
-                         ["readonly", "readonly", "rules", "board", "claude-md", "git"])
+                         ["readonly", "readonly", "rules", "board", "claude-md", "git", "owners"])
 
     def sentences(self, text):
         return re.split(r"(?<=\.)\s+", text.strip())
@@ -683,7 +726,7 @@ class TeamTest(Sandbox):
             self.assertEqual(self.of(r, what), [], r.stdout)
         # the kit's own lines still come, after it
         self.assertEqual([x[0] for x in self.rows(r)],
-                         ["briefing", "readonly", "readonly", "rules", "board", "claude-md", "git"])
+                         ["briefing", "readonly", "readonly", "rules", "board", "claude-md", "git", "owners"])
         self.assertEqual(len(self.sentences(row[3])), 2, row[3])      # what is wrong, what to do
         if fix is not None:
             self.assertTrue(row[3].endswith(" " + fix), row[3])
@@ -859,7 +902,7 @@ class TeamTest(Sandbox):
         self.assertEqual(self.of(r, "briefing"), [])
         for line in r.stdout.splitlines():
             self.assertEqual(line.count(TAB), 3, repr(line))
-        self.assertEqual(len(self.rows(r)), len(good) + 6)
+        self.assertEqual(len(self.rows(r)), len(good) + 7)
 
     def test_a_line_with_an_empty_field_is_dropped_whichever_field_it_is(self):
         d = self.team()
@@ -873,7 +916,7 @@ class TeamTest(Sandbox):
         r = self.at("check", cwd=d)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.rows(r)[:len(good)], good)
-        self.assertEqual(len(self.rows(r)), len(good) + 6)
+        self.assertEqual(len(self.rows(r)), len(good) + 7)
         # an empty last field is the one empty field the contract allows
         self.briefing_says(tsv([["hook", "ok", "harbor-worker", ""], SETTINGS_OK]))
         self.assertEqual(self.one(self.at("check", cwd=d), "hook", "ok"),

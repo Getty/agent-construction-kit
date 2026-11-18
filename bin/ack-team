@@ -27,6 +27,8 @@
 #   claude-md  warn unless CLAUDE.md exists and names every agent (as a whole name).
 #   git        missing without a repository (when a .git is there but git refuses to
 #              read it, the text is the reason, git's or the kit's); warn without a remote.
+#   owners     ok when DIR's OWNERS map is valid (the rules `owner` applies); missing
+#              when it is invalid or unreadable; warn without an OWNERS file.
 #   owner      with `owner`: ok for each requested relative file mapped by the selected
 #              directory's OWNERS file; missing for an invalid or missing map, an
 #              out-of-scope file or an unowned file. Exact paths win; otherwise the
@@ -485,17 +487,18 @@ _owner_input_path() {
   return 0
 }
 
-# _owner_map_error TEXT: report an invalid selected-directory map once, before lookup.
+# _owner_map_error TEXT -> OWNER_MAP_ERROR: why the selected directory's map is invalid,
+# for the caller to report once (owner before any lookup, check as its owners line).
 _owner_map_error() {
-  emit owner missing OWNERS "The OWNERS map $1. Correct the map and run ack-team owner again."
+  OWNER_MAP_ERROR="$1"
   return 1
 }
 
-# _owner_read_map -> OWNER_RULE_PATHS, OWNER_RULE_DIRECTORIES, OWNER_RULE_OWNERS. A map
-# is validated completely before any requested file is resolved.
+# _owner_read_map -> OWNER_RULE_PATHS, OWNER_RULE_DIRECTORIES, OWNER_RULE_OWNERS, or
+# OWNER_MAP_ERROR. A map is validated completely before any requested file is resolved.
 _owner_read_map() {
   local map="$DIR/OWNERS" line trimmed path owner i
-  OWNER_RULE_PATHS=() OWNER_RULE_DIRECTORIES=() OWNER_RULE_OWNERS=()
+  OWNER_RULE_PATHS=() OWNER_RULE_DIRECTORIES=() OWNER_RULE_OWNERS=() OWNER_MAP_ERROR=""
   if [ ! -f "$map" ] || [ ! -r "$map" ]; then
     _owner_map_error "is missing or unreadable"
     return 1
@@ -560,6 +563,18 @@ _owner_for() {
   return 0
 }
 
+# check_owners: the owners line of check. No OWNERS file is a warning, since teams made
+# before the map existed have none; a map that `owner` would refuse is missing.
+check_owners() {
+  if [ ! -e "$DIR/OWNERS" ] && [ ! -L "$DIR/OWNERS" ]; then
+    emit owners warn OWNERS "no OWNERS map: no path has a recorded write owner"
+  elif _owner_read_map; then
+    emit owners ok OWNERS ""
+  else
+    emit owners missing OWNERS "The OWNERS map $OWNER_MAP_ERROR. Correct the map and run ack-team check again."
+  fi
+}
+
 cmd_owner() {
   local directory="." directory_set=0 file shown
   while [ $# -gt 0 ]; do
@@ -578,7 +593,10 @@ cmd_owner() {
   DIR="$(CDPATH= cd -- "$directory" 2>/dev/null && pwd)" && [ -n "$DIR" ] ||
     fail 2 "'$directory' is not a directory." "pass the directory that contains OWNERS."
   DIR="${DIR%/}"
-  _owner_read_map || exit "$RC"
+  if ! _owner_read_map; then
+    emit owner missing OWNERS "The OWNERS map $OWNER_MAP_ERROR. Correct the map and run ack-team owner again."
+    exit "$RC"
+  fi
   for file in "$@"; do
     if ! _owner_input_path "$file"; then
       shown="${file//$TAB/ }"; shown="${shown//$'\r'/ }"; shown="${shown//$'\n'/ }"
@@ -613,6 +631,7 @@ cmd_check() {
   check_board
   check_claude_md
   check_git
+  check_owners
   exit "$RC"
 }
 

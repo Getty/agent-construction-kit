@@ -77,3 +77,6 @@ Revision history for agent-construction-kit
       agent checks before the commit, a card names a result and its delegated
       steps sit below it, the reviewer reads git status and git diff HEAD, and
       read-only roles are described as changing nothing, not as unable to write.
+    - ack-team check looks at OWNERS too: ok for a valid map, missing for one
+      ack-team owner would refuse, a warning without a map (teams made before
+      it have none).
