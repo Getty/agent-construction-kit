@@ -965,6 +965,44 @@ class WrappersTest(Sandbox):
         self.assertEqual(r.returncode, 1)
         self.assertIn("could not reach api.minimax.io", r.stdout)
 
+    def _alive(self, pid):
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    @unittest.skipIf(NT, "needs POSIX signals")
+    def test_test_kills_a_child_that_ignores_term(self):
+        import signal
+        import subprocess
+        import time
+        pidfile = self.root / "claude.pid"
+        self.fake_claude('trap "" TERM\necho $$ > "%s"\nwhile :; do sleep 1; done' % pidfile)
+        self.aw("install", "minimax")
+
+        def reap():
+            try:
+                os.kill(int(pidfile.read_text().strip()), signal.SIGKILL)
+            except (OSError, ValueError):
+                pass
+        self.addCleanup(reap)
+        env = dict(self.env, MINIMAX_API_KEY="k", ACK_TEST_TIMEOUT="1")
+        try:
+            # a hard bound of our own: a red run fails here instead of hanging the suite
+            r = subprocess.run(self._launchable(("bash", AW, "test", "minimax"), env["PATH"]),
+                               env=env, text=True, timeout=30, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            self.fail("ack-wrappers test hangs on a child that ignores TERM")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("could not reach api.minimax.io", r.stdout)
+        child = int(pidfile.read_text().strip())
+        end = time.time() + 5
+        while self._alive(child) and time.time() < end:
+            time.sleep(0.1)
+        self.assertFalse(self._alive(child), "the fake claude is still running")
+
     def test_test_without_a_wrapper_says_so(self):
         r = self.aw("test", "minimax")
         self.assertEqual(r.returncode, 1)

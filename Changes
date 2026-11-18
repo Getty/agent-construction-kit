@@ -80,3 +80,5 @@ Revision history for agent-construction-kit
     - ack-team check looks at OWNERS too: ok for a valid map, missing for one
       ack-team owner would refuse, a warning without a map (teams made before
       it have none).
+    - ack-wrappers test no longer hangs when claude ignores the TERM sent at
+      its timeout: after two seconds it gets KILL.

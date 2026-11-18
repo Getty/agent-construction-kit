@@ -773,7 +773,14 @@ cmd_test() {
   "$BASH" "$file" -p "$PROMPT" > "$out" 2>&1 < /dev/null &
   pid=$!; CHILD="$pid"
   while kill -0 "$pid" 2>/dev/null; do
-    if [ "$t" -ge "$limit" ]; then kill "$pid" 2>/dev/null; rc=124; break; fi
+    if [ "$t" -ge "$limit" ]; then
+      kill "$pid" 2>/dev/null; rc=124
+      # one that ignores TERM gets KILL after a two-second grace, so the wait below ends
+      t=0
+      while kill -0 "$pid" 2>/dev/null && [ "$t" -lt 10 ]; do sleep 0.2; t=$((t + 1)); done
+      kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
+      break
+    fi
     sleep 0.2; t=$((t + 1))
   done
   wait "$pid" 2>/dev/null; wst=$?; CHILD=""
