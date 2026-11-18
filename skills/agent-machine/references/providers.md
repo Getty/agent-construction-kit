@@ -279,8 +279,8 @@ a starter's session, it runs on that starter's provider.
 
 ## Exit codes of claude-with
 
-2 usage or definition error, 3 key missing, 4 no `claude` found, 5 proxy unreachable;
-otherwise the exit code of `claude` itself.
+2 usage or definition error, 3 key missing, 4 no `claude` found, 5 proxy unreachable, or
+another program answers on its port; otherwise the exit code of `claude` itself.
 
 ## MiniMax and uvx
 

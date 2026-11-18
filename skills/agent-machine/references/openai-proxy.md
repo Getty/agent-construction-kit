@@ -66,7 +66,7 @@ shows on another device and tell you when it is done.
 | `auth<TAB>ok` / `missing` | signed in / not signed in: step 3 |
 | `service<TAB>ok` / `missing` | background service set up / not set up: step 6 |
 | `service<TAB>info` | "no user service manager here": fine, nothing to do. "port ..., but the provider uses ...": the service runs on an old port; run `ack-proxy service install` again |
-| `reachable<TAB>ok` / `missing` | the proxy answers / nothing answers yet, which is normal before the first start |
+| `reachable<TAB>ok` / `missing` | the proxy answers its health check / nothing answers yet, which is normal before the first start; "another program answers on port ...": a different program holds the port; leave it running and move the proxy (`ack-wrappers set openai PROXY_PORT=<port>`, step 7) |
 
 `binary` and `auth` must be `ok` before you go on.
 

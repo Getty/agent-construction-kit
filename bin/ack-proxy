@@ -3,7 +3,8 @@
 #   ack-proxy status | ensure | models [provider] | check-slots | service install|remove
 # Exit codes: 0 ok, 1 check-slots found an unknown model, 2 usage error,
 # 3 a foreign unit file sits at the target (nothing changed), 5 the proxy or
-# its binary is missing, 6 no user service manager on this platform,
+# its binary is missing, or another program answers on its port (ensure; that
+# program is left running), 6 no user service manager on this platform,
 # 7 the service manager refused (service install/remove). `models` and
 # `check-slots` also exit 5 when `claude-code-proxy models` fails or times out;
 # `check-slots` exits 1 only for an unknown slot model.
@@ -120,11 +121,12 @@ cmd_status() {
   else
     printf 'service%smissing%sno unit; run: ack-proxy service install\n' "$TAB" "$TAB"
   fi
-  if ack_proxy_reachable "$port"; then
-    printf 'reachable%sok%shttp://127.0.0.1:%s/\n' "$TAB" "$TAB" "$port"
-  else
-    printf 'reachable%smissing%snothing answers on port %s\n' "$TAB" "$TAB" "$port"
-  fi
+  ack_proxy_reachable "$port"
+  case "$?" in
+    0) printf 'reachable%sok%shttp://127.0.0.1:%s/\n' "$TAB" "$TAB" "$port" ;;
+    2) printf 'reachable%smissing%sanother program answers on port %s, not the proxy; pick a free port: ack-wrappers set openai PROXY_PORT=<port>\n' "$TAB" "$TAB" "$port" ;;
+    *) printf 'reachable%smissing%snothing answers on port %s\n' "$TAB" "$TAB" "$port" ;;
+  esac
   return 0
 }
 

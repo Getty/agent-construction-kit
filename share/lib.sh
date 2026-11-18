@@ -417,9 +417,13 @@ ack_has_user_service() {
 # ack_proxy_unit_file -> prints the path of the user unit
 ack_proxy_unit_file() { printf '%s' "$HOME/.config/systemd/user/$ACK_PROXY_UNIT"; }
 
-# ack_proxy_reachable PORT: 0 when 127.0.0.1:PORT answers with any HTTP status.
-# --noproxy: a gateway's own 502 must not count as an answer.
+# ack_proxy_reachable PORT: 0 when claude-code-proxy answers on 127.0.0.1:PORT, that is
+# GET /healthz gives {"ok":true} (its liveness answer in every release since v0.0.1);
+# 2 when another program answers there (any other body, or one over 1 KiB); 1 when
+# nothing answers (no connection, no answer within 2 s). --noproxy: a gateway's own 502
+# must not count as an answer.
 ack_proxy_reachable() {
+  local body rc
   if [ -z "$(type -P curl 2>/dev/null)" ]; then
     if [ -z "${ACK_CURL_WARNED:-}" ]; then
       ACK_CURL_WARNED=1
@@ -428,7 +432,21 @@ ack_proxy_reachable() {
     fi
     return 1
   fi
-  curl -s -o /dev/null --max-time 2 --noproxy '*' "http://127.0.0.1:$1/"
+  body="$(curl -s --max-time 2 --max-filesize 1024 --noproxy '*' "http://127.0.0.1:$1/healthz")"; rc=$?
+  case "$rc" in
+    0) ;;
+    63) return 2 ;;
+    *) return 1 ;;
+  esac
+  [ "${body//[[:space:]]/}" = '{"ok":true}' ] && return 0
+  return 2
+}
+
+# _ack_proxy_taken PORT: the message for a port another program answers on (never
+# stopped: it is not ours)
+_ack_proxy_taken() {
+  echo "ack: another program answers on port $1, not claude-code-proxy, so the proxy cannot start there." >&2
+  echo "ack: pick a free port with: ack-wrappers set ${ACK_PROVIDER:-openai} PROXY_PORT=<port>" >&2
 }
 
 # _ack_bounded_stop PID GROUP: TERM, up to 2 s to end, then KILL, then reap PID quietly
@@ -493,8 +511,9 @@ ack_run_bounded() {
   return "$rc"
 }
 
-# _ack_proxy_wait PORT [PID]: up to 10 rounds of 0.5 s until the proxy answers;
-# stops at once when PID (the process just started) is gone.
+# _ack_proxy_wait PORT [PID]: up to 10 rounds of 0.5 s until the proxy answers (its
+# /healthz answer; another program's does not count); stops at once when PID (the
+# process just started) is gone.
 _ack_proxy_wait() {
   local i=0
   while [ "$i" -lt 10 ]; do
@@ -509,7 +528,8 @@ _ack_proxy_wait() {
   ack_proxy_reachable "$1"
 }
 
-# ack_proxy_ensure PORT: make the proxy answer on PORT; 5 when that fails.
+# ack_proxy_ensure PORT: make the proxy answer on PORT; 5 when that fails, or when
+# another program answers on PORT (left running, nothing is started).
 ack_proxy_ensure() {
   local port="$1" bin log sz pid rc
   if [ -z "$port" ]; then
@@ -522,7 +542,11 @@ ack_proxy_ensure() {
     echo "ack: set PROXY_PORT to a number in its definition (ack-wrappers set <provider> PROXY_PORT=18765)." >&2
     return 5
   fi
-  ack_proxy_reachable "$port" && return 0
+  ack_proxy_reachable "$port"
+  case "$?" in
+    0) return 0 ;;
+    2) _ack_proxy_taken "$port"; return 5 ;;
+  esac
   ack_paths
   if ack_has_user_service && [ -f "$(ack_proxy_unit_file)" ]; then
     if systemctl --user start "$ACK_PROXY_UNIT" >/dev/null 2>&1; then

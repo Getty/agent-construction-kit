@@ -89,3 +89,7 @@ Revision history for agent-construction-kit
     - The bounded calls of ack-doctor, ack-team and ack-proxy stop what a
       timed-out or interrupted command started, not only the command itself
       (its process group; on Git for Windows the command alone).
+    - ack-proxy and the openai starter recognise claude-code-proxy by its
+      /healthz answer: another program on the proxy port ends with exit 5 and
+      a message to pick a free port, and is never stopped; ack-proxy status
+      shows it as not the proxy.

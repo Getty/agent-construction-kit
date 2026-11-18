@@ -18,7 +18,17 @@ exit 0
 FAKE_CURL = """#!/usr/bin/env bash
 echo "$*" >> "$HOME/curl.log"
 case "$*" in *"http://127.0.0.1:18765/"*) ;; *) exit 7 ;; esac
-[ -f "$HOME/proxy-started" ] && exit 0
+# another program on the port: HTML on every path
+# (like real curl, print nothing when the caller sends the body to -o /dev/null)
+if [ -f "$HOME/foreign" ]; then
+  case "$*" in *"-o /dev/null"*) ;; *) echo '<html>hello</html>' ;; esac
+  exit 0
+fi
+# the proxy: /healthz gives its compact body, every other path a 404 (still an answer)
+if [ -f "$HOME/proxy-started" ]; then
+  case "$*" in *"/healthz"*) printf '{"ok":true}' ;; esac
+  exit 0
+fi
 exit 7
 """
 FAKE_SYSTEMCTL = """#!/usr/bin/env bash
@@ -85,7 +95,7 @@ class ProxyTest(Sandbox):
 
     def test_existing_unit_is_started_via_systemctl(self):
         self.write(UNIT, "[Unit]\n")
-        self.fake("curl", '#!/usr/bin/env bash\n[ -f "$HOME/proxy-up" ] && exit 0\nexit 7\n')
+        self.fake("curl", '#!/usr/bin/env bash\nif [ -f "$HOME/proxy-up" ]; then\n  case "$*" in *"/healthz"*) printf \'{"ok":true}\' ;; esac\n  exit 0\nfi\nexit 7\n')
         r = self.cw("--provider", "openai", "--", "x")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("--user start claude-code-proxy.service", self.systemctl_log())
@@ -282,6 +292,35 @@ class ProxyTest(Sandbox):
         self.write("auth-fails", "")
         r = self.ap("status")
         self.assertIn("auth\tmissing\t", r.stdout)
+
+    def test_status_reachable_ok_for_the_proxy_health_answer(self):
+        self.write("proxy-started", "")
+        rows = dict((l.split("\t")[0], l.split("\t")[1]) for l in self.ap("status").stdout.splitlines())
+        self.assertEqual(rows["reachable"], "ok")
+
+    # ---- a foreign program on the proxy port (c26) -----------------------
+
+    def test_ensure_refuses_a_port_another_program_answers(self):
+        self.write("foreign", "")
+        r = self.ap("ensure")
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertIn("another program", r.stderr)
+        self.assertIn("18765", r.stderr)
+        self.assertIn("PROXY_PORT", r.stderr)
+        self.assertFalse(self.started(), "the proxy was started on a taken port")
+
+    def test_launcher_refuses_a_port_another_program_answers(self):
+        self.write("foreign", "")
+        r = self.cw("--provider", "openai", "--", "x")
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertIn("another program", r.stderr)
+        self.assertNotIn("ARGV:", r.stdout)
+        self.assertFalse(self.started(), "the proxy was started on a taken port")
+
+    def test_status_shows_a_foreign_answer_as_not_the_proxy(self):
+        self.write("foreign", "")
+        rows = dict((l.split("\t")[0], l.split("\t")[1]) for l in self.ap("status").stdout.splitlines())
+        self.assertEqual(rows["reachable"], "missing")
 
     def test_check_slots_matches_whole_lines_only(self):
         r = self.ap("check-slots", env={"ACK_OPENAI_OPUS_MODEL": "gpt-5.6"})

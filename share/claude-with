@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # claude-with: start claude with a provider's environment.
 #   claude-with [--provider NAME] [--permissions ask|allow|skip] [--print-env] [--] [claude args...]
-# Exit codes: 2 usage/definition error, 3 key missing, 4 no claude, 5 proxy unreachable.
+# Exit codes: 2 usage/definition error, 3 key missing, 4 no claude, 5 proxy unreachable,
+# or another program answers on its port (that program is left running).
 
 # Git for Windows may hand over a backslash path (bash 'D:\x\claude-with').
 _slashes() { case "$OSTYPE" in msys*|cygwin*) REPLY="${1//\\//}" ;; *) REPLY="$1" ;; esac; }
