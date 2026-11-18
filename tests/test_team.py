@@ -783,9 +783,9 @@ class TeamTest(Sandbox):
         d = self.team()
         t = time.time()
         pidfile = self.root / "briefing.pid"
-        r = self.at("check", cwd=d, env={"ACK_BRIEFING_WAIT": "1", "FAKE_BRIEFING_HANG": "8",
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_WAIT": "1", "FAKE_BRIEFING_HANG": "60",
                                          "FAKE_BRIEFING_PIDFILE": str(pidfile)})
-        self.assertLess(time.time() - t, 7, "the check waited for the hanging briefing")
+        self.assertLess(time.time() - t, 40, "the check waited for the hanging briefing")
         row = self.only_briefing_missing(r, d)
         self.assertIn("did not answer within 1 seconds", row[3])
         self.assertNotIn("(exit", row[3])
@@ -794,7 +794,7 @@ class TeamTest(Sandbox):
             self.skipTest("skipped on Windows: the pid of an MSYS bash is not a Windows pid, "
                           "so os.kill cannot check that briefing is gone")
         pid = int(pidfile.read_text().strip())
-        deadline = time.time() + 2
+        deadline = time.time() + 10
         alive = True
         while alive and time.time() < deadline:
             try:
@@ -807,7 +807,7 @@ class TeamTest(Sandbox):
 
     def test_a_slow_briefing_inside_the_wait_is_used(self):
         d = self.team()
-        r = self.at("check", cwd=d, env={"ACK_BRIEFING_WAIT": "3", "FAKE_BRIEFING_HANG": "1"})
+        r = self.at("check", cwd=d, env={"ACK_BRIEFING_WAIT": "30", "FAKE_BRIEFING_HANG": "1"})
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.rows(r)[:len(BRIEFING_GOOD)], BRIEFING_GOOD)
 

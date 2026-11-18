@@ -1036,7 +1036,8 @@ class SkillTest(Sandbox):
         team = " ".join(step1.split())
         self.assertIn("all `ok`: skip this step", team)
         skip = team.split("all `ok`: skip this step")[0]
-        for name in ("claude", "git", "marketplace:getty", "plugin:briefing", "plugin:skilletor"):
+        for name in ("claude", "git", "marketplace:getty", "plugin:briefing", "plugin:skilletor",
+                     "runtime:skilletor", "runtime:briefing"):
             self.assertIn("`%s`" % name, skip)
         # node and python are no longer asked for, in the skill or in machine.md
         for doc in (SKILL, MACHINE_SKILL, MACHINE):
