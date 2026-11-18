@@ -82,3 +82,7 @@ Revision history for agent-construction-kit
       it have none).
     - ack-wrappers test no longer hangs when claude ignores the TERM sent at
       its timeout: after two seconds it gets KILL.
+    - ack-wrappers install records the PID of the run that holds the data
+      lock: a lock whose holder is gone is taken at once, one held by a live
+      install is never taken; after ACK_LOCK_WAIT seconds (default 60) the
+      second install stops and names the lock.

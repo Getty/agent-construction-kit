@@ -857,6 +857,50 @@ class WrappersTest(Sandbox):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertFalse(os.path.exists(str(data) + ".lock"))
 
+    # The holder's pid is assumed to live in a file named `pid` inside the lock directory.
+    def _hold_lock(self, pid):
+        lock = str(self.home / ".local/share/agent-construction-kit") + ".lock"
+        os.makedirs(lock)
+        with open(os.path.join(lock, "pid"), "w") as f:
+            f.write("%d\n" % pid)
+        return lock
+
+    @unittest.skipIf(NT, "needs POSIX pids")
+    def test_a_lock_held_by_a_live_process_is_never_taken(self):
+        import subprocess
+        holder = subprocess.Popen(["sleep", "60"])
+        self.addCleanup(lambda: (holder.kill(), holder.wait()))
+        lock = self._hold_lock(holder.pid)
+        env = dict(self.env, ACK_LOCK_WAIT="2")
+        try:
+            r = subprocess.run(self._launchable(("bash", AW, "install", "minimax"), env["PATH"]),
+                               env=env, text=True, timeout=30, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            self.fail("install waits forever on a live holder instead of stopping")
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue(os.path.isdir(lock), "the live holder's lock was taken")
+        self.assertIn(lock, r.stderr)
+        sentences = [l for l in r.stderr.splitlines() if l.strip()]
+        self.assertGreaterEqual(len(sentences), 2, r.stderr)
+        self.assertFalse((self.home / ".local/share/agent-construction-kit/claude-with").exists())
+
+    @unittest.skipIf(NT, "needs POSIX pids")
+    def test_a_lock_whose_holder_is_dead_is_taken(self):
+        import subprocess
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        lock = self._hold_lock(dead.pid)
+        env = dict(self.env, ACK_LOCK_WAIT="2")
+        try:
+            r = subprocess.run(self._launchable(("bash", AW, "install", "minimax"), env["PATH"]),
+                               env=env, text=True, timeout=30, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            self.fail("install waits forever on a lock whose holder is dead")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(lock))
+
     def test_install_says_when_a_definition_is_untested(self):
         r = self.aw("install", "openrouter")
         self.assertEqual(r.returncode, 0, r.stderr)

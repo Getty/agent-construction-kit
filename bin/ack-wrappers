@@ -13,6 +13,8 @@
 #     a definition for any service or server with an Anthropic-compatible API; without --key-var it needs no key
 # Exit codes: 0 ok, 1 test found a problem or a file could not be written,
 # 2 usage error or unknown provider, 3 a foreign file sits at the target (nothing changed).
+# install also exits 1 when a running install still holds the data directory's lock
+# after ACK_LOCK_WAIT seconds (default 60).
 # install prints "note<TAB>untested<TAB>NAME" for a definition written from the provider's
 # documentation that nobody has tried with the kit yet.
 # install prints a final "path" line when the target directory is not on PATH:
@@ -43,7 +45,7 @@ MARK="agent-construction-kit wrapper v1"
 PROMPT="Reply with the single word OK"
 TAB=$'\t'
 TMP="" CHILD="" LOCK=""
-trap '[ -n "$TMP" ] && rm -rf "$TMP"; [ -n "$LOCK" ] && rmdir "$LOCK" 2>/dev/null' EXIT
+trap '[ -n "$TMP" ] && rm -rf "$TMP"; [ -n "$LOCK" ] && { rm -f "$LOCK/pid"; rmdir "$LOCK"; } 2>/dev/null' EXIT
 # a signal (a caller's timeout, Ctrl-C) also stops the claude that test started
 _on_signal() {
   [ -n "$CHILD" ] && kill "$CHILD" 2>/dev/null
@@ -373,16 +375,55 @@ _check_data() {
   fi
 }
 # _lock_data: one install at a time per data directory. Two at once would see each
-# other's half-made directory. A lock older than a minute is a crashed run's; take it.
+# other's half-made directory. The lock is the directory DATA.lock, its file "pid" the
+# holder's PID. A holder that no longer runs is a crashed run's: its lock is taken at
+# once. A lock without a PID (a run that died before writing it, or an older kit's) is
+# taken after ACK_LOCK_WAIT seconds (default 60). A running holder's lock is never
+# taken: after that wait install stops and names the lock.
 _lock_data() {
-  local l="${DATA%/}.lock" n=0
+  local l="${DATA%/}.lock" n=0 pid wait="${ACK_LOCK_WAIT:-60}"
+  case "$wait" in ''|*[!0-9]*) wait=60 ;; esac
   mkdir -p "${l%/*}" 2>/dev/null
-  until mkdir "$l" 2>/dev/null; do
+  while :; do
+    if mkdir "$l" 2>/dev/null; then
+      LOCK="$l"
+      # gone before its PID was in it: another run took it for an empty one
+      { printf '%s\n' "$$" > "$l/pid"; } 2>/dev/null || [ -d "$l" ] || { LOCK=""; continue; }
+      return 0
+    fi
+    pid=""
+    { IFS= read -r pid < "$l/pid"; } 2>/dev/null
+    pid="${pid%$'\r'}"
+    case "$pid" in *[!0-9]*) pid="" ;; esac
+    # our own PID there is an earlier run's: this one holds no lock yet
+    if [ -n "$pid" ] && { [ "$pid" = "$$" ] || ! kill -0 "$pid" 2>/dev/null; } &&
+       _lock_take "$l" "$pid"; then
+      continue
+    fi
     n=$((n + 1))
-    if [ "$n" -ge "${ACK_LOCK_WAIT:-60}" ]; then rmdir "$l" 2>/dev/null; n=0; fi
+    if [ "$n" -ge "$wait" ]; then
+      if [ -z "$pid" ] && rmdir "$l" 2>/dev/null; then n=0; continue; fi
+      echo "ack-wrappers: another install holds the lock $l${pid:+ (process $pid)} and did not finish within $wait seconds." >&2
+      echo "ack-wrappers: run install again once it is done; if no install is running, remove $l." >&2
+      exit 1
+    fi
     sleep 1
   done
-  LOCK="$l"
+}
+# _lock_take LOCK PID: remove the lock of PID, a holder that no longer runs. The pid file
+# is renamed first, so of two runs taking the same lock only one gets it; a run that
+# finds another PID in it (a new holder came first) puts the file back.
+_lock_take() {
+  local aside="$1/pid.$$" pid=""
+  mv "$1/pid" "$aside" 2>/dev/null || return 1
+  { IFS= read -r pid < "$aside"; } 2>/dev/null
+  pid="${pid%$'\r'}"
+  if [ "$pid" != "$2" ]; then
+    mv "$aside" "$1/pid" 2>/dev/null
+    return 1
+  fi
+  rm -f "$aside"
+  rmdir "$1" 2>/dev/null
 }
 # copy share/ to the data dir; drop providers/*.conf and *.mcp.json that no longer ship
 _sync_share() {
