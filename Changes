@@ -86,3 +86,6 @@ Revision history for agent-construction-kit
       lock: a lock whose holder is gone is taken at once, one held by a live
       install is never taken; after ACK_LOCK_WAIT seconds (default 60) the
       second install stops and names the lock.
+    - The bounded calls of ack-doctor, ack-team and ack-proxy stop what a
+      timed-out or interrupted command started, not only the command itself
+      (its process group; on Git for Windows the command alone).

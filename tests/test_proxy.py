@@ -331,6 +331,60 @@ class ProxyTest(Sandbox):
         self.assertIn("rc=124", r.stdout, r.stderr)
         self.assertLess(took, 15)
 
+    # ---- descendants of the bounded command ------------------------------
+
+    FORKING = "#!/usr/bin/env bash\n%s &\necho $! > \"$HOME/grandchild.pid\"\nwait\n"
+
+    def forking_fake(self, grandchild="sleep 30"):
+        """A command that does not exec: it starts a grandchild, records its pid, waits."""
+        self.fake("forking", self.FORKING % grandchild)
+        pidfile = self.home / "grandchild.pid"
+        self.addCleanup(self.reap_grandchild, pidfile)
+        return pidfile
+
+    def reap_grandchild(self, pidfile):
+        import signal
+        try:
+            os.kill(int(pidfile.read_text().strip()), signal.SIGKILL)
+        except (OSError, ValueError):
+            pass
+
+    def gone(self, pid, secs=3):
+        end = time.time() + secs
+        while time.time() < end:
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return True
+            time.sleep(0.1)
+        return False
+
+    @unittest.skipIf(os.name == "nt", "process groups differ in Git for Windows; the fix is PID-only there")
+    def test_run_bounded_timeout_leaves_no_grandchild(self):
+        pidfile = self.forking_fake()
+        r, took = self.bounded(1, "forking")
+        self.assertIn("rc=124", r.stdout, r.stderr)
+        self.assertLess(took, 15)
+        pid = int(pidfile.read_text().strip())
+        self.assertTrue(self.gone(pid), "grandchild %d survived the timeout" % pid)
+
+    @unittest.skipIf(os.name == "nt", "process groups differ in Git for Windows; the fix is PID-only there")
+    def test_run_bounded_term_leaves_no_grandchild(self):
+        pidfile = self.forking_fake()
+        script = '. "%s/share/lib.sh"; ack_run_bounded 30 forking' % ROOT
+        rc, alive, _ = self.terminate_while_child_runs(["bash", "-c", script], pidfile)
+        self.assertEqual(rc, 143)
+        self.assertFalse(alive, "grandchild %s survived the TERM" % pidfile.read_text().strip())
+
+    @unittest.skipIf(os.name == "nt", "process groups differ in Git for Windows; the fix is PID-only there")
+    def test_run_bounded_kills_a_term_ignoring_grandchild(self):
+        pidfile = self.forking_fake("( trap '' TERM; exec sleep 30 )")
+        r, took = self.bounded(1, "forking")
+        self.assertIn("rc=124", r.stdout, r.stderr)
+        self.assertLess(took, 15)
+        pid = int(pidfile.read_text().strip())
+        self.assertTrue(self.gone(pid, 5), "TERM-ignoring grandchild %d survived the KILL" % pid)
+
     def test_ensure_command(self):
         r = self.ap("ensure")
         self.assertEqual(r.returncode, 0, r.stderr)

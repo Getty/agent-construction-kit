@@ -431,19 +431,46 @@ ack_proxy_reachable() {
   curl -s -o /dev/null --max-time 2 --noproxy '*' "http://127.0.0.1:$1/"
 }
 
+# _ack_bounded_stop PID GROUP: TERM, up to 2 s to end, then KILL, then reap PID quietly
+# (bash would report the KILL on stderr). GROUP 1: PID was started as the leader of its
+# own process group; while that group exists it gets the signals, so what PID started
+# goes too. A group with PID's number can only be PID's own (no pid is handed out while
+# a group of that number lives), so the caller's group is never hit. Otherwise PID alone.
+_ack_bounded_stop() {
+  local t="$1" i=0
+  [ "$2" = 1 ] && kill -0 -- "-$1" 2>/dev/null && t="-$1"
+  kill -TERM -- "$t" 2>/dev/null
+  while kill -0 -- "$t" 2>/dev/null && [ "$i" -lt 20 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  kill -0 -- "$t" 2>/dev/null && kill -KILL -- "$t" 2>/dev/null
+  wait "$1" 2>/dev/null
+  return 0
+}
+
 # ack_run_bounded SECS CMD [ARGS...]: run CMD for at most SECS seconds (no timeout
 # binary needed). Sets ACK_BOUNDED_OUT (stdout), ACK_BOUNDED_ERR (first stderr line);
 # returns the exit status, 124 on timeout. Resets the INT, TERM and HUP traps.
+# A timeout or a signal stops CMD and what it started: CMD runs as its own process
+# group (set -m for this one start only, so no job messages; a function runs in a
+# subshell that drops job control, so its commands stay in that group). Git for
+# Windows: CMD alone, and what it started may keep running; process groups there are
+# an emulation that native Windows programs and their children are not part of.
 ack_run_bounded() {
-  local secs="$1" d pid i=0 t0 rc stop
+  local secs="$1" d pid t0 rc stop grp=0 m=0
   shift
   ACK_BOUNDED_OUT="" ACK_BOUNDED_ERR=""
   d="$(mktemp -d)" || return 1
+  case "$OSTYPE" in msys*|cygwin*) ;; *) grp=1 ;; esac
+  case "$-" in *m*) m=1 ;; esac
+  if [ "$grp" = 1 ]; then set -m; fi
   "$@" >"$d/out" 2>"$d/err" </dev/null &
   pid=$!
+  if [ "$m" = 0 ]; then set +m; fi
   # a signal stops the child and drops its output, then ends the caller like the
   # signal would; the traps are reset when the call is over
-  printf -v stop 'kill %s 2>/dev/null; rm -rf %q' "$pid" "$d"
+  printf -v stop '_ack_bounded_stop %s %s; rm -rf %q' "$pid" "$grp" "$d"
   trap "$stop; exit 130" INT
   trap "$stop; exit 143" TERM
   trap "$stop; exit 129" HUP
@@ -453,14 +480,7 @@ ack_run_bounded() {
     sleep 0.1
   done
   if kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null
-    i=0
-    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 20 ]; do
-      sleep 0.1
-      i=$((i + 1))
-    done
-    kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
-    wait "$pid" 2>/dev/null
+    _ack_bounded_stop "$pid" "$grp"
     rc=124
   else
     wait "$pid"; rc=$?
