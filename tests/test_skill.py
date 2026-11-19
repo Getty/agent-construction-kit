@@ -562,10 +562,12 @@ class SkillTest(Sandbox):
 
     RT = r"(?:node\.?js|python ?3|jq)(?![\w-])"
     RUNTIME = re.compile(r"(?i)\b" + RT)
-    # A need verb with a runtime within three words after it, or "<runtime> is required".
+    # A need verb with a runtime within three words after it, "<runtime> is required", or a
+    # version demand ("Node.js 18 or newer") with no verb in front.
     NEED = re.compile(r"(?i)\b(?:install|needs?|requires?|depends? on|demands?)\b"
                       r"(?:\W+\w+){0,3}?\W+\b(" + RT + r")|"
-                      r"\b(" + RT + r")\W+(?:\w+\W+){0,3}?(?:is|are) (?:required|needed)\b")
+                      r"\b(" + RT + r")\W+(?:\w+\W+){0,3}?(?:is|are) (?:required|needed)\b|"
+                      r"\b(" + RT + r")\W+\d+(?:\.\d+)*\s+or (?:newer|later|higher)\b")
     KIT_NEED = re.compile(r"(?i)\b(?:the kit(?: itself)?|the kit's(?: own)? \w+|"
                           r"its(?: own)? (?:commands|scripts)|the (?:commands|scripts)|"
                           r"ack-[a-z]+)\s+(?:also |still |always )?"
@@ -574,25 +576,34 @@ class SkillTest(Sandbox):
 
     def negated(self, text, pos):
         """True when the runtime name at `pos` is denied: no/not/never/without/neither/nor
-        within two words before it."""
-        return bool(re.search(r"(?i)\b(?:neither|nor|no|not|never|without)\s+(?:\w+\s+){0,2}$",
-                              text[:pos]))
+        within two words before it, with no "but" or the like in between (so "no jq but
+        Node.js" denies jq only)."""
+        m = re.search(r"(?i)\b(?:neither|nor|no|not|never|without)\s+((?:[\w.]+\s+){0,2})$",
+                      text[:pos])
+        return bool(m) and not re.search(r"(?i)\b(?:but|yet|however|except|only|also|still)\b",
+                                         m.group(1))
 
     def needs(self, pattern, clause):
-        """Runtime names that `pattern` finds in `clause` and that are not denied."""
+        """Runtime names that `pattern` finds in `clause` and that are not denied. A denied
+        name is blanked out and the search goes on, so "no jq but Node.js" still finds
+        Node.js."""
         out = []
-        for m in pattern.finditer(clause):
-            g = [i for i in range(1, (pattern.groups or 0) + 1) if m.group(i)][0]
+        while True:
+            m = pattern.search(clause)
+            if not m:
+                return out
+            g = [i for i in range(1, pattern.groups + 1) if m.group(i)][0]
             if not self.negated(clause, m.start(g)):
-                out.append(m.group(g))
-        return out
+                return out + [m.group(g)]
+            clause = clause[:m.start(g)] + "X" + clause[m.end(g):]
 
     def runtime_clauses(self, text):
         """Clauses (sentence parts split at ';') of a doc that name Node.js, Python 3 or jq;
         bullets and paragraphs apart, quote and list markers dropped."""
         units, cur = [], []
         for line in text.splitlines():
-            body = re.sub(r"^[>\s]*", "", line)
+            body = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", line)   # [text](url) -> text
+            body = re.sub(r"^[>\s]*", "", body)
             if not body or re.match(r"(?:[-*]|\d+\.)\s", body):
                 units.append(" ".join(cur))
                 cur = []
