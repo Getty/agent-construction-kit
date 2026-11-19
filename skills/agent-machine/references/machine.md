@@ -38,8 +38,8 @@ run an old copy): `install` one starter a `wrapper:` line shows, with its permis
 The kit declares skilletor and briefing as dependencies: its one install
 (`agent-construction-kit@getty`) brings all three plugins, and the two `plugin:` rows above
 matter only when one was removed or disabled. The kit itself needs neither Node.js nor
-Python 3; skilletor and briefing ship their own binaries where available and otherwise
-keep working on their current runtime, so an installer may still be asked for there.
+Python 3. skilletor and briefing do, until their standalone binaries are switched on:
+skilletor needs Node.js 18 or newer, and briefing's hooks need Python 3.
 
 `ack-doctor` takes `plugin:*` from `claude plugin list`; for `runtime:skilletor` and
 `runtime:briefing` it runs `<name> --version` and prints it. Found but silent: `warn` with

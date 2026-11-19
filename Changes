@@ -106,3 +106,8 @@ Revision history for agent-construction-kit
     - Teams for folders without code derive the check from the result first
       (every document there, sums and units agree, each claim sourced, open
       exceptions shown), form points after, and a command where one measures.
+    - The README presents the product for a first-time reader (pitch, the first
+      team, a Status section) and states the current limits: skilletor needs
+      Node.js 18 or newer and briefing's hooks need Python 3 until their
+      standalone binaries are switched on. The machine and team references say
+      the same.

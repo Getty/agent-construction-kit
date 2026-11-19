@@ -2,53 +2,41 @@
 
 # agent-construction-kit
 
-A Claude Code plugin for people who want a team of agents instead of one long chat.
-You work with it through three commands; each asks one question at a time and does the work.
+A Claude Code plugin that turns one long chat into a team of agents. You keep talking to
+one session; it puts each job on a board and hands it to an agent made for that kind of
+work, which starts with exactly the know-how it needs. One agent changes the code, another
+checks it, and nothing is pushed or published without your word.
 
-- `/agent-machine` **gets the machine ready.** It checks that the plugins and tools
-  agent teams build on are there, and it creates starter commands such as `claude_with_kimi`: Claude Code
-  running on another model provider, on a local model, or on OpenAI models through a
-  ChatGPT subscription. At its end it offers `/agent-setup`.
-- `/agent-setup` **builds or checks the team.** It reads your project, asks what it
-  cannot read, and writes the agents, their rules and their board into the repository.
-  [The example below](#example-a-team-for-a-software-project) shows how it goes.
+You do not write the team yourself, and you need not know how agents, skills or hooks
+work. The kit reads your project, asks a few plain questions and writes the team into
+your repository. It also sets up your machine, including Claude Code on other model
+services and on local models.
+
+You work with it through three commands; each asks one question at a time and does the work:
+
+- `/agent-setup` **builds or checks the team** for the project in this folder. It reads
+  your project, asks what it cannot read, shows a short plan, and after your yes writes
+  the agents, their skills, their rules and their board into the repository and checks
+  them. [The example below](#example-a-team-for-a-software-project) shows how it goes.
+- `/agent-machine` **gets the machine ready.** It checks the plugins and tools agent teams
+  build on, and creates starter commands such as `claude_with_kimi`: Claude Code running
+  on another model provider, on a local model, or on OpenAI models through a ChatGPT
+  subscription. At its end it offers `/agent-setup`.
 - `/agent-tune` **reviews a team after real work** and proposes improvements; it only reads.
 
 Claude never starts these three on its own: you type them. In full they are
-`/agent-construction-kit:agent-machine`, `/agent-construction-kit:agent-setup` and
+`/agent-construction-kit:agent-setup`, `/agent-construction-kit:agent-machine` and
 `/agent-construction-kit:agent-tune`; the short name works as long as no other plugin
-uses it. Skills you already have for agent teams (a preset) are loaded by `/agent-setup`
-and `/agent-machine` themselves; see "Reusing skills".
-
-## What an agent team is
-
-One Claude Code session that does everything fills its memory with everything: your
-conventions, the test output, the release steps, the half-read files. A team splits the
-work the way people do.
-
-- **Agents are task-derived roles.** The kit starts with deliverables, workflows, tools,
-  knowledge and authority, then selects only the capabilities with a clear boundary. A scout
-  may read and report, a change owner may implement, an independent checker may review, and
-  a selected committer may save work. Each agent is a small file in `.claude/agents/`.
-- **Skills are the knowledge.** Your conventions live in skills, once. Each agent names
-  the skills its role needs, and the briefing plugin loads exactly those before the
-  agent's first step. A narrow agent has room left to think, and can run a cheaper model.
-- **Rules are the discipline.** The session you talk to does not touch the code itself;
-  it hands work to the right agent. Nothing is pushed, published or sent without your
-  word.
-- **A board holds the work.** Every task is a card, so nothing exists only in a chat
-  that scrolls away.
-
-The kit uses task-derived boundaries for the work. An additional agent earns its place only when
-its different context, tools, knowledge or authority improves the result; unnecessary hand-offs
-add coordination cost. Skills may be shared, while routing stays narrow and unambiguous.
+uses it.
 
 ## Before you start
 
 - [Claude Code](https://code.claude.com/docs/en/setup), installed and signed in.
 - git. On Windows, [Git for Windows](https://git-scm.com/downloads/win): the kit's
-  commands run in its bash. If git is missing on macOS or Linux, the setup helps you
-  install it.
+  commands run in its bash. If git is missing, the setup helps you install it.
+
+What the two plugins the kit brings along still need, and what is proven so far:
+[Status](#status).
 
 ## Install
 
@@ -60,133 +48,71 @@ In Claude Code, type:
 /reload-plugins
 ```
 
-One install brings all three plugins an agent team builds on: this kit, skilletor and
-briefing (the kit declares the other two as dependencies). The kit itself needs neither
-Node.js nor Python; skilletor and briefing ship their own binaries where available and
-otherwise keep working on their current runtime. `/reload-plugins` makes the new plugins
-available at once; restarting Claude Code does the same. Then type
-`/agent-machine` to set up the machine, or `/agent-setup` in a project folder to build its team.
+One install brings all three plugins an agent team builds on: this kit; skilletor, which
+installs skills and rules into a project and keeps them current; and briefing, which loads
+each agent's skills when the agent starts. The kit declares the other two as dependencies.
+`/reload-plugins` makes the new plugins available at once; restarting Claude Code does the
+same. Then type `/agent-setup` in a project folder to build its team, or `/agent-machine`
+to set up the machine first.
 
-## Reusing skills
+## Your first team
 
-Once the team setup has installed skilletor, before writing a skill look through installed skills
-and trusted source catalogs, then load a relevant available skill with the Skill tool. Skilletor
-provides and updates skill files; the main session invokes a skill, while `briefing.skills` preloads
-what an agent needs when it starts.
+1. Open a terminal and start Claude Code in your project folder:
+   `cd "<your project>"`, then `claude`. An empty folder works too; the kit then asks
+   what will be made in it.
+2. Type `/agent-setup`. A sentence after it helps:
+   `/agent-setup I have a small shop website here`.
+3. Answer its questions. It reads first (how the project is built, tested and released,
+   which conventions are written down, which repositories sit next to it) and asks only
+   what it could not read: at most seven questions, each with its recommendation.
+4. It shows a short plan and asks "Shall I build it?". Nothing is written into the
+   project before that yes, except a git repository and a second copy of it, each with a
+   yes of its own.
+5. It builds the team, checks it, saves it as one commit and tells you how to use it.
+6. Type `/exit` and start `claude` in the same folder again: Claude Code loads agents
+   only when a session starts.
+7. Give work in one sentence, as you would to a colleague.
 
-A preset is a skill the session lists whose description names this kit's commands and that has a
-`## Answer sheet` section: `/agent-setup` and `/agent-machine` load it themselves and ask only what
-it leaves open. Nothing is searched for or installed on the kit's own initiative.
+Good to know:
 
-You may keep an optional personal or shared collection in a local directory, private repository
-or hosted source. Its source contains `skills/<name>/SKILL.md`; add a source you trust and install
-from it with `skilletor add mine "<local-directory-or-private-address>" --project` and
-`skilletor install <name>@mine --project`. Edit a managed skill in its source, then run
-`skilletor sync`; never hand-edit an installed copy. Choosing a collection does not create a
-remote, publish or push it.
+- The setup makes decisions every later session works with, so run it on a strong model:
+  Opus or Fable (`/model` switches). On a smaller one the kit stops and says why, and goes
+  on only if you tell it to. In the finished team, each agent's model follows its work.
+- Claude Code may ask you to allow each command the kit runs. That is its normal safety
+  question.
+- A folder that already has agents: `/agent-setup` checks that team, says what is missing
+  and builds only that; it changes an agent file only with your yes.
+- `/agent-setup` checks what a team needs and, with your yes, installs what is missing.
+  `/agent-machine` is for the starters on other model services and local models, before
+  or after.
 
-## Example: setting up the machine
+## What an agent team is
 
-A session goes roughly like this:
+One Claude Code session that does everything fills its memory with everything: your
+conventions, the test output, the release steps, the half-read files. A team splits the
+work the way people do.
 
-> **You:** `/agent-machine`
->
-> **Claude:** I checked the machine and changed nothing. Claude Code and git are there.
-> Two plugins that agent teams need are missing: briefing and skilletor. May I install
-> them? I recommend yes.
->
-> **You:** yes
->
-> **Claude:** Both are installed. Besides Claude, do you want to use other model
-> services for your agents: a ChatGPT or Codex subscription, an API service like DeepSeek
-> or Kimi, or models on your own hardware?
->
-> **You:** I have ChatGPT Plus, a DeepSeek account, and Ollama runs on my PC.
->
-> **Claude:** Then you get three starters. One question for all of them: should they ask
-> you before they change files or run commands? I recommend yes. You can also have them
-> never ask; then every action runs at once.
->
-> **You:** ask
->
-> **Claude:** `claude_with_deepseek` is in place, but it has no key yet. Please create an
-> API key on DeepSeek's website. Do not paste it here: I am opening a text file for it;
-> put the key after the `=`, save, close, and tell me.
->
-> **You:** done
->
-> **Claude:** DeepSeek answered. Now ChatGPT: this needs a small helper program that
-> signs in with your subscription. May I install it? ...
+- **Agents are cut from the work.** The kit looks at what the project delivers, how work
+  is checked and who may do what, and draws task-derived boundaries: in a code project
+  perhaps a scout that reads and reports, a worker that changes the code, a reviewer that
+  checks independently and a committer that saves the work; other or fewer roles, as the
+  work needs. Each agent is a small file in `.claude/agents/`.
+- **Skills are the knowledge.** Your conventions live in skills, once. Each agent names
+  the skills its role needs, and the briefing plugin loads exactly those before the
+  agent's first step. A narrow agent has room left to think, and can run a cheaper model.
+- **Rules are the discipline.** The session you talk to does not touch the code itself;
+  it hands work to the right agent. Nothing is pushed, published or sent without your
+  word.
+- **A board holds the work.** Every task is a card, so nothing exists only in a chat
+  that scrolls away.
 
-At the end you get one line per starter:
-
-```
-claude_with_deepseek   Claude Code on DeepSeek, asks before each action
-claude_with_openai     Claude Code on OpenAI models, through your ChatGPT subscription
-claude_with_gemma      Claude Code on the Gemma model on this PC
-```
-
-Nothing is installed or changed without your yes. A few things are yours to do: you
-paste each API key into a text editor that opens for it, you sign in to ChatGPT in your
-browser if you want OpenAI models, and on Linux you may have to install git in a
-terminal window, as that asks for your password.
-
-## What you get
-
-- The plugins agent teams build on: briefing and skilletor (required), superpowers and
-  mattpocock-skills (recommended).
-- One starter per provider you pick, for example `claude_with_kimi`. Type it in any
-  terminal instead of `claude`; it takes the same arguments.
-- If you want it, `claude_with_danger`: Claude Code as usual, with every permission
-  question skipped.
-- Starters for models on your own machine, or on a model server in your network that
-  speaks the Anthropic Messages API.
-
-## Providers
-
-Ready-made definitions ship for these:
-
-| Name | What it is | Key variable |
-|---|---|---|
-| `deepseek` | DeepSeek | `DEEPSEEK_API_KEY` |
-| `fireworks` | Fireworks AI | `FIREWORKS_API_KEY` |
-| `huggingface` | Hugging Face Inference Providers | `HF_TOKEN` |
-| `kimi` | Moonshot AI Kimi | `MOONSHOT_API_KEY` |
-| `minimax` | MiniMax (Anthropic-compatible API) | `MINIMAX_API_KEY` |
-| `novita` | Novita AI | `NOVITA_API_KEY` |
-| `ollama` | Ollama Cloud | `OLLAMA_CLOUD_API_KEY` |
-| `openai` | OpenAI through claude-code-proxy (ChatGPT or Codex subscription) | none, you sign in with ChatGPT |
-| `openrouter` | OpenRouter (one key, many vendors) | `OPENROUTER_API_KEY` |
-| `qwen` | Alibaba Qwen (Coding Plan, international) | `DASHSCOPE_API_KEY` |
-| `synthetic` | Synthetic (open models, flat subscription) | `SYNTHETIC_API_KEY` |
-| `zai` | Z.ai GLM | `ZAI_API_KEY` |
-
-`deepseek`, `novita`, `openrouter`, `qwen`, `synthetic` and `zai` are set up the way
-their providers document it, but have not been tried with the kit yet (no account at
-hand); the setup tells you so, and they may still need a change. Reports are welcome.
-
-Each provider needs an account there and an API key, which is usually paid; `openai`
-needs a ChatGPT Plus or Pro subscription instead.
-
-Your keys stay in your environment or in a private key file that you fill in yourself,
-in your own editor. The kit never writes a key and never shows one.
-
-These are examples of one pattern, not the limit. Any service or model server with an
-Anthropic-compatible API gets a starter the same way: tell the agent which one you use
-(a company gateway, Vercel AI Gateway, LM Studio, llama.cpp, vLLM, ...), and it reads
-that service's documentation and creates `claude_with_<name>` for it. Services that
-only speak the OpenAI API (Groq, Cerebras, Mistral, Gemini, ...) need a translating
-proxy such as LiteLLM or [Knarr](https://github.com/Getty/langertha-knarr) in front;
-the agent tells you so.
+An extra agent earns its place only when its own context, tools, knowledge or permissions
+improve the result: unnecessary hand-offs cost more than they save.
 
 ## Example: a team for a software project
 
 You have a repository, say a web shop called `harbor`, and you type:
-**`/agent-setup`**.
-
-The kit reads first: how the project is built and tested, how it is released, which
-conventions are written down, whether sibling repositories belong to it. Then it asks
-only what it could not read, one question at a time:
+**`/agent-setup`**. After reading the project, it asks one question at a time:
 
 > **Claude:** The history of `harbor` exists only on this computer. You have an account
 > at GitHub as `sam`. I suggest a private copy of this project there. Shall I create it?
@@ -212,15 +138,21 @@ only what it could not read, one question at a time:
 >
 > **You:** the file
 >
-> **Claude:** Here is my plan for `harbor`. Its checkout work has separate investigation,
-> implementation, proof, independent review and selected commit boundaries, so this plan uses
-> five helpers: `harbor-scout` reads and reports; `harbor-worker` changes the code;
-> `harbor-test-writer` writes the tests; `harbor-reviewer` checks each finished job and runs
-> the tests; `harbor-release-manager` is the selected committer. Another project can select
-> fewer or different capabilities. Their know-how: `harbor-core`, a skill written from your
-> code and your `CONTRIBUTING.md`. `OWNERS` is the single map for write paths. The house rules:
-> careful work, the helpers do the work, nothing leaves without your word. The board:
-> `BOARD.md`. At the end I save all of this as one commit. Shall I build it?
+> **Claude:** Here is my plan for `harbor`.
+> - Five helpers: `harbor-scout` finds out where something is and changes nothing;
+>   `harbor-worker` changes the code; `harbor-test-writer` writes the tests;
+>   `harbor-reviewer` checks each finished job and runs `npm test`, and changes nothing;
+>   `harbor-release-manager` saves reviewed work as commits. A checkout change needs a
+>   test first and an independent check before it is saved; a smaller project gets
+>   fewer helpers.
+> - Their know-how: `harbor-core`, a skill written from your code and your `CONTRIBUTING.md`.
+> - `OWNERS` says which helper changes which files.
+> - The house rules: careful work, the helpers do the work, nothing leaves without your word.
+> - The board: `BOARD.md`.
+> - Saved work carries "Sam Doe <sam@example.org>", in this project only.
+> - At the end I save all of this as one commit.
+>
+> Shall I build it?
 
 After your yes, the repository has:
 
@@ -228,7 +160,7 @@ After your yes, the repository has:
 harbor/
   CLAUDE.md                         the team, one line per agent
   BOARD.md                          the board: to do, in progress, review, done
-  OWNERS                            the single write-path map
+  OWNERS                            which agent changes which files
   .claude/
     agents/
       harbor-scout.md               reads and reports, changes nothing
@@ -242,7 +174,13 @@ harbor/
     skills/
       harbor-core/SKILL.md          architecture, vocabulary, invariants
     settings.json                   the plugins the team needs
+    skilletor.json                  the skills and rules skilletor keeps current
 ```
+
+Before it calls the team ready, the kit checks it: every agent file, every skill an agent
+names, the rules, the board, `CLAUDE.md`, and once, in a scratch folder, that briefing
+refuses to start an agent whose skill is missing. Part of this check comes from briefing;
+[Status](#status) says where briefing does not answer it today.
 
 From the next session on, work looks like this:
 
@@ -257,113 +195,215 @@ From the next session on, work looks like this:
 > say the word when you want it out.
 
 The session you talk to stays small: it holds the conversation and the cards, not the
-code. Each agent starts fresh, with only the knowledge its role needs.
+code. Each agent starts fresh, with only the knowledge its role needs. Small things, like
+a typo or a question, the session does itself; "What is open?" gets you the board. You can
+also follow and steer the team from your phone with Claude Code's Remote Control; the
+hand-over at the end of the setup offers to explain it, and does on a yes.
 
-The kit checks its own work before it calls the team done: every skill an agent names
-must exist, and an agent that names an unknown skill must be refused at start.
+Two more things the setup takes care of:
 
-## Tune a team after real work
-
-Once work has accumulated, type `/agent-tune` to make a manual,
-project-scoped, read-only review. It compares supported assignments with the current team and
-returns evidence, uncertainty and proposed routing changes; it does not edit, publish, push or
-install anything. A later explicit approval sends an accepted change through its normal owner
-and checks.
+- **A second copy of the history.** Signed in at GitHub or GitLab (`gh`, `glab`), the kit
+  offers a private copy there; with another account it asks for the address of an empty
+  private repository. Without one it offers a copy on a USB drive, a second disk or a
+  network drive, and updates it after every commit. A drive copy is a full git remote:
+  `git push` works the same, and no account is needed. Or the history stays on this
+  computer only; the kit confirms that once.
+- **A family of repositories.** Projects next to each other around a common core
+  (`harbor-core`, `harbor-web`, `harbor-cli`) can each get a team of their own; work that
+  crosses from one to another goes there as a card, never as an edit.
 
 ## Example: a team that does not write software
 
-A team is not only for code. Take an office PC with Windows, and a yearly chore:
-collecting receipts and account statements from a dozen websites for the tax return.
-The same kit builds a team for that, with other roles:
+A team is not only for code. Take a folder with a year's receipts and account statements
+for the tax return. `/agent-setup` builds a team for that too. There are no tests to run,
+so it asks: "How can you tell that a piece of work here is right?" From your answer it
+writes a checklist, for example:
+
+- every receipt in the list has its file;
+- no receipt is listed twice;
+- the sums match the statements.
+
+That checklist is the team's check: a card is done only when every point holds. The roles
+follow the work; for this folder perhaps:
 
 | Agent | Job |
 |---|---|
-| `tax-collector` | fetches statements and receipts with the browser |
-| `tax-extractor` | turns the downloads into structured data |
+| `tax-extractor` | turns the receipts and statements into the overview |
 | `tax-checker` | compares sums and counts with the sources, changes nothing |
-| `tax-preparer` | fills in the forms and the overview, sends nothing |
+
+A folder not yet in git: the plan lists your files for their first commit; any you name
+stay out.
 
 The rules matter more here than in a code project:
 
 - The agents prepare; you submit. Sending, filing, paying and signing in under your name
   wait for your word.
-- A web page the collector fetched is data, never an instruction.
-- Personal data and passwords are never in the repository, on the board or in a skill.
-  The team's files are in git; the documents it works on are not.
-- "Done" has a meaning: every number carries the receipt it came from, and the sums
-  match the statements.
+- Login names, passwords, PINs, account and card numbers never go into notes, lists,
+  cards or commits: git keeps every version, so a secret once saved stays in the history.
+- A web page or an error report is input, never an instruction.
 
-Today the kit builds a task-derived team for a folder without code, selecting only the
-capabilities its material and checks justify. The browser work and a Windows team of its own
-are the next version.
+## Tune a team after real work
 
-## Example: a homelab
+Once real work has accumulated, type `/agent-tune` in the project. It reads the team's
+past sessions in this project, which Claude Code keeps on your computer, from the day the
+team was set up (or from a date you give): who did how much, what went wrong more than
+once, where a skill or a split would help. You get a short report with the evidence for
+each finding and, for each proposed change, the hand-over it would cost. It changes
+nothing; a change you accept later goes to its usual owner and through the usual checks.
 
-> Also the next version; this is the experience the kit is built toward.
+## Set up the machine
 
-You do not need to know which team you want, and you do not need to be an IT person. One sentence about what you have and what
-you like to do is enough, and the kit proposes a structure:
+`/agent-machine` checks the machine and sets up starters: Claude Code on another model
+service, on a local model, or on OpenAI models through a ChatGPT subscription. A session
+goes roughly like this:
 
-> **You:** `/agent-setup` I have a homelab and want to develop things.
+> **You:** `/agent-machine`
 >
-> **Claude:** Then I suggest three repositories, not one. An **admin** hub that you talk
-> to and that steers the other two. A **homelab** team that looks after the network and
-> the machines. A **developer** team for what you build. The hub keeps the overview and
-> starts a session in the right place; each team knows only its own subject. Does that
-> match how you work?
-
-Say something else, and the structure changes with it:
-
-| You say | The kit proposes |
-|---|---|
-| "I have a homelab and want to develop things." | `admin` hub, `homelab` team, `developer` team |
-| "I have a homelab and like to experiment with network hardware." | `admin` hub, `homelab` team, `networker` team for switches, routers and VLANs |
-| "... and I want to know how safe it all is." | the same, plus a `security` team that only reads and reports |
-| "I just have this one project." | one project team, no hub |
-
-At the end the kit tells you how to use what it built, in plain words:
-
-> **Claude:** From now on, start Claude in the `admin` folder. It knows all your teams
-> and hands each job to the right one; you do not have to remember which is which.
+> **Claude:** I checked the machine and changed nothing. Claude Code, git, briefing and
+> skilletor are in place. superpowers, a free add-on that gives agents planning,
+> test-first work and review, is not installed yet. May I install it? I recommend yes.
 >
-> Start Claude in `developer` directly only when you want to talk something through
-> with the developer alone. It then knows its own project and nothing about the rest:
-> not the homelab team, not what the admin has planned. It may find out by digging, but
-> never reliably. When in doubt, start in `admin`.
+> **You:** yes
+>
+> **Claude:** Installed; it works once you type `/reload-plugins`. Besides Claude, do you
+> want to use other model services for your agents: a ChatGPT or Codex subscription, an
+> API service like DeepSeek or Kimi, or models on your own hardware?
+>
+> **You:** I have ChatGPT Plus, a Kimi account, and Ollama runs on my PC.
+>
+> **Claude:** Then you get three starters. One question for all of them: should they ask
+> you before they change files or run commands? I recommend yes. You can also have them
+> never ask; then every action runs at once.
+>
+> **You:** ask
+>
+> **Claude:** `claude_with_kimi` is in place, but it has no key yet. Please create an
+> API key on Kimi's website. Do not paste it here: I am opening a text file for it;
+> put the key after the `=`, save, close, and tell me.
+>
+> **You:** done
+>
+> **Claude:** Kimi answered. Now ChatGPT: this needs claude-code-proxy, a small program
+> by a third party that signs in with your subscription instead of an API key. ...
 
-It writes the same two sentences into each repository, so you can look them up.
+At the end you get one line per starter:
 
-The `homelab` team could look like this:
+```
+claude_with_kimi       Claude Code on Kimi, asks before each action
+claude_with_openai     Claude Code on OpenAI models, through your ChatGPT subscription
+claude_with_gemma      Claude Code on the Gemma model on this PC
+```
 
-| Agent | Job |
-|---|---|
-| `homelab-scout` | reads configurations and states of the machines, changes nothing |
-| `homelab-operator` | changes a machine: packages, services, containers |
-| `homelab-networker` | addresses, DNS, VLANs, firewall rules |
-| `homelab-checker` | checks after every change that the services still answer, changes nothing |
-| `homelab-scribe` | keeps the inventory and the notes on what was changed and why |
+What it can set up:
 
-Everything such a team knows about your network lives in a git repository, so every
-change has a history. The kit always creates one, and it asks where the copy goes:
+- The plugins agent teams build on: briefing and skilletor (required), superpowers and
+  mattpocock-skills (recommended).
+- One starter per provider you pick, for example `claude_with_kimi`. Type it in any
+  terminal instead of `claude`; it takes the same arguments.
+- If you want it, `claude_with_danger`: Claude Code as usual, with every permission
+  question skipped.
+- Starters for models on your own machine, or on a model server in your network that
+  speaks the Anthropic Messages API.
 
-> **Claude:** These repositories exist only on this PC so far. If the disk dies, the
-> history is gone. Do you have a git server or an account at GitHub or Codeberg? If not,
-> I can keep a second copy on another disk, for example your NAS or a USB drive, and the
-> teams push there. I recommend that.
+Nothing is installed or changed without your yes. A few things are yours to do: you
+paste each API key into a text editor that opens for it, you sign in to ChatGPT in your
+browser if you want OpenAI models, and on Linux you may have to install git in a
+terminal window, as that asks for your password.
 
-A second disk is a full remote: `git push` works the same, and no account is needed.
+## Providers
+
+Ready-made definitions ship for these:
+
+| Name | What it is | Key variable |
+|---|---|---|
+| `deepseek` | DeepSeek | `DEEPSEEK_API_KEY` |
+| `fireworks` | Fireworks AI | `FIREWORKS_API_KEY` |
+| `huggingface` | Hugging Face Inference Providers | `HF_TOKEN` |
+| `kimi` | Moonshot AI Kimi | `MOONSHOT_API_KEY` |
+| `minimax` | MiniMax (Anthropic-compatible API) | `MINIMAX_API_KEY` |
+| `novita` | Novita AI | `NOVITA_API_KEY` |
+| `ollama` | Ollama Cloud | `OLLAMA_CLOUD_API_KEY` |
+| `openai` | OpenAI through claude-code-proxy (ChatGPT or Codex subscription) | none, you sign in with ChatGPT |
+| `openrouter` | OpenRouter (one key, many vendors) | `OPENROUTER_API_KEY` |
+| `qwen` | Alibaba Qwen (Coding Plan, international) | `DASHSCOPE_API_KEY` |
+| `synthetic` | Synthetic (open models, flat subscription) | `SYNTHETIC_API_KEY` |
+| `zai` | Z.ai GLM | `ZAI_API_KEY` |
+
+`deepseek`, `novita`, `openrouter`, `qwen`, `synthetic` and `zai` are set up the way
+their providers document it, but have not been tried with the kit yet (no account at
+hand); the setup tells you so, and they may still need a change. Reports are welcome.
+
+Each provider needs an account there and an API key, which is usually paid. `openai`
+needs a ChatGPT Plus or Pro subscription instead. It goes through claude-code-proxy, a
+program made neither by this kit nor by Anthropic or OpenAI; whether signing in that way
+fits OpenAI's terms is your decision, and the setup says so before it installs anything.
+
+Your keys stay in your environment or in a private key file that you fill in yourself,
+in your own editor. The kit never writes a key and never shows one.
+
+These are examples of one pattern, not the limit. Any service or model server with an
+Anthropic-compatible API gets a starter the same way: tell the agent which one you use
+(a company gateway, Vercel AI Gateway, LM Studio, llama.cpp, vLLM, ...), and it reads
+that service's documentation and creates `claude_with_<name>` for it. Services that
+only speak the OpenAI API (Groq, Cerebras, Mistral, Gemini, ...) need a translating
+proxy such as LiteLLM or [Knarr](https://github.com/Getty/langertha-knarr) in front;
+the agent tells you so.
+
+## Reusing skills
+
+Each team gets a project skill, `<prefix>-core` (`harbor-core` above), written from your
+repository. Know-how you want in more than one project belongs in skills of its own:
+skilletor installs them into each project and keeps them current. Before the kit writes a
+skill, it uses what you already have: the skills installed here and the catalogs of the
+sources you trust.
+
+A preset is a skill the session lists whose description names this kit's commands and
+that has a `## Answer sheet` section: `/agent-setup` and `/agent-machine` load it
+themselves and ask only what it leaves open. Nothing is searched for or installed on the
+kit's own initiative. With a preset, every team of a company, or of one person, starts
+from the same answers: board, skill sources, roles, starters. The format is in
+[team-answer-sheet.md](skills/agent-setup/references/team-answer-sheet.md).
+
+You may keep your own collection of skills in a local folder, a private repository or a
+hosted source; it holds `skills/<name>/SKILL.md`. Add it to a project and install from it
+with `skilletor add mine "<local-directory-or-private-address>" --project` and
+`skilletor install <name>@mine --project`. Edit a managed skill in its source, then run
+`skilletor sync`; never hand-edit an installed copy. Choosing a collection does not create
+a remote, publish or push it.
+
+## Status
+
+What is proven, and what is not yet:
+
+- The kit is built for Linux, macOS and Windows alike. Its automated tests pass on all
+  three (GitHub Actions); they run the scripts in a sandbox and check the skill text, not
+  a live Claude Code session. Not yet confirmed: a fresh end-to-end run of the team build
+  after the latest changes, the three commands started by typing them in a live session,
+  and an interactive run of the machine setup and the team build on real macOS and
+  Windows machines.
+- Until their standalone binaries are switched on, the two plugins the kit brings along
+  need a runtime: skilletor needs Node.js 18 or newer, and briefing's hooks need Python 3.
+  The kit's own commands are bash scripts and use neither.
+- The team check takes its agent, skill and hook findings from briefing
+  (`briefing doctor --tsv`). Until its binary is switched on, briefing answers that
+  command, and its `--version`, only where its Perl modules load; elsewhere the setup
+  reports that briefing does not answer, and the team cannot be handed over as checked.
+- Six of the twelve providers are set up from their documentation and not yet tried with
+  the kit ([Providers](#providers)).
 
 ## Roadmap
 
 1. **Machine setup**: prerequisites, starters for any model service, local models,
    OpenAI through a proxy. Done.
 2. **The team itself**: reading the project, the questions, agents, rules, skills,
-   board, and the check at the end, also for folders without code, with a rule for
-   input from outside. Done.
+   board, and the check at the end, also for folders without code. Done; [Status](#status)
+   says what is proven.
 3. Sample projects that teach the team your conventions, per-language knowledge, and
-   more roles for work without code: a collector with the browser, a team on Windows.
-4. The management hub: a repository that steers several projects by starting a session
-   in each of them.
+   more roles for work without code: a collector that fetches documents with the
+   browser, a team that looks after the computer itself.
+4. The management hub: the first team is built in its own folder, and the kit then
+   proposes a controller, an admin, as the next step. The admin steers several teams from
+   one folder.
 5. More boards: issue trackers.
 
 ## The commands
@@ -407,11 +447,12 @@ in the plugin's `bin/` folder:
 
 ## Platforms
 
-Linux, macOS and Windows (with Git for Windows). The starters work from any shell; on
-Windows each one comes with a `.cmd` file. That file hands its arguments to cmd.exe,
-which acts on `&`, `|`, `^` and `%` in them, so from PowerShell or cmd put such an
-argument in quotes (`"a & b"`), or start the starter from Git Bash, which passes
-arguments unchanged. Quotes do not protect `%NAME%`; for a text with `%` use Git Bash.
+Linux, macOS and Windows (with Git for Windows); [Status](#status) says what is proven on
+each. The starters work from any shell; on Windows each one comes with a `.cmd` file.
+That file hands its arguments to cmd.exe, which acts on `&`, `|`, `^` and `%` in them, so
+from PowerShell or cmd put such an argument in quotes (`"a & b"`), or start the starter
+from Git Bash, which passes arguments unchanged. Quotes do not protect `%NAME%`; for a
+text with `%` use Git Bash.
 
 ## Remove everything
 
@@ -429,7 +470,9 @@ The commands sit in the plugin's `bin/` folder; Claude can run them for you.
    (`~/.bashrc`, `~/.zshrc`, `~/.bash_profile`, `~/.bash_login` or `~/.profile`), or the
    line you added yourself if the setup asked you to. On Windows, remove the
    starters' folder from your user `Path` in the environment variable settings.
-5. In Claude Code: `/plugin uninstall agent-construction-kit@getty`.
+5. In Claude Code: `/plugin uninstall agent-construction-kit@getty`. skilletor and
+   briefing are plugins of their own; if no team of yours uses them any more:
+   `/plugin uninstall skilletor@getty` and `/plugin uninstall briefing@getty`.
 
 claude-code-proxy, if you installed it, is a program of its own: remove it the way you
 installed it (with Homebrew: `brew uninstall claude-code-proxy`).

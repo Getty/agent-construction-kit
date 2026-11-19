@@ -555,12 +555,78 @@ class SkillTest(Sandbox):
                                r"(?:never|does not|do not|not).{0,140}"
                                r"(?:create.{0,30}remote|publish|push)")
 
-    def test_no_json_parser_finding_and_no_node_or_python_demand_is_documented(self):
+    def test_no_json_parser_finding_is_documented(self):
         for doc in docs() + [README]:
             text = read(doc)
             self.assertNotIn("json-parser", text, doc.name)
-            self.assertNotRegex(text, r"(?i)(?:install|needs?|requires?)\s+(?:Node\.js|Python 3)\b",
-                                doc.name)
+
+    RT = r"(?:node\.?js|python ?3|jq)(?![\w-])"
+    RUNTIME = re.compile(r"(?i)\b" + RT)
+    # A need verb with a runtime within three words after it, or "<runtime> is required".
+    NEED = re.compile(r"(?i)\b(?:install|needs?|requires?|depends? on|demands?)\b"
+                      r"(?:\W+\w+){0,3}?\W+\b(" + RT + r")|"
+                      r"\b(" + RT + r")\W+(?:\w+\W+){0,3}?(?:is|are) (?:required|needed)\b")
+    KIT_NEED = re.compile(r"(?i)\b(?:the kit(?: itself)?|the kit's(?: own)? \w+|"
+                          r"its(?: own)? (?:commands|scripts)|the (?:commands|scripts)|"
+                          r"ack-[a-z]+)\s+(?:also |still |always )?"
+                          r"(?:needs?|requires?|installs?|depends? on|demands?)\b"
+                          r"[^.;]{0,40}?\b(" + RT + r")")
+
+    def negated(self, text, pos):
+        """True when the runtime name at `pos` is denied: no/not/never/without/neither/nor
+        within two words before it."""
+        return bool(re.search(r"(?i)\b(?:neither|nor|no|not|never|without)\s+(?:\w+\s+){0,2}$",
+                              text[:pos]))
+
+    def needs(self, pattern, clause):
+        """Runtime names that `pattern` finds in `clause` and that are not denied."""
+        out = []
+        for m in pattern.finditer(clause):
+            g = [i for i in range(1, (pattern.groups or 0) + 1) if m.group(i)][0]
+            if not self.negated(clause, m.start(g)):
+                out.append(m.group(g))
+        return out
+
+    def runtime_clauses(self, text):
+        """Clauses (sentence parts split at ';') of a doc that name Node.js, Python 3 or jq;
+        bullets and paragraphs apart, quote and list markers dropped."""
+        units, cur = [], []
+        for line in text.splitlines():
+            body = re.sub(r"^[>\s]*", "", line)
+            if not body or re.match(r"(?:[-*]|\d+\.)\s", body):
+                units.append(" ".join(cur))
+                cur = []
+                body = re.sub(r"^(?:[-*]|\d+\.)\s+", "", body)
+            if body:
+                cur.append(body)
+        units.append(" ".join(cur))
+        return [c for u in units for x in re.split(r"(?<=\.)\s+(?=[A-Z`])", u)
+                for c in x.split(";") if self.RUNTIME.search(c)]
+
+    def test_the_kit_never_demands_node_python_or_jq(self):
+        # Claim: no doc says the kit, its commands or its scripts need or install Node.js,
+        # Python 3 or jq. A denial ("neither ... nor", "no", "not", "without") counts only
+        # directly before the runtime name, never for the rest of the sentence.
+        for doc in docs() + [README]:
+            for clause in self.runtime_clauses(read(doc)):
+                self.assertEqual(self.needs(self.KIT_NEED, clause), [],
+                                 "%s: the kit seems to demand a runtime: %s" % (doc.name, clause))
+
+    def test_a_named_runtime_need_is_a_temporary_plugin_limit(self):
+        # Claim: a clause that says someone needs, requires or must install Node.js, Python 3
+        # or jq (not denied) is tied to skilletor or briefing and to their standalone
+        # binaries not being switched on yet, so the limit is easy to find and remove when
+        # the binaries land. At least as strong as the old "(install|needs?|requires?)
+        # <runtime>" ban, but case-insensitive and for nodejs and python3 too.
+        for doc in docs() + [README]:
+            for clause in self.runtime_clauses(read(doc)):
+                if not self.needs(self.NEED, clause):
+                    continue
+                where = "%s: %s" % (doc.name, clause)
+                self.assertRegex(clause, r"(?i)\b(?:skilletor|briefing)\b", where)
+                self.assertRegex(clause, r"(?i)standalone binaries", where)
+                self.assertRegex(clause, r"(?i)\buntil\b[^.]*\bswitched on\b|"
+                                         r"\bnot yet switched on\b", where)
 
     # ---- the team references
 
