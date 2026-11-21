@@ -38,6 +38,16 @@
 #              directory's OWNERS file; missing for an invalid or missing map, an
 #              out-of-scope file or an unowned file. Exact paths win; otherwise the
 #              longest literal directory prefix wins. OWNERS rows are path<TAB>owner.
+#   areas      in an admin folder: only when a file AREAS is at the top of DIR, or a
+#              committed rules file (a *.md in .claude/rules/, not .local.*) starts with
+#              an <!-- ack: ... --> header holding shape=hub. AREAS rows are
+#              folder<TAB>kind<TAB>board: the folder absolute or ~/... (read as
+#              $HOME/...), the kind one lowercase word, the board file or karr; blank and
+#              # lines are skipped. Per row, in file order, named as written: ok when the
+#              folder exists, is the top of a git work tree, has a *.md in .claude/agents/
+#              and the board its row names (BOARD.md, or refs/karr/*); missing when one
+#              fails. missing for AREAS when a row is malformed or names a folder twice,
+#              or shape=hub has no AREAS; warn for AREAS without a row. No card is read.
 # Exit codes: 0 no line is missing (briefing's lines included), 1 a line is missing, 2
 # usage error or unusable DIR.
 # Errors are two lines on stderr: "ack-team: <what>" and "ack-team: <what to do>".
@@ -671,7 +681,145 @@ cmd_owner() {
   exit "$RC"
 }
 
-# ---------------------------------------------------------------- main
+# ---------------------------------------------------------------- areas
+
+# _areas_hub: a committed rules file (a *.md below .claude/rules/ in HEAD, not .local.*)
+# starts with an <!-- ack: ... --> header that holds shape=hub. Only its first line is read.
+_areas_hub() {
+  local f line inner
+  [ -n "$GITTOP" ] || return 1
+  while IFS= read -r f; do
+    case "$f" in *.md) ;; *) continue ;; esac
+    case "${f##*/}" in .local.*) continue ;; esac
+    [ -f "$DIR/$f" ] || continue
+    line=""
+    IFS= read -r line < "$DIR/$f" || [ -n "$line" ] || continue
+    line="${line%$'\r'}"; line="${line#$'\xEF\xBB\xBF'}"
+    _ack_trim "$line"; line="$REPLY"
+    case "$line" in '<!-- ack:'*'-->') ;; *) continue ;; esac
+    inner="${line#'<!-- ack:'}"; inner="${inner%'-->'}"
+    case " $inner " in *[" $TAB"]shape=hub[" $TAB"]*) return 0 ;; esac
+  done <<EOT
+$(git -C "$DIR" -c core.quotePath=false ls-tree -r --name-only HEAD -- .claude/rules 2>/dev/null)
+EOT
+  return 1
+}
+
+# _areas_read TABLE -> AREA_SHOWN (each folder as written), AREA_PATHS, AREA_BOARDS, in
+# file order; read as _owner_read_map reads OWNERS (blank and # lines skipped, a CR at the
+# line end dropped). Returns 1 after the one line for a malformed table.
+_areas_read() {
+  local line n=0 f rest kind board path i
+  AREA_SHOWN=() AREA_PATHS=() AREA_BOARDS=()
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    line="${line%$'\r'}"
+    _ack_trim "$line"
+    case "$REPLY" in ''|'#'*) continue ;; esac
+    case "$line" in
+      *"$TAB"*"$TAB"*"$TAB"*) _areas_bad "Line $n of AREAS has more than three fields."; return 1 ;;
+      *"$TAB"*"$TAB"*) ;;
+      *) _areas_bad "Line $n of AREAS has fewer than three fields."; return 1 ;;
+    esac
+    f="${line%%"$TAB"*}"; rest="${line#*"$TAB"}"
+    _ack_trim "${rest%%"$TAB"*}"; kind="$REPLY"
+    _ack_trim "${rest#*"$TAB"}"; board="$REPLY"
+    _slashes "$f"; path="$REPLY"
+    case "$path" in
+      '~/'?*) path="$HOME/${path#'~/'}" ;;
+      /?*|[A-Za-z]:/?*) ;;
+      *) _areas_bad "Line $n of AREAS names a folder that is neither absolute nor below ~/."
+         return 1 ;;
+    esac
+    path="${path%/}"
+    case "$kind" in
+      ''|[!abcdefghijklmnopqrstuvwxyz]*|*[!abcdefghijklmnopqrstuvwxyz-]*)
+        _areas_bad "Line $n of AREAS has a kind that is not one lowercase word."; return 1 ;;
+    esac
+    case "$board" in
+      file|karr) ;;
+      *) _areas_bad "Line $n of AREAS names the board '$board', which is neither file nor karr."
+         return 1 ;;
+    esac
+    for ((i = 0; i < ${#AREA_PATHS[@]}; i++)); do
+      if [ "${AREA_PATHS[$i]}" = "$path" ]; then
+        _areas_bad "Line $n of AREAS names a folder that an earlier row names already."
+        return 1
+      fi
+    done
+    AREA_SHOWN[${#AREA_SHOWN[@]}]="$f"
+    AREA_PATHS[${#AREA_PATHS[@]}]="$path"
+    AREA_BOARDS[${#AREA_BOARDS[@]}]="$board"
+  done < "$1"
+  return 0
+}
+
+# _areas_bad TEXT: the one line for a malformed AREAS table
+_areas_bad() {
+  emit areas missing AREAS "$1 Rows are folder<TAB>kind<TAB>board; correct the table and run ack-team check again."
+}
+
+# _area_row SHOWN PATH BOARD: the line of one area
+_area_row() {
+  local s="$1" p="$2" top f hit=""
+  local fix="Build the area's team there, or correct its row in AREAS."
+  if [ ! -d "$p" ]; then
+    emit areas missing "$s" "The folder does not exist. $fix"
+    return 0
+  fi
+  top="$(git -C "$p" rev-parse --show-toplevel 2>/dev/null)"
+  if [ -z "$top" ]; then
+    emit areas missing "$s" "The folder is no git repository. $fix"
+    return 0
+  fi
+  if ! ack_same_dir "$top" "$p"; then
+    emit areas missing "$s" "The folder lies inside another repository instead of being the top of its own. Give the area a repository of its own, or correct its row in AREAS."
+    return 0
+  fi
+  for f in "$p"/.claude/agents/*.md; do
+    if [ -e "$f" ]; then hit=1; break; fi
+  done
+  if [ -z "$hit" ]; then
+    emit areas missing "$s" "The folder has no agent file (*.md) in .claude/agents/. $fix"
+    return 0
+  fi
+  case "$3" in
+    file)
+      if [ ! -f "$p/BOARD.md" ]; then
+        emit areas missing "$s" "The row names the board file, but the folder has no BOARD.md. Start the area's board there, or correct the board word in AREAS."
+        return 0
+      fi ;;
+    karr)
+      if [ -z "$(git -C "$p" for-each-ref --count=1 refs/karr 2>/dev/null)" ]; then
+        emit areas missing "$s" "The row names the board karr, but the folder has no karr refs (refs/karr/*). Start the area's board there, or correct the board word in AREAS."
+        return 0
+      fi ;;
+  esac
+  emit areas ok "$s" ""
+}
+
+# check_areas: the areas lines of an admin folder, only when AREAS is at the top of DIR
+# or the committed rules say shape=hub. No card is read.
+check_areas() {
+  local table="${GITTOP:-$DIR}/AREAS" i
+  if [ ! -e "$table" ] && [ ! -L "$table" ]; then
+    _areas_hub || return 0
+    emit areas missing AREAS "The rules say shape=hub, but there is no AREAS file at the top of this folder. Write AREAS with one row per area (folder, kind and board, separated by tabs), or correct the shape in the rules."
+    return 0
+  fi
+  if [ ! -f "$table" ] || [ ! -r "$table" ]; then
+    emit areas missing AREAS "AREAS is no readable file. Make it a file with one row per area and run ack-team check again."
+    return 0
+  fi
+  _areas_read "$table" || return 0
+  if [ "${#AREA_PATHS[@]}" -eq 0 ]; then
+    emit areas warn AREAS "AREAS has no row yet. Add one row per area: its folder, kind and board, separated by tabs."
+    return 0
+  fi
+  for ((i = 0; i < ${#AREA_PATHS[@]}; i++)); do
+    _area_row "${AREA_SHOWN[$i]}" "${AREA_PATHS[$i]}" "${AREA_BOARDS[$i]}"
+  done
+}
 
 cmd_check() {
   [ $# -le 1 ] || usage_err "check takes at most one directory."
@@ -691,6 +839,7 @@ cmd_check() {
   check_claude_md
   check_git
   check_owners
+  check_areas
   exit "$RC"
 }
 

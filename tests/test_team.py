@@ -195,6 +195,16 @@ class TeamBase(Sandbox):
         self.git(d, "commit", "-q", "-m", "owners")
         return d
 
+    def admin(self, name="harbor-admin", area="harbor-operations", kind="operations"):
+        """A complete team with an AREAS table of one row, and the complete team that row
+        names (a repository of its own beside it); returns (admin, area)."""
+        d = self.complete_team(name=name)
+        a = self.team(name=area)
+        self.put(d, "AREAS", "%s\t%s\tfile\n" % (a, kind))
+        self.git(d, "add", "-A")
+        self.git(d, "commit", "-q", "-m", "areas")
+        return d, a
+
     def ownable_team(self, name="owned harbor"):
         """A valid team with purpose-specific names available to OWNERS."""
         d = self.team(name=name)
@@ -265,6 +275,121 @@ class TeamTest(TeamBase):
         r = self.at("check", cwd=d)
         self.assertEqual(r.returncode, 0, r.stdout)
         self.one(r, "readonly", "ok", "harbor-reviewer.md")
+
+    # ---- the areas check of an admin folder (c36)
+
+    def areas_check(self, d, text, nl="\n"):
+        self.put(d, "AREAS", text, nl=nl)
+        return self.at("check", cwd=d)
+
+    def test_areas_rows_of_finished_teams_are_ok(self):
+        d, a = self.admin()
+        spaced = self.team(name="harbor area two")
+        homed = self.team(name="harbor-machine")
+        shutil.move(str(homed), str(self.home / "harbor machine"))
+        self.git(self.home / "harbor machine", "update-ref", "refs/karr/board", "HEAD")
+        (self.home / "harbor machine" / "BOARD.md").unlink()
+        text = ("# the areas\n\n%s\toperations\tfile\n\n~/harbor machine\tmachine\tkarr\n"
+                "# last\n%s\toperations\tfile\n" % (spaced, a))
+        for nl in ("\n", "\r\n"):
+            with self.subTest(nl=repr(nl)):
+                r = self.areas_check(d, text, nl=nl)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertEqual(self.of(r, "areas"), [
+                    ["areas", "ok", str(spaced), ""],
+                    ["areas", "ok", "~/harbor machine", ""],
+                    ["areas", "ok", str(a), ""],
+                ], r.stdout)
+
+    def test_areas_row_failures_are_missing(self):
+        d, _a = self.admin()
+        gone = self.work / "harbor-gone"
+        plain = self.work / "harbor-plain"
+        self.put(plain, ".claude/agents/harbor-worker.md", agent_text("harbor-worker"))
+        self.put(plain, "BOARD.md", "# Board\n")
+        inside = self.team(name="harbor-outer") / "inner"
+        self.put(inside, ".claude/agents/harbor-worker.md", agent_text("harbor-worker"))
+        self.put(inside, "BOARD.md", "# Board\n")
+        noagent = self.team(name="harbor-noagent")
+        shutil.rmtree(str(noagent / ".claude" / "agents"))
+        noboard = self.team(name="harbor-noboard", board="none")
+        norefs = self.team(name="harbor-norefs", board="none")
+        cases = (("folder gone", gone, "file"), ("no repository", plain, "file"),
+                 ("inside another repository", inside, "file"),
+                 ("no agent file", noagent, "file"), ("file without BOARD.md", noboard, "file"),
+                 ("karr without refs", norefs, "karr"))
+        for label, folder, board in cases:
+            with self.subTest(label=label):
+                r = self.areas_check(d, "%s\toperations\t%s\n" % (folder, board))
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                row = self.one(r, "areas")
+                self.assertEqual(row[1:3], ["missing", str(folder)], r.stdout)
+                self.assertGreaterEqual(len(self.sentences(row[3])), 2, row)
+
+    def test_a_malformed_areas_table_is_missing(self):
+        d, a = self.admin()
+        bad = {"two fields": "%s\toperations\n" % a,
+               "unknown board word": "%s\toperations\ttrello\n" % a,
+               "duplicate folder": "%s\toperations\tfile\n%s\tmachine\tfile\n" % (a, a)}
+        for label, text in bad.items():
+            with self.subTest(label=label):
+                r = self.areas_check(d, text)
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                row = self.one(r, "areas", "missing", "AREAS")
+                self.assertGreaterEqual(len(self.sentences(row[3])), 2, row)
+
+    def test_shape_hub_without_areas_is_missing(self):
+        d = self.complete_team()
+        self.put(d, ".claude/rules/harbor.md", "<!-- ack: shape=hub -->\nBe careful.\n")
+        self.git(d, "add", "-A")
+        self.git(d, "commit", "-q", "-m", "hub")
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        row = self.one(r, "areas", "missing", "AREAS")
+        self.assertGreaterEqual(len(self.sentences(row[3])), 2, row)
+
+    def test_an_empty_areas_table_warns(self):
+        d, _a = self.admin()
+        r = self.areas_check(d, "# nothing yet\n\n")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.one(r, "areas", "warn", "AREAS")
+        self.assertEqual(len(self.of(r, "areas")), 1, r.stdout)
+
+    def test_a_team_without_areas_prints_no_areas_line(self):
+        header = ("<!-- ack: shape=project manager=none board=file committer=main "
+                  "outside_input=on headless=off -->\n")
+        cases = (
+            ("no header", None, None),
+            ("a project header", ".claude/rules/harbor.md", header),
+            ("a hub header in a .local file", ".claude/rules/.local.admin.md",
+             "<!-- ack: shape=hub -->\n"),
+            ("a hub header in an uncommitted file", ".claude/rules/uncommitted.md",
+             "<!-- ack: shape=hub -->\n"),
+        )
+        for label, rel, text in cases:
+            with self.subTest(label=label):
+                d = self.complete_team(name="harbor " + str(len(label)))
+                if rel:
+                    self.put(d, rel, text + "Be careful.\n")
+                    if label != "a hub header in an uncommitted file":
+                        self.git(d, "add", "-f", "-A")
+                        self.git(d, "commit", "-q", "-m", "rules")
+                r = self.at("check", cwd=d)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertEqual(self.of(r, "areas"), [], r.stdout)
+
+    def test_areas_check_judges_no_card_and_changes_nothing(self):
+        d, a = self.admin()
+        self.put(a, "BOARD.md", "")
+
+        def listing():
+            return {str(p): p.read_bytes() for base in (d, a) for p in base.rglob("*")
+                    if p.is_file() and ".git" not in p.parts}
+        before = listing()
+        r = self.at("check", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.one(r, "areas", "ok", str(a))
+        self.assertEqual(listing(), before)
 
     # ---- configured read-only patterns
 

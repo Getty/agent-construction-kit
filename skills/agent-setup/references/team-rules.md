@@ -175,6 +175,7 @@ are briefing's, all but `hook<TAB>missing<TAB>.`, the kit's own (`hook` row); no
 | `skill` | each `briefing.skills` entry resolves: in `.claude/skills/`, `~/.claude/skills/`, or in a plugin that is installed and enabled | install it, enable its plugin, write it, or drop the entry |
 | `owner` | resolves supplied files through root `OWNERS` without changing files | fix the map or assign the path, then run `ack-team owner` again ([team-ownership.md](team-ownership.md)) |
 | `owners` | root `OWNERS` is a valid map, by the rules `ack-team owner` applies | `missing`: fix the map ([team-ownership.md](team-ownership.md)); `warn`: no `OWNERS`, as in a team made before the map; it does not fail the check: tell the user and propose the map |
+| `areas` | in an admin folder: each `AREAS` row's folder exists, is a repository, has agents and the board the row names | fix the row or build the team; `warn`: no row yet |
 | `readonly` | agents ending in `-scout`, `-reviewer`, `-checker`, `-coordinator` carry `disallowedTools` naming Edit and Write | add the line |
 | `rules` | a file in `.claude/rules/` | write the project rules |
 | `settings` | `.claude/settings.json`: readable, every marketplace declared, briefing enabled | merge as above |
@@ -195,5 +196,4 @@ names `no-such-skill`. Any other result means the team is not checked: never han
 as checked. `ok`: the hook lets broken agents start; report it. `warn`, or no `hook` line:
 briefing did not run; tell the user so, naming the `runtime:briefing` line of `ack-doctor`.
 
-New agents start only in a new session (Claude Code reads agent files when a session
-starts); the hand-over says so ([using-the-team.md](using-the-team.md)).
+New agents start only in a new session (Claude Code reads agent files when a session starts); the hand-over says so ([using-the-team.md](using-the-team.md)).
