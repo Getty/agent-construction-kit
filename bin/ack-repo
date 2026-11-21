@@ -12,6 +12,10 @@
 #                                                the rest is read from DIR itself
 #   git<TAB>refused<TAB>FOLDER<TAB>REASON        FOLDER holds a .git git refuses to read;
 #                                                REASON is git's (dubious ownership, ...)
+#   home<TAB>DIR                                 DIR is the home folder itself (kept in git
+#                                                or not): inspect prints its git line, then
+#                                                this one, and stops; no other line, and
+#                                                nothing else is read
 #   commits<TAB>N   branch<TAB>NAME   dirty<TAB>N      (only for a repository; NAME is
 #                                                "detached" on a detached HEAD; dirty counts
 #                                                changed and untracked files, each one)
@@ -213,6 +217,11 @@ EOT
   else
     ack_shown "$base"
     printf 'git%smissing%s%s\n' "$TAB" "$TAB" "$REPLY"
+  fi
+  # the home folder itself: no signal, test, team, sibling or account read
+  if ack_same_dir "$base" "$HOME"; then
+    ack_shown "$base"; printf 'home%s%s\n' "$TAB" "$REPLY"
+    return 0
   fi
 
   # build and test signals: top level and .github/workflows only

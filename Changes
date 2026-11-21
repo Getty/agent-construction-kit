@@ -124,3 +124,5 @@ Revision history for agent-construction-kit
       they have a team, families, signals), and says "partial" when the time
       bound ACK_SURVEY_WAIT (default 30 seconds) cuts it short. It opens no
       file below DIR and changes nothing.
+    - ack-repo inspect names the home folder with a home line and reads
+      nothing further there.

@@ -923,6 +923,73 @@ class RepoTest(Sandbox):
             self.assertTrue(self.same(g[0][2], self.home), g)
             self.assertEqual(self.fact(r, "dirty"), [])
 
+    def test_inspect_names_the_home_folder(self):
+        self.put(self.home, "package.json")
+        self.put(self.home, "tests/a.t")
+        below = self.home / "proj"
+        below.mkdir()
+        # not kept in git: the git line, then the home line, and nothing else
+        r = self.ar("inspect", str(self.home))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        ls = self.lines(r)
+        self.assertEqual([l[:2] for l in ls], [["git", "missing"], ["home", ls[-1][1]]], r.stdout)
+        self.assertEqual(len(ls[1]), 2, ls)
+        self.assertTrue(self.same(ls[0][2], self.home), ls)
+        self.assertTrue(self.same(ls[1][1], self.home), ls)
+        # a folder below it, and any other folder: no home line
+        other = self.work / "other"
+        other.mkdir()
+        for d in (below, other):
+            r = self.ar("inspect", str(d))
+            self.assertEqual(self.fact(r, "home"), [], r.stdout)
+            self.assertEqual(self.fact(r, "git")[0][1], "missing", r.stdout)
+            self.assertEqual(self.fact(r, "prefix"), [["prefix", d.name]], r.stdout)
+        # kept in git: git home, then the home line
+        self.git(self.home, "init", "-q")
+        r = self.ar("inspect", str(self.home))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        ls = self.lines(r)
+        self.assertEqual([l[:2] for l in ls], [["git", "home"], ["home", ls[-1][1]]], r.stdout)
+        self.assertEqual(len(ls[1]), 2, ls)
+        self.assertTrue(self.same(ls[0][2], self.home), ls)
+        self.assertTrue(self.same(ls[1][1], self.home), ls)
+        # below it: git home, no home line
+        r = self.ar("inspect", str(below))
+        self.assertEqual([x[1] for x in self.fact(r, "git")], ["home"], r.stdout)
+        self.assertEqual(self.fact(r, "home"), [], r.stdout)
+
+    @unittest.skipIf(NT, "a fake cygpath stands in for Git for Windows")
+    def test_on_windows_the_home_line_names_the_folder_as_git_does(self):
+        win = self.windows()
+        r = self.ar("inspect", str(self.home), env=win)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        homes = [str(self.home), os.path.realpath(str(self.home))]
+        self.assertIn(self.lines(r), [[["git", "missing", "W:%s" % h], ["home", "W:%s" % h]]
+                                      for h in homes], r.stdout)
+
+    @unittest.skipIf(NT, "FIFOs: a read of a config file would hang")
+    def test_inspect_of_the_home_folder_reads_nothing_else(self):
+        self.fake("gh", "#!/usr/bin/env bash\nexit 99\n")
+        self.fake("glab", "#!/usr/bin/env bash\nexit 99\n")
+        for rel in (".config/gh/hosts.yml", ".config/glab-cli/config.yml", ".ssh/config"):
+            p = self.home / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            os.mkfifo(str(p))
+        # a source a read would find: the control below shows it is found elsewhere
+        self.write(".ssh/known_hosts", "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5\n")
+        full = dict(self.env)
+        try:
+            r = subprocess.run(["bash", AR, "inspect", str(self.home)], env=full, text=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20,
+                               stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            self.fail("inspect of the home folder read a file it should not read")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([l[0] for l in self.lines(r)], ["git", "home"], r.stdout)
+        r = self.ar("inspect", str(self.work))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(["account", "github", "ssh", ""], self.lines(r))
+
     def test_init_inside_a_repository_changes_nothing_without_own(self):
         top = self.repo("parent")
         d = top / "proj"
