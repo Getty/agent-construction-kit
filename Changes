@@ -89,12 +89,12 @@ Revision history for agent-construction-kit
       ack-team owner would refuse, a warning without a map (teams made before
       it have none).
     - ack-wrappers test no longer hangs when claude ignores the TERM sent at
+      its timeout: after two seconds it gets KILL.
     - In an admin folder, ack-team check reads AREAS (folder, kind, board per
       tab-separated row) and prints an areas line per row: ok when the folder
       is a git repository with agents and the board the row names, missing
       otherwise, for a malformed table, or for shape=hub without AREAS, and a
       warning when the table has no row.
-      its timeout: after two seconds it gets KILL.
     - ack-wrappers install records the PID of the run that holds the data
       lock: a lock whose holder is gone is taken at once, one held by a live
       install is never taken; after ACK_LOCK_WAIT seconds (default 60) the
