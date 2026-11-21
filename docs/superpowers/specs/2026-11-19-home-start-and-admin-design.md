@@ -348,3 +348,104 @@ Claude session in a sandbox home with a few sample folders, as in the real-use c
 - The wording of every question and plan line, within the existing talking rules.
 - Whether parts of the full references move into the new files to make room.
 - The test design, within the sandbox rules.
+
+## Addendum 2026-11-21: three real cases
+
+Played through with the maintainer on three real setups, kept anonymous here. Where this
+addendum and the sections above disagree, the addendum holds. The tags F1-F14 are the
+findings' numbers from that session; board cards refer to them.
+
+- **Case A**, a network engineer: a lab their work depends on, customer networks, network
+  analyses.
+- **Case B**, a customer hub `harbor-developer`: a repository without product code (specs,
+  plans, reports, measurements, tools across repositories) that steers the repositories of
+  one customer, in several languages.
+- **Case C**, a maintainer of a shared open-source service with several maintainers: the
+  service's code repositories, its server configuration, their own language
+  distributions, and a laptop.
+
+### Decided by the maintainer (2026-11-21)
+
+1. **This computer is the admin's own job (F12).** `~/admin` looks after the computer it
+   runs on and keeps `AREAS`; it holds no other area's work. Its subtopics are its own
+   subagents: updates, backup and disk encryption, disk space, toolchains, Claude Code and
+   its plugins (`ack-doctor`). The machine kind becomes part of the admin and is offered on
+   every platform; on a macOS laptop that is Homebrew and system updates, Time Machine,
+   FileVault, disk space, the Xcode command line tools, the system's or a managed Perl.
+   Read first; a change only on the user's yes. This replaces the catalog's "offered on
+   Windows always, elsewhere on request".
+2. **Areas are teams of their own, named by topic and job (F13, F14).** Code goes to
+   `<topic>-developer`, a hub that steers the topic's repositories as case B does;
+   operations go to `<topic>-admin`, whose subtopics are its own subagents (in case C:
+   server configuration, network, development containers); one language's distributions
+   are a fleet, `perl-developer` for example. The admin reaches an area only by a card or a
+   session (section 5, ways 1-3) and never spawns an area's agents; it never works past a
+   hub on the hub's repositories (F7). Case C:
+
+   ```
+   ~/admin              this computer; AREAS
+   ~/harbor-developer   hub for the service's code repositories
+   ~/harbor-admin       the service's servers, stakes: production
+   ~/perl-developer     fleet: their own distributions
+   ```
+
+3. **Operations have stakes (F2),** asked once per area: "Is this private, or does your
+   work or a service depend on it?"
+
+   | | private | work | production |
+   |---|---|---|---|
+   | before a claim | measure | measure; command and output under `docs/` | as work |
+   | a change | on yes | on yes; backup or snapshot first, change-log entry after | on yes, with a plan and a way back |
+   | destructive or service-affecting | on yes | on yes, naming what goes down | only in a maintenance window |
+   | model | by risk | `opus` for changes | `opus` |
+   | reviewer | optional | checks every claim against the measured state | required |
+
+   The kit's word "homelab" goes: the kind is `operations`, the folder is named by its
+   topic. A change that can cut the user's own network (uplink, DHCP, DNS) says so in its
+   question. At production stakes secrets and logs with users' addresses stay out of files
+   and go to no provider.
+4. **Customers: one folder per customer (F1, F6).** Each customer gets a repository and a
+   team of its own, or a customer hub as in case B once it has several repositories; all
+   are cut alike from one skilletor source. A session, its memory and its permissions then
+   see one customer only. Raw data (captures, raw configuration exports) stays out of git
+   in an ignored `data/`; the repository holds notes, analyses, reports and cleaned
+   configuration; a customer repository goes to no public host. Delivery to the customer
+   is a gate like publishing. In the home start, subagents look at the customer folders
+   and propose the cut; the user decides, and the kit asks at that point, as it asks per
+   customer for live access to devices and for the providers allowed for its data.
+5. **A worker in a target repository's role (F8, F9)** is an option of a hub, built when
+   the user wants it, never a default: the kit helps construct, it does not dictate. The
+   worker loads the target's `CLAUDE.md`, rules, role file and skills itself, because
+   briefing resolves only the session folder's and the user's skills (as case B's agents
+   report; not checked against briefing). The admin keeps Decided 3: it never edits an
+   area.
+
+### Findings, and the calls made on them, not by the maintainer
+
+- **F3.** The survey sees only git work trees, so a customer or lab folder without git is
+  invisible. Call: print the depth-one folders that are no project, by name only (c46).
+- **F4.** The admin is the one place where all areas meet, so its cards carry no customer
+  data: "work on X" and the folder.
+- **F5.** Case A needs stage 2 for the work they came for; stage 1 builds only their
+  admin. Call: stage 1 keeps its scope, and the admin's text names its own job (Decided 1);
+  its first cards always hold one for this computer, on every platform, so the survey
+  needs no new signal and `signal machine` stays the hint for Windows' own duties.
+  Stage 1 suggests area folders as `<topic>-developer` and `<topic>-admin` and knows
+  `customers` as a later kind, a card like the others. Stage 2: operations with stakes as
+  `<topic>-admin`, the machine subagents in the admin, customers. Stage 3: fleet, content,
+  pipeline.
+- **F10.** Before the kit commits team files into a repository the user does not own
+  alone (a remote owned by an organization is the hint), it asks; the default keeps them
+  local or in the user's own hub. Call: this changes the folder start too, so it is a card
+  of its own (c52), not part of stage 1.
+- **F11.** One person with several roles (case C) fits the admin with `AREAS`; no new
+  mechanism.
+- **Public trackers (case C).** Issues and pull requests stay input; a triage agent drafts
+  answers and reviews, posted or merged only on the user's yes; the agents' board is never
+  a public tracker. The publish gate and `outside_input` cover this already.
+- **Work between two areas,** a `-developer` hub asking its `-admin` for a deploy and
+  back: as section 6 says, a card on the admin's board, which the admin hands over. Call:
+  no direct route between areas.
+- **Way 1 and section 6 disagreed:** `from admin c<N>` in an area's committed board names
+  the admin. Call: the card on the area's board names no admin; the admin's own card notes
+  `handed to <folder> c<M>` and finds the result there.
