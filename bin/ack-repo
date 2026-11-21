@@ -105,55 +105,21 @@ usage_err() {
 
 command -v git >/dev/null 2>&1 || fail 2 "git is not installed." "install git and run ack-repo again."
 
-# _absdir DIR -> REPLY (logical absolute path), fails when DIR is no directory. CDPATH
-# is cleared: cd would take a folder of that name from it and print its path.
-_absdir() { REPLY="$(CDPATH= cd -- "$1" 2>/dev/null && pwd)" && [ -n "$REPLY" ]; }
-_physdir() { REPLY="$(CDPATH= cd -- "$1" 2>/dev/null && pwd -P)" && [ -n "$REPLY" ]; }
-
-# _shown DIR -> REPLY: DIR as the output names it. Git for Windows' bash says /tmp/x or
-# /c/x where git says C:/Users/.../x: there cygpath -m (else MSYS bash's pwd -W) gives
-# git's form, so a folder is named one way in every line. Elsewhere, and when neither
-# answers, DIR is unchanged. Only for output: the script keeps working with DIR.
-_shown() {
-  REPLY="$1"
-  case "$OSTYPE" in msys*|cygwin*) ;; *) return 0 ;; esac
-  if command -v cygpath >/dev/null 2>&1; then
-    REPLY="$(cygpath -m "$1" 2>/dev/null)"
-  else
-    REPLY="$(CDPATH= cd -- "$1" 2>/dev/null && pwd -W 2>/dev/null)"
-  fi
-  [ -n "$REPLY" ] || REPLY="$1"
-}
-
 # _toplevel DIR -> REPLY: the repository's top directory; fails outside a repository
 _toplevel() {
   REPLY="$(CDPATH= cd -- "$1" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$REPLY" ]
 }
 
-# _same_dir A B: both name the same directory (physical paths; case-blind on macOS and
-# Windows, whose disks usually are)
-_same_dir() {
-  local a b
-  [ -n "$1" ] && [ -n "$2" ] || return 1     # an empty HOME names no folder
-  _physdir "$1" && a="$REPLY" || return 1
-  _physdir "$2" && b="$REPLY" || return 1
-  case "$OSTYPE" in
-    darwin*|msys*|cygwin*)
-      a="$(printf '%s' "$a" | tr 'A-Z' 'a-z')"; b="$(printf '%s' "$b" | tr 'A-Z' 'a-z')" ;;
-  esac
-  [ "$a" = "$b" ]
-}
-
 # _remote_is TOP NAME DIR: the URL of TOP's remote NAME names the folder DIR, however it is
 # spelled: as written at creation, as git writes it on Git for Windows (C:/Users/...,
 # where bash says /tmp/... or /c/...), with backslashes, relative to TOP. The folders are
-# compared as _same_dir does, so both must exist.
+# compared as ack_same_dir does, so both must exist.
 _remote_is() {
   local u
   u="$(git -C "$1" config --get "remote.$2.url" 2>/dev/null)" && [ -n "$u" ] || return 1
   _slashes "$u"; u="$REPLY"
   case "$u" in /*|[A-Za-z]:/*) ;; *) u="$1/$u" ;; esac
-  _same_dir "$u" "$3"
+  ack_same_dir "$u" "$3"
 }
 
 # _where DIR -> WHERE and REPLY (the top folder) for a DIR in a work tree: WHERE is ok
@@ -163,7 +129,7 @@ _where() {
   local top pre
   _toplevel "$1" || return 1
   top="$REPLY" WHERE=ok
-  if _same_dir "$top" "$HOME"; then
+  if ack_same_dir "$top" "$HOME"; then
     WHERE=home
   else
     pre="$(CDPATH= cd -- "$1" 2>/dev/null && git rev-parse --show-prefix 2>/dev/null)"
@@ -174,19 +140,6 @@ _where() {
 
 # _count N -> REPLY without the padding some wc versions add
 _count() { REPLY="${1//[[:space:]]/}"; [ -n "$REPLY" ] || REPLY=0; }
-
-# _kebab NAME -> REPLY: small letters and digits, dashes between, no p5-/node-/py-
-_kebab() {
-  local n
-  n="$(printf '%s' "$1" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9\n' '-' | tr -s '-')"
-  n="${n#-}"; n="${n%-}"
-  case "$n" in
-    p5-?*) n="${n#p5-}" ;;
-    node-?*) n="${n#node-}" ;;
-    py-?*) n="${n#py-}" ;;
-  esac
-  REPLY="$n"
-}
 
 # _host URL -> REPLY: the host part of a remote URL (empty for a local path)
 _host() {
@@ -223,7 +176,7 @@ cmd_inspect() {
   [ $# -le 1 ] || usage_err "inspect takes at most one directory."
   case "$dir" in -*) [ -d "$dir" ] || usage_err "unknown option '$dir'." ;; esac
   [ -d "$dir" ] || fail 2 "'$dir' is not a directory." "pass an existing directory."
-  _absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
+  ack_absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
   base="$REPLY" top=""
   _where "$base" || WHERE=""
   # inside or home: another repository's folder, so the rest comes from DIR itself (and
@@ -255,10 +208,10 @@ cmd_inspect() {
 $(git -C "$top" remote 2>/dev/null)
 EOT
   elif ack_git_refused "$base"; then
-    why="$REPLY"; _shown "$ACK_GIT_AT"
+    why="$REPLY"; ack_shown "$ACK_GIT_AT"
     printf 'git%srefused%s%s%s%s\n' "$TAB" "$TAB" "$REPLY" "$TAB" "$why"
   else
-    _shown "$base"
+    ack_shown "$base"
     printf 'git%smissing%s%s\n' "$TAB" "$TAB" "$REPLY"
   fi
 
@@ -323,7 +276,7 @@ EOT
 
   # neighbours with git and the same prefix, then the suggested name
   name="${base##*/}"
-  _kebab "$name"; n="$REPLY"
+  ack_kebab "$name"; n="$REPLY"
   local mine="${n%%-*}" parent="${base%/*}" s sn
   [ -n "$parent" ] || parent="/"
   if [ -n "$mine" ]; then
@@ -344,9 +297,9 @@ EOT
         *) continue ;;
       esac
       [ -d "$s" ] && [ -e "$s/.git" ] || continue
-      _kebab "$sn"; sn="$REPLY"
+      ack_kebab "$sn"; sn="$REPLY"
       [ "${sn%%-*}" = "$mine" ] || continue
-      _shown "$s"; printf 'sibling%s%s\n' "$TAB" "$REPLY"
+      ack_shown "$s"; printf 'sibling%s%s\n' "$TAB" "$REPLY"
     done
   fi
   printf 'prefix%s%s\n' "$TAB" "$n"
@@ -448,15 +401,15 @@ cmd_init() {
   done
   dir="${dir:-.}"
   [ -d "$dir" ] || fail 2 "'$dir' is not a directory." "create it or pass an existing directory."
-  _absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
+  ack_absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
   dir="$REPLY"
-  _shown "$dir"; shown="$REPLY"
+  ack_shown "$dir"; shown="$REPLY"
   if ack_git_refused "$dir"; then
-    why="$REPLY"; _shown "$ACK_GIT_AT"
+    why="$REPLY"; ack_shown "$ACK_GIT_AT"
     fail 3 "git refuses to read the repository at '$REPLY': $why." \
       "tell the user; the fix is theirs. Nothing was changed."
   fi
-  if _same_dir "$dir" "$HOME"; then
+  if ack_same_dir "$dir" "$HOME"; then
     fail 2 "'$shown' is your home folder, which is no project." \
       "create a folder for the project and run ack-repo init there."
   fi
@@ -501,10 +454,10 @@ cmd_disk_remote() {
   done
   [ -n "$target" ] || usage_err "disk-remote needs a target directory."
   [ -d "$dir" ] || fail 2 "'$dir' is not a directory." "pass the repository with --dir."
-  _absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
+  ack_absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
   dir="$REPLY"
-  _shown "$dir"; shown="$REPLY"
-  if _same_dir "$dir" "$HOME"; then
+  ack_shown "$dir"; shown="$REPLY"
+  if ack_same_dir "$dir" "$HOME"; then
     fail 2 "'$shown' is your home folder, which is no project." \
       "create a folder for the project, run ack-repo init there, then disk-remote."
   fi
@@ -515,15 +468,15 @@ cmd_disk_remote() {
     "run ack-repo init --own '$shown' first (after the user's yes), then disk-remote."
   [ -d "$target" ] || fail 2 "the target '$target' does not exist." "mount or create it, then run ack-repo again."
   [ -w "$target" ] || fail 2 "the target '$target' is not writable." "check the permissions or the mount."
-  _physdir "$top" && ptop="$REPLY" || ptop="$top"
-  _physdir "$target" && ptarget="$REPLY" || fail 2 "cannot enter '$target'." "check its permissions."
+  ack_physdir "$top" && ptop="$REPLY" || ptop="$top"
+  ack_physdir "$target" && ptarget="$REPLY" || fail 2 "cannot enter '$target'." "check its permissions."
   case "$ptarget/" in
     "$ptop"/*) fail 2 "the target '$target' lies inside the repository." "pick a directory outside '$top'." ;;
   esac
-  _absdir "$target" && target="$REPLY"
+  ack_absdir "$target" && target="$REPLY"
   repo="${top##*/}"
   bare="$target/$repo.git"
-  _shown "$target"; sbare="$REPLY/$repo.git"
+  ack_shown "$target"; sbare="$REPLY/$repo.git"
   if [ "$explicit" = 0 ]; then
     name=origin
     if git -C "$top" remote | grep -Fxq origin; then

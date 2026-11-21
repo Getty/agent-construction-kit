@@ -368,6 +368,54 @@ ack_git_refused() {
   return 0
 }
 
+# ack_absdir DIR -> REPLY (logical absolute path), fails when DIR is no directory. CDPATH
+# is cleared: cd would take a folder of that name from it and print its path.
+# ack_physdir DIR -> REPLY the same, with links resolved.
+ack_absdir() { REPLY="$(CDPATH= cd -- "$1" 2>/dev/null && pwd)" && [ -n "$REPLY" ]; }
+ack_physdir() { REPLY="$(CDPATH= cd -- "$1" 2>/dev/null && pwd -P)" && [ -n "$REPLY" ]; }
+
+# ack_shown DIR -> REPLY: DIR as the output names it. Git for Windows' bash says /tmp/x or
+# /c/x where git says C:/Users/.../x: there cygpath -m (else MSYS bash's pwd -W) gives
+# git's form, so a folder is named one way in every line. Elsewhere, and when neither
+# answers, DIR is unchanged. Only for output: the script keeps working with DIR.
+ack_shown() {
+  REPLY="$1"
+  case "$OSTYPE" in msys*|cygwin*) ;; *) return 0 ;; esac
+  if command -v cygpath >/dev/null 2>&1; then
+    REPLY="$(cygpath -m "$1" 2>/dev/null)"
+  else
+    REPLY="$(CDPATH= cd -- "$1" 2>/dev/null && pwd -W 2>/dev/null)"
+  fi
+  [ -n "$REPLY" ] || REPLY="$1"
+}
+
+# ack_same_dir A B: both name the same directory (physical paths; case-blind on macOS and
+# Windows, whose disks usually are)
+ack_same_dir() {
+  local a b
+  [ -n "$1" ] && [ -n "$2" ] || return 1     # an empty HOME names no folder
+  ack_physdir "$1" && a="$REPLY" || return 1
+  ack_physdir "$2" && b="$REPLY" || return 1
+  case "$OSTYPE" in
+    darwin*|msys*|cygwin*)
+      a="$(printf '%s' "$a" | tr 'A-Z' 'a-z')"; b="$(printf '%s' "$b" | tr 'A-Z' 'a-z')" ;;
+  esac
+  [ "$a" = "$b" ]
+}
+
+# ack_kebab NAME -> REPLY: small letters and digits, dashes between, no p5-/node-/py-
+ack_kebab() {
+  local n
+  n="$(printf '%s' "$1" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9\n' '-' | tr -s '-')"
+  n="${n#-}"; n="${n%-}"
+  case "$n" in
+    p5-?*) n="${n#p5-}" ;;
+    node-?*) n="${n#node-}" ;;
+    py-?*) n="${n#py-}" ;;
+  esac
+  REPLY="$n"
+}
+
 # ---------------------------------------------------------------- proxy
 
 # ack_find_proxy -> REPLY = path of claude-code-proxy, returns 1 when none.

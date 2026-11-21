@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+# ack-survey: what lies below a folder, told by the names of its entries only.
+#   ack-survey [DIR]
+# DIR defaults to the home folder (one that starts with - only when it exists, else it is
+# an unknown option). Read only, offline. Output is tab separated, one fact per line, in
+# this order:
+#   platform<TAB>linux|macos|windows
+#   hub<TAB>DIR                                  a work tree with a file named AREAS at its
+#                                                top; it prints no project line
+#   project<TAB>DIR<TAB>YYYY-MM-DD|none<TAB>team|none
+#                                                a folder one or two levels below DIR that
+#                                                holds .git; the date of its last commit
+#                                                (git -c log.mailmap=false -c
+#                                                log.showSignature=false log -1
+#                                                --format=%cd --date=short; those keys
+#                                                would make git read .mailmap or run gpg),
+#                                                none without a commit or when git refuses;
+#                                                team when .claude/agents/ holds a *.md.
+#                                                Newest first, then by path; none last
+#   family<TAB>PREFIX<TAB>N                      N (two or more) projects whose name in
+#                                                kebab-case, without p5-/node-/py-, starts
+#                                                with the word PREFIX (ack-repo's sibling
+#                                                rule, across the whole survey)
+#   signal<TAB>KIND<TAB>EVIDENCE                 one line per KIND, fleet one per language;
+#                                                EVIDENCE is the names found, relative to
+#                                                DIR, joined by ", ":
+#     operations  .kube, .docker, .ssh/config, .ansible in DIR
+#     fleet       perl: .pause, .dzil, perl5 in DIR, then the projects named p5-* when
+#                 there are three or more; python: .pypirc in DIR, then PROJECT/
+#                 pyproject.toml of three or more projects; node: .npmrc in DIR, then
+#                 PROJECT/package.json of three or more projects
+#     content     folders named posts or drafts, in any case, one or two levels below
+#                 DIR, in a work tree one level below DIR too
+#     pipeline    folders named inbox, drop or incoming, the same way
+#     machine     windows: the platform is Windows
+#   partial<TAB>SECONDS                          the time bound was reached after SECONDS;
+#                                                the projects not asked yet print none
+# Fixed names come in the order above, names found by the walk in the walk's order: the
+# names one level below DIR in byte order, each folder's own names right after it.
+# The walk skips every name starting with ., node_modules, __pycache__, Library, AppData,
+# the kit's own folders, names with a tab or a line break, and every symbolic link: it
+# enters none, and a project reached through one is not listed. A work tree (project or
+# hub) is not searched for projects.
+# No file below DIR is opened, a .git included (git reads its own): names are only tested
+# for existence, and a fixed name (.ssh/config, .claude/agents/*.md, ...) counts also when
+# it, or a folder on its way, is a symbolic link.
+# ACK_SURVEY_WAIT: the time bound in seconds, 1 to 99999, default 30. Names are walked
+# first, dates asked after; the bound is checked between two git calls.
+# Exit codes: 0 ok, 2 usage error, DIR is no usable folder, or git is not on PATH.
+# On Git for Windows a folder is printed as git prints it (C:/Users/...), in every line.
+# Errors are two lines on stderr: "ack-survey: <what>" and "ack-survey: <what to do>".
+
+_help() {
+  local n=0 line
+  while IFS= read -r line; do
+    n=$((n + 1))
+    [ "$n" -ge 2 ] || continue
+    case "$line" in '#'*) line="${line#\#}"; printf '%s\n' "${line# }" ;; *) break ;; esac
+  done < "$_self"
+}
+
+# Git for Windows may hand over a backslash path (bash 'D:\x\ack-survey').
+_slashes() { case "$OSTYPE" in msys*|cygwin*) REPLY="${1//\\//}" ;; *) REPLY="$1" ;; esac; }
+_slashes "${BASH_SOURCE[0]}"; _self="$REPLY"
+_src="$_self"
+while [ -L "$_src" ]; do
+  _slashes "$(readlink "$_src")"; _t="$REPLY"
+  case "$_t" in
+    /*) _src="$_t" ;;
+    *) case "$_src" in */*) _src="${_src%/*}/$_t" ;; *) _src="./$_t" ;; esac ;;
+  esac
+done
+case "$_src" in */*) _dir="${_src%/*}" ;; *) _dir="." ;; esac
+if ! SHARE="$(cd "$_dir/../share" 2>/dev/null && pwd)"; then
+  echo "ack-survey: cannot find the share directory next to bin/." >&2
+  echo "ack-survey: reinstall agent-construction-kit." >&2
+  exit 2
+fi
+# shellcheck source=../share/lib.sh
+. "$SHARE/lib.sh" || exit 2
+
+TAB=$'\t'
+NL=$'\n'
+# byte order for the walk's globs and for sort, the same on every system
+LC_ALL=C
+export LC_ALL
+
+# fail CODE WHAT TODO
+fail() {
+  echo "ack-survey: $2" >&2
+  echo "ack-survey: $3" >&2
+  exit "$1"
+}
+usage_err() {
+  fail 2 "$1" "usage: ack-survey [DIR] (see the header of $0)."
+}
+
+case "${1-}" in -h|--help) _help; exit 0 ;; esac
+[ "$#" -le 1 ] || usage_err "ack-survey takes at most one folder."
+if [ "$#" -eq 1 ]; then
+  _slashes "$1"; dir="$REPLY"
+  case "$dir" in -*) [ -d "$dir" ] || usage_err "unknown option '$1'." ;; esac
+else
+  [ -n "$HOME" ] || fail 2 "HOME is not set, so there is no home folder to survey." \
+    "name the folder: ack-survey DIR."
+  dir="$HOME"
+fi
+# the form ACK_BRIEFING_WAIT takes in ack-team; empty means the default
+wait="${ACK_SURVEY_WAIT:-30}"
+case "$wait" in
+  [1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]) ;;
+  *) fail 2 "ACK_SURVEY_WAIT is no number of seconds from 1 to 99999." \
+       "set it to such a number, or unset it for the default of 30 seconds." ;;
+esac
+command -v git >/dev/null 2>&1 || fail 2 "git is not installed." "install git and run ack-survey again."
+[ -d "$dir" ] || fail 2 "'$dir' is not a directory." "pass an existing directory, or none for the home folder."
+ack_absdir "$dir" || fail 2 "cannot enter '$dir'." "check its permissions."
+DIR="$REPLY"
+B="${DIR%/}"                  # DIR to put /NAME after; empty for /
+ack_shown "$DIR"; S="${REPLY%/}"
+ack_paths
+
+platform=linux
+for p in linux macos windows; do
+  case "$p:$OSTYPE" in macos:darwin*|windows:msys*|windows:cygwin*) platform="$p" ;; esac
+done
+
+# _kit NAME PATH: PATH is one of the kit's own folders (ack_paths)
+_kit() {
+  local k
+  for k in "$ACK_DATA_DIR" "$ACK_CONFIG_DIR" "$ACK_STATE_DIR"; do
+    k="${k%/}"
+    [ "$1" = "${k##*/}" ] && ack_same_dir "$2" "$k" && return 0
+  done
+  return 1
+}
+
+# _enter NAME PATH: the walk goes into PATH (or takes it as a work tree)
+_enter() {
+  case "$1" in .*|node_modules|__pycache__|Library|AppData|*"$TAB"*|*"$NL"*) return 1 ;; esac
+  [ -d "$2" ] && [ ! -L "$2" ] || return 1
+  ! _kit "$1" "$2"
+}
+
+# _mark REL NAME PATH: notes a content or pipeline folder (a link to one counts)
+_mark() {
+  case "$2" in
+    [Pp][Oo][Ss][Tt][Ss]|[Dd][Rr][Aa][Ff][Tt][Ss])
+      [ ! -d "$3" ] || CONTENT="$CONTENT${CONTENT:+, }$1" ;;
+    [Ii][Nn][Bb][Oo][Xx]|[Dd][Rr][Oo][Pp]|[Ii][Nn][Cc][Oo][Mm][Ii][Nn][Gg])
+      [ ! -d "$3" ] || PIPELINE="$PIPELINE${PIPELINE:+, }$1" ;;
+  esac
+}
+
+# _tree REL NAME PATH: PATH is a work tree; notes it as a hub or a project
+_tree() {
+  [ -e "$3/.git" ] || [ -L "$3/.git" ] || return 1
+  if [ -e "$3/AREAS" ] && [ ! -d "$3/AREAS" ]; then
+    HUBS+=("$1")
+    return 0
+  fi
+  PROJ+=("$1")
+  case "$2" in [Pp]5-*) P5="$P5${P5:+, }$1"; P5N=$((P5N + 1)) ;; esac
+  if [ -e "$3/pyproject.toml" ]; then PY="$PY, $1/pyproject.toml"; PYN=$((PYN + 1)); fi
+  if [ -e "$3/package.json" ]; then JS="$JS, $1/package.json"; JSN=$((JSN + 1)); fi
+  return 0
+}
+
+# the walk: names only, two levels
+HUBS=()
+PROJ=()
+CONTENT="" PIPELINE="" P5="" P5N=0 PY="" PYN=0 JS="" JSN=0
+for p in "$B"/*; do
+  n="${p##*/}"
+  _mark "$n" "$n" "$p"
+  _enter "$n" "$p" || continue
+  if _tree "$n" "$n" "$p"; then
+    for q in "$p"/*; do m="${q##*/}"; _mark "$n/$m" "$m" "$q"; done
+    continue
+  fi
+  for q in "$p"/*; do
+    m="${q##*/}"
+    _mark "$n/$m" "$m" "$q"
+    _enter "$m" "$q" && _tree "$n/$m" "$m" "$q"
+  done
+done
+
+# the dates, until the bound; git looks for the repository in the project only (the
+# ceiling is its parent), never in a repository around it such as a home folder's
+partial=0 rows="" fam=""
+for r in "${PROJ[@]}"; do
+  date="none"
+  [ "$partial" = 1 ] || [ "$SECONDS" -lt "$wait" ] || partial=1
+  if [ "$partial" = 0 ]; then
+    case "$r" in */*) ceil="$S/${r%/*}" ;; *) ceil="${S:-/}" ;; esac
+    d="$(GIT_CEILING_DIRECTORIES="$ceil" git -c log.mailmap=false -c log.showSignature=false -C "$B/$r" log -1 --format=%cd --date=short 2>/dev/null)"
+    d="${d%$'\r'}"
+    case "$d" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) date="$d" ;; esac
+  fi
+  st="none"
+  for f in "$B/$r"/.claude/agents/*.md; do
+    if [ -e "$f" ]; then st="team"; break; fi
+  done
+  [ "$date" = none ] && key=0000-00-00 || key="$date"
+  rows="$rows$key$TAB$S/$r$TAB$st$NL"
+  ack_kebab "${r##*/}"; w="${REPLY%%-*}"
+  [ -z "$w" ] || fam="$fam$w$NL"
+done
+
+# _family WORD N: the line, when N projects make a family
+_family() { [ "$2" -lt 2 ] || printf 'family%s%s%s%s\n' "$TAB" "$1" "$TAB" "$2"; }
+
+printf 'platform%s%s\n' "$TAB" "$platform"
+for r in "${HUBS[@]}"; do printf 'hub%s%s\n' "$TAB" "$S/$r"; done
+[ -z "$rows" ] || printf '%s' "$rows" | sort -t "$TAB" -k1,1r -k2,2 |
+  while IFS="$TAB" read -r key s st; do
+    [ "$key" != 0000-00-00 ] || key=none
+    printf 'project%s%s%s%s%s%s\n' "$TAB" "$s" "$TAB" "$key" "$TAB" "$st"
+  done
+[ -z "$fam" ] || printf '%s' "$fam" | sort | {
+  prev="" c=0
+  while IFS= read -r w; do
+    if [ "$w" = "$prev" ]; then c=$((c + 1)); continue; fi
+    _family "$prev" "$c"
+    prev="$w" c=1
+  done
+  _family "$prev" "$c"
+}
+
+ev=""
+for n in .kube .docker .ssh/config .ansible; do [ ! -e "$B/$n" ] || ev="$ev${ev:+, }$n"; done
+[ -z "$ev" ] || printf 'signal%soperations%s%s\n' "$TAB" "$TAB" "$ev"
+ev=""
+for n in .pause .dzil perl5; do [ ! -e "$B/$n" ] || ev="$ev${ev:+, }$n"; done
+[ "$P5N" -lt 3 ] || ev="$ev${ev:+, }$P5"
+[ -z "$ev" ] || printf 'signal%sfleet%sperl: %s\n' "$TAB" "$TAB" "$ev"
+if [ -e "$B/.pypirc" ] && [ "$PYN" -ge 3 ]; then
+  printf 'signal%sfleet%spython: .pypirc%s\n' "$TAB" "$TAB" "$PY"
+fi
+if [ -e "$B/.npmrc" ] && [ "$JSN" -ge 3 ]; then
+  printf 'signal%sfleet%snode: .npmrc%s\n' "$TAB" "$TAB" "$JS"
+fi
+[ -z "$CONTENT" ] || printf 'signal%scontent%s%s\n' "$TAB" "$TAB" "$CONTENT"
+[ -z "$PIPELINE" ] || printf 'signal%spipeline%s%s\n' "$TAB" "$TAB" "$PIPELINE"
+[ "$platform" != windows ] || printf 'signal%smachine%swindows\n' "$TAB" "$TAB"
+[ "$partial" = 0 ] || printf 'partial%s%s\n' "$TAB" "$SECONDS"
+exit 0

@@ -119,3 +119,8 @@ Revision history for agent-construction-kit
       Node.js 18 or newer and briefing's hooks need Python 3 until their
       standalone binaries are switched on. The machine and team references say
       the same.
+    - Add ack-survey [DIR]: reports what lies below the home folder by names
+      only (platform, hub, projects with their last commit date and whether
+      they have a team, families, signals), and says "partial" when the time
+      bound ACK_SURVEY_WAIT (default 30 seconds) cuts it short. It opens no
+      file below DIR and changes nothing.
