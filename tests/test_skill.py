@@ -1469,6 +1469,16 @@ class SkillTest(Sandbox):
         self.assertIsNotNone(entry, "README: The commands has no `ack-survey` entry")
         self.assertTrue(re.search(r"^[ \t]*```", entry.group(1), re.M), "README: the `ack-survey` entry shows no output line")
 
+    def test_readme_status_names_the_home_start(self):
+        # one Status bullet says what the home start's real run proved and what it did not
+        # (mutation: delete the bullet, or drop any one of the phrases from it)
+        status = read(README).partition("\n## Status")[2].partition("\n## ")[0]
+        bullets = [squash(b) for b in re.split(r"(?m)^- ", status)[1:]]
+        needed = ("home folder", "one real run", "Linux", "a sandbox home", "not exercised",
+                  "macOS and Windows")
+        self.assertTrue(any(all(w in b for w in needed) for b in bullets),
+                        "README Status: no single bullet holds all of %r" % (needed,))
+
     def test_readme_links_resolve(self):
         for target in re.findall(r"\]\(([^)\s]+)\)", read(README)):
             if re.match(r"[a-z]+:", target):

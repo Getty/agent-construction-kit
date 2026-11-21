@@ -140,3 +140,7 @@ Revision history for agent-construction-kit
       starts, the new section "Start in your home folder" walks through it,
       the roadmap marks the admin done, and the commands list has an
       ack-survey entry.
+    - The README says what the home start has proven: one real run on Linux,
+      with the macOS and Windows runs still open. The admin holds a card for
+      this computer on every platform; its subagents for the computer are on
+      the roadmap, listed once under the kind machine.

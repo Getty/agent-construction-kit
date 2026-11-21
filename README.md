@@ -15,8 +15,8 @@ services and on local models.
 You work with it through three commands; each asks one question at a time and does the work:
 
 - `/agent-setup` **builds or checks the team**, from two starts. In your home folder it
-  looks at what you work on and builds one admin folder that looks after this computer,
-  with a team in each area you work in ([Start in your home folder](#start-in-your-home-folder)).
+  looks at what you work on and builds one admin folder that holds a card for this
+  computer, with a team in each area you work in ([Start in your home folder](#start-in-your-home-folder)).
   In a project folder it reads your project, asks what it cannot read, shows a short
   plan, and after your yes writes the agents, their skills, their rules and their board
   into the repository and checks them.
@@ -62,13 +62,15 @@ sets up the machine first.
 ## Start in your home folder
 
 For someone who works on several things on one computer. One `/agent-setup` builds an admin
-that looks after this computer, and a checked team in each area you really work in.
+that steers your areas and holds a card for this computer, and a checked team in each area
+you really work in.
 
 1. Open a terminal and start Claude Code in your home folder: `cd`, then `claude`.
 2. Type `/agent-setup`. It asks once: "May I look at the folder names in your home
    folder? I read names, whether files exist and the date of each repository's last
-   commit, never what is inside a file." Before your yes it reads nothing of the home
-   folder. On a no it asks only questions, and you name the folders.
+   commit, never what is inside a file." Your yes covers `ack-survey`, the command that
+   looks, and it runs only after that yes; before it nothing of the home folder is read.
+   On a no it asks only questions, and you name the folders.
 3. Answer its questions, one at a time, each with its recommendation, in three blocks: the
    work environment (how far the admin reaches: only this computer, or also a home
    network or a lab); your work, paid or not, and the signs of it the look found, such as
@@ -92,11 +94,14 @@ Afterwards, for a user with the web shop `harbor`:
     .claude/                        the admin's rules, skill and read-only scout
 ```
 
-Nothing is written into the home folder itself. The admin looks after this computer on
-Linux, macOS and Windows alike. It never edits, commits or pushes in an area: work for an
-area goes there as a card, and you start Claude in that folder to have it done. What the
-look noticed and the kit does not build yet becomes a card on the admin's board, so
-nothing is lost: from then on, start Claude in `admin`, and type `/agent-setup` there to
+Nothing is written into the home folder itself. The admin holds a card for this computer
+on Linux, macOS and Windows alike; subagents that look after the computer are still to come
+(see the [Roadmap](#roadmap)). If an admin already exists, no second one is built: start
+Claude in its folder (`cd admin`, then `claude`) and type `/agent-setup` there. The admin
+never edits, commits or pushes in an area: work for an area goes there as a card, and
+you start Claude in that folder to have it done. What the look noticed and the kit does
+not build yet becomes a card on the admin's board, so nothing is lost: from then on,
+start Claude in `admin`, and type `/agent-setup` there to
 add a team later.
 
 ## Your first team
@@ -425,6 +430,16 @@ What is proven, and what is not yet:
   after the latest changes, the three commands started by typing them in a live session,
   and an interactive run of the machine setup and the team build on real macOS and
   Windows machines.
+- The start in the home folder has had one real run: on Linux, in a sandbox home with
+  sample folders, in a live Claude Code session, answered as a user with a web shop
+  (`harbor`) and a home lab would. It built teams for the three `harbor` repositories
+  (a family) and the admin, and the team check found nothing missing in them. The folder
+  `ledger`, which already had a hand-made team, got only a `BOARD.md` (named in the
+  plan); its own check still reports `settings` missing, which a card on the admin's
+  board covers. Only today's kinds were built (software, a family, a folder without
+  code); the lab and the blog posts became cards on the admin's board. Ways 2 and 3 of
+  handing work over (a running session, a headless run) are not exercised. On macOS and
+  Windows only the automated tests have run.
 - Until their standalone binaries are switched on, the two plugins the kit brings along
   need a runtime: skilletor needs Node.js 18 or newer, and briefing's hooks need Python 3.
   The kit's own commands are bash scripts and use neither; the team check only looks
@@ -449,14 +464,14 @@ What is proven, and what is not yet:
    says what is proven.
 3. Sample projects that teach the team your conventions, per-language knowledge, and
    more roles for work without code: a collector that fetches documents with the
-   browser, a team that looks after the computer itself.
-4. The management hub: one admin that looks after this computer and steers several
-   teams from one folder, started from the home folder. Done for the admin and the kinds
-   built today (software, a family, a folder without code). Still to come: the kinds
-   `operations` (servers, a network or a lab), `machine` (subagents in the admin that
-   care for the computer), `fleet` (packages released in a language), `content`
-   (writing to publish), `pipeline` (material that comes in to be processed) and
-   `customers` (one folder for each). Until then each is a card on the admin's board.
+   browser.
+4. The management hub: one admin that steers several teams from one folder, started from
+   the home folder. Done for the admin and the kinds built today (software, a family, a
+   folder without code). Still to come: the kinds `operations` (servers, a network or a
+   lab), `machine` (the admin's subagents for this computer; until then the admin holds a
+   card for it), `fleet` (packages released in a language), `content` (writing to
+   publish), `pipeline` (material that comes in to be processed) and `customers` (one
+   folder for each). Until then each is a card on the admin's board.
 5. More boards: issue trackers.
 
 ## The commands
