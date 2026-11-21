@@ -1415,6 +1415,8 @@ class SkillTest(Sandbox):
         setup = re.search(r"^- `/agent-setup` (.*?)(?=^- |^\S|\Z)", intro, re.S | re.M)
         self.assertIsNotNone(setup, "README: the intro does not describe /agent-setup")
         self.assertIn("builds or checks the team", squash(setup.group(1)))
+        # fails if the bullet drops "home folder" (names only the project start)
+        self.assertIn("home folder", squash(setup.group(1)))
         self.assertNotIn("next version", flat_intro)       # the team build is not a promise
         example = text.partition("## Example: a team for a software project")[2].partition("\n## ")[0]
         flat_example = squash(example)
@@ -1436,6 +1438,36 @@ class SkillTest(Sandbox):
         self.assertNotIn("where it is already installed", squash(changes))
         for words in ("recommended for a family of projects", "not its starters"):
             self.assertIn(words, " ".join(changes.split()))
+
+    def test_readme_names_the_home_start_first(self):
+        text = read(README)
+        # Install ends: home folder first, project folder second (mutation: swap the two)
+        after = text.split("Then type", 1)[1].partition("\n## ")[0]
+        flat = squash(after)
+        self.assertIn("home folder", flat, "README: the install does not name the home folder")
+        self.assertIn("project folder", flat, "README: the install does not name the project folder")
+        self.assertLess(flat.index("home folder"), flat.index("project folder"))
+        # the section sits between Install and Your first team (mutation: rename or move it)
+        between = text.partition("## Install")[2].partition("## Your first team")[0]
+        self.assertIn("\n## Start in your home folder", "\n" + between,
+                      "README: no '## Start in your home folder' between Install and Your first team")
+        section = squash(between.partition("## Start in your home folder")[2].partition("\n## ")[0])
+        for words in ("never what is inside a file", "`admin`", "`AREAS`", "Shall I build it?",
+                      "Nothing is written into the home folder itself",
+                      "from then on, start Claude in `admin`"):
+            self.assertIn(words, section, "README home start: %r missing" % words)
+        # the roadmap's hub item is done (mutation: leave it a promise)
+        roadmap = text.partition("## Roadmap")[2].partition("\n## ")[0]
+        hub = re.search(r"^\d+\. (.*?)(?=^\d+\. |\Z)", roadmap[roadmap.index("management hub") - 40:],
+                        re.S | re.M)
+        item = squash(hub.group(1)) if hub else ""
+        self.assertIn("management hub", item)
+        self.assertIn("Done", item, "README: the roadmap's hub item is not marked Done")
+        # the command list names ack-survey with an output line (mutation: drop the entry or its fence)
+        commands = text.partition("## The commands")[2].partition("\n## ")[0]
+        entry = re.search(r"^- `ack-survey`(.*?)(?=^- |\Z)", commands, re.S | re.M)
+        self.assertIsNotNone(entry, "README: The commands has no `ack-survey` entry")
+        self.assertTrue(re.search(r"^[ \t]*```", entry.group(1), re.M), "README: the `ack-survey` entry shows no output line")
 
     def test_readme_links_resolve(self):
         for target in re.findall(r"\]\(([^)\s]+)\)", read(README)):

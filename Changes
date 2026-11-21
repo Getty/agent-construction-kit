@@ -136,3 +136,7 @@ Revision history for agent-construction-kit
       work, customers), the plan, then the build of the areas and the admin
       with its AREAS table. The admin looks after this computer, on every
       platform.
+    - The README names the home start first: /agent-setup builds from two
+      starts, the new section "Start in your home folder" walks through it,
+      the roadmap marks the admin done, and the commands list has an
+      ack-survey entry.

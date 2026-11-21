@@ -14,10 +14,13 @@ services and on local models.
 
 You work with it through three commands; each asks one question at a time and does the work:
 
-- `/agent-setup` **builds or checks the team** for the project in this folder. It reads
-  your project, asks what it cannot read, shows a short plan, and after your yes writes
-  the agents, their skills, their rules and their board into the repository and checks
-  them. [The example below](#example-a-team-for-a-software-project) shows how it goes.
+- `/agent-setup` **builds or checks the team**, from two starts. In your home folder it
+  looks at what you work on and builds one admin folder that looks after this computer,
+  with a team in each area you work in ([Start in your home folder](#start-in-your-home-folder)).
+  In a project folder it reads your project, asks what it cannot read, shows a short
+  plan, and after your yes writes the agents, their skills, their rules and their board
+  into the repository and checks them.
+  [The example below](#example-a-team-for-a-software-project) shows how that goes.
 - `/agent-machine` **gets the machine ready.** It checks the plugins and tools agent teams
   build on, and creates starter commands such as `claude_with_kimi`: Claude Code running
   on another model provider, on a local model, or on OpenAI models through a ChatGPT
@@ -52,8 +55,49 @@ One install brings all three plugins an agent team builds on: this kit; skilleto
 installs skills and rules into a project and keeps them current; and briefing, which loads
 each agent's skills when the agent starts. The kit declares the other two as dependencies.
 `/reload-plugins` makes the new plugins available at once; restarting Claude Code does the
-same. Then type `/agent-setup` in a project folder to build its team, or `/agent-machine`
-to set up the machine first.
+same. Then type `/agent-setup` in your home folder to set up the admin and the teams of
+all your areas of work, or in a project folder to build that one team; `/agent-machine`
+sets up the machine first.
+
+## Start in your home folder
+
+For someone who works on several things on one computer. One `/agent-setup` builds an admin
+that looks after this computer, and a checked team in each area you really work in.
+
+1. Open a terminal and start Claude Code in your home folder: `cd`, then `claude`.
+2. Type `/agent-setup`. It asks once: "May I look at the folder names in your home
+   folder? I read names, whether files exist and the date of each repository's last
+   commit, never what is inside a file." Before your yes it reads nothing of the home
+   folder. On a no it asks only questions, and you name the folders.
+3. Answer its questions, one at a time, each with its recommendation, in three blocks: the
+   work environment (how far the admin reaches: only this computer, or also a home
+   network or a lab); your work, paid or not, and the signs of it the look found, such as
+   servers you run or Perl releases; and whether you work for customers.
+4. It shows a plan with every folder on its own line and asks "Shall I build it?". Nothing
+   is written until your yes.
+5. It builds the areas first, each with its team, then the admin with `AREAS`, the list
+   of the teams it steers, and its board, checks them, and saves one commit per folder.
+6. Type `/exit`, then `cd admin` and `claude`: Claude Code loads agents only when a
+   session starts.
+
+Afterwards, for a user with the web shop `harbor`:
+
+```
+~/
+  dev/harbor-shop/                  the shop, now with a team of its own
+  admin/                            looks after this computer and steers the areas
+    AREAS                           one row per area with a team: folder, kind, board
+    BOARD.md                        the board: this computer first, then proposals
+    CLAUDE.md
+    .claude/                        the admin's rules, skill and read-only scout
+```
+
+Nothing is written into the home folder itself. The admin looks after this computer on
+Linux, macOS and Windows alike. It never edits, commits or pushes in an area: work for an
+area goes there as a card, and you start Claude in that folder to have it done. What the
+look noticed and the kit does not build yet becomes a card on the admin's board, so
+nothing is lost: from then on, start Claude in `admin`, and type `/agent-setup` there to
+add a team later.
 
 ## Your first team
 
@@ -406,9 +450,13 @@ What is proven, and what is not yet:
 3. Sample projects that teach the team your conventions, per-language knowledge, and
    more roles for work without code: a collector that fetches documents with the
    browser, a team that looks after the computer itself.
-4. The management hub: the first team is built in its own folder, and the kit then
-   proposes a controller, an admin, as the next step. The admin steers several teams from
-   one folder.
+4. The management hub: one admin that looks after this computer and steers several
+   teams from one folder, started from the home folder. Done for the admin and the kinds
+   built today (software, a family, a folder without code). Still to come: the kinds
+   `operations` (servers, a network or a lab), `machine` (subagents in the admin that
+   care for the computer), `fleet` (packages released in a language), `content`
+   (writing to publish), `pipeline` (material that comes in to be processed) and
+   `customers` (one folder for each). Until then each is a card on the admin's board.
 5. More boards: issue trackers.
 
 ## The commands
@@ -435,6 +483,14 @@ in the plugin's `bin/` folder:
 
   ```
   ack-repo inspect
+  ```
+
+- `ack-survey` reads the names in a folder, the home folder by default, and nothing
+  inside any file; it is what the home start looks with, after your yes. One line per
+  fact (the platform, projects with their last commit and team, signs of an area):
+
+  ```
+  project    /Users/sam/dev/harbor-shop    2026-11-18    none
   ```
 
 - `ack-team` checks a finished team: every agent, every skill it names, the rules, the
