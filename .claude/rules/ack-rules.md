@@ -60,8 +60,9 @@ can write there; none is wired to the AI, the user brings single entries in as c
 
 - bash 3.2 is the floor, as macOS ships it: no associative arrays, no `mapfile`, no
   `${var,,}`, no `&>>`. No script of the kit reads JSON or requires jq, Node or Python:
-  agent, skill, hook and settings checks come from `briefing doctor --tsv`; never install
-  from a check.
+  agent, skill, hook and settings checks come from `briefing doctor --tsv`; the one
+  addition is `ack-team`'s look on PATH for the Python briefing's hook runs on (presence
+  only, never run, c32); never install from a check.
 - Only tools and flags common to GNU, BSD (macOS) and Git for Windows, since all of them
   work on Linux and a Linux run stays green: never `stat`, `readlink -f`, `realpath`,
   `sed -i`, `date -d`, `grep -P`, `/dev/tcp`, `mktemp` with a switch other than `-d`.

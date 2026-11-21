@@ -167,7 +167,7 @@ Run `ack-team check` in the project folder; it only reads. One line per finding:
 `<what><TAB><status><TAB><file or name><TAB><text>`, status `ok`, `missing` or `warn`. Exit 0:
 no line is `missing`; 1: at least one is; 2: usage error or unusable folder. Fix, run again
 until none is; tell the user each `warn` in one sentence. `agent`, `skill`, `hook`, `settings`
-are briefing's; no briefing answers: one `missing` line, `briefing<TAB>missing<TAB>.`, whose text ends with the cure ([machine.md](../../agent-machine/references/machine.md)).
+are briefing's, all but `hook<TAB>missing<TAB>.`, the kit's own (`hook` row); no briefing answers: one `missing` line, `briefing<TAB>missing<TAB>.`, whose text ends with the cure ([machine.md](../../agent-machine/references/machine.md)).
 
 | What | Checks | On `missing` or `warn` |
 |---|---|---|
@@ -181,7 +181,7 @@ are briefing's; no briefing answers: one `missing` line, `briefing<TAB>missing<T
 | `board` | karr refs, or `BOARD.md` with the four headings | add what the text names |
 | `claude-md` | `CLAUDE.md` names every agent | add the name to the section |
 | `git` | a repository, and a remote | no remote: fine when the user chose "only on this computer". `missing` with "git cannot read the repository: <reason>": the reason (dubious ownership, a broken `.git`); tell the user, change nothing until they fixed it |
-| `hook` | briefing's line: the hook run as if each agent were started; the first worker (else the first agent) must also get a briefing | every agent passes: ONE line `hook<TAB>ok<TAB><first worker>`, standing for all of them. `missing`: one line per agent the hook refuses, or for the first worker when it hands an abort; the text is briefing's reason: fix that entry. `warn`: the text says why (briefing's hook not found, no answer in time: run again; or it briefs nothing for the first worker: give it `briefing.skills`) |
+| `hook` | briefing's line: the hook run as if each agent were started; the first worker (else the first agent) must also get a briefing. The kit's own, after a briefing `ok` or `warn` (briefing's check runs on Perl and only simulates the hook): the Python the real hook runs on is on PATH, `python3` or `python`, on Windows also `py`, a Microsoft Store stub under `WindowsApps` not counted; looked up, never run | every agent passes: ONE line `hook<TAB>ok<TAB><first worker>`, standing for all of them. `missing`: one line per agent the hook refuses, or for the first worker when it hands an abort; the text is briefing's reason: fix that entry. `missing` named `.`: the kit's, no such Python, so agents start without their skills; it takes the place of the `ok` line, or follows the `warn` one: Python 3 on PATH, then a new Claude Code session and the check again. `warn`: the text says why (briefing's hook not found, no answer in time: run again; or it briefs nothing for the first worker: give it `briefing.skills`) |
 That the hook refuses a broken agent is checked once by hand, in a scratch folder (`ack-team` passes briefing's `hook` line through):
 
 ```bash

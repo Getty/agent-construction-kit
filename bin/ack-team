@@ -16,7 +16,12 @@
 # warn. See briefing for what each one checks. When no briefing command answers (not on
 # PATH, no answer in time, exit 2 or more, or no settings line among the contract
 # lines), check prints one line, "briefing<TAB>missing<TAB>.<TAB>TEXT", and goes on with
-# its own; TEXT names the command's path when there is one.
+# its own; TEXT names the command's path when there is one. briefing's check runs on Perl
+# and only simulates the hook, which runs on Python 3 from PATH (python3, else python; on
+# Windows also py, but no Microsoft Store stub). When briefing prints a hook line that is
+# ok or warn and no such Python is on PATH, check prints one line
+# "hook<TAB>missing<TAB>.<TAB>TEXT" instead of the hook ok lines, or after the first hook
+# warn line.
 # The kit adds these lines, and no JSON is read for any of them:
 #   readonly   per agent ending in -scout, -reviewer, -checker or -coordinator: warn
 #              unless its disallowedTools name Edit and Write.
@@ -208,6 +213,26 @@ _briefing_doctor() {
   exec "$1" doctor --tsv
 }
 
+# _hook_runs -> REPLY: whether the Python briefing's hook runs on is on PATH, by the names
+# the hook tries: python3, else python; on Windows (bin/briefing.exe) also py. Every hit
+# on PATH counts but a Microsoft Store stub under WindowsApps, which the Windows hook
+# skips. Only presence: nothing is run. Perl is no hook fallback, and a binary pinned in
+# the plugin is not taken for one either: without its cached binary the hook falls back
+# to Python. Fails without a Python; REPLY: the names tried, for the text.
+_hook_runs() {
+  local n p names="python3 python"
+  REPLY="python3 or python"
+  case "$OSTYPE" in msys*|cygwin*) names="python3 python py"; REPLY="python3, python or py" ;; esac
+  for n in $names; do
+    while IFS= read -r p; do
+      case "$p" in ""|*/[Ww]indows[Aa]pps/*) ;; *) return 0 ;; esac
+    done <<EOT
+$(type -a -P "$n" 2>/dev/null)
+EOT
+  done
+  return 1
+}
+
 # check_briefing: the agent, skill, hook and settings lines are the briefing plugin's.
 # Only lines of the contract pass through: four fields split at the tabs (the last may be
 # empty), WHAT one of agent, skill, hook, settings, status ok, missing or warn, a name
@@ -220,9 +245,14 @@ _briefing_doctor() {
 # that line names as missing (perl, Node.js), or, when briefing's starter says that perl
 # was not found or does not load App::Briefing, to install perl or the Perl modules
 # briefing needs (cpanm --installdeps with the plugin folder, the starter's bin/.., which
-# holds briefing's cpanfile), else to update or install the plugin.
+# holds briefing's cpanfile), else to update or install the plugin. briefing's doctor
+# runs on Perl and only simulates the hook, so a hook line that is ok or warn calls for
+# the hook's Python (_hook_runs). Without it there is one line
+# "hook<TAB>missing<TAB>.<TAB>TEXT": it takes the place of the first hook ok line (later
+# ones are dropped) or follows the first hook warn line (warn lines stay).
 check_briefing() {
   local bin rc line r what st name text valid="" wait="${ACK_BRIEFING_WAIT:-30}" settings=0 why pd
+  local hook="" nohook=""
   local tail="so the agent, skill, hook and settings checks cannot run"
   local fix="Update or install the briefing plugin with: claude plugin update briefing@getty (or install it with: claude plugin install briefing@getty), then run /reload-plugins."
   case "$wait" in
@@ -275,6 +305,22 @@ check_briefing() {
     case "$what" in agent|skill|hook|settings) ;; *) continue ;; esac
     case "$st" in ok|missing|warn) ;; *) continue ;; esac
     [ "$what" = settings ] && settings=1
+    # hook: ok or warn; "" not looked yet, runs, none (not said yet), said
+    if [ "$what" = hook ] && [ "$st" != missing ] && [ "$hook" != runs ]; then
+      if [ -z "$hook" ]; then
+        if _hook_runs; then hook=runs
+        else
+          hook=none
+          nohook="hook${TAB}missing${TAB}.${TAB}The briefing hook needs Python 3 on PATH ($REPLY), and none was found, so agents start without their skills. Install Python 3, then start Claude Code again and run this check."
+        fi
+      fi
+      if [ "$hook" = none ]; then
+        hook=said RC=1
+        if [ "$st" = ok ]; then line="$nohook"; else line="$line"$'\n'"$nohook"; fi
+      elif [ "$hook" = said ] && [ "$st" = ok ]; then
+        continue
+      fi
+    fi
     [ "$st" = missing ] && RC=1
     valid="$valid$line"$'\n'
   done <<EOT

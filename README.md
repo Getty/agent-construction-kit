@@ -383,11 +383,16 @@ What is proven, and what is not yet:
   Windows machines.
 - Until their standalone binaries are switched on, the two plugins the kit brings along
   need a runtime: skilletor needs Node.js 18 or newer, and briefing's hooks need Python 3.
-  The kit's own commands are bash scripts and use neither.
+  The kit's own commands are bash scripts and use neither; the team check only looks
+  whether the Python of briefing's hooks is on PATH, and never runs it.
 - The team check takes its agent, skill and hook findings from briefing
   (`briefing doctor --tsv`). Until its binary is switched on, briefing answers that
   command, and its `--version`, only where its Perl modules load; elsewhere the setup
   reports that briefing does not answer, and the team cannot be handed over as checked.
+  briefing's own check runs on Perl and only simulates the hook, so the team check adds
+  one finding of its own: with no Python for the real hook on PATH (`python3` or
+  `python`, on Windows also `py`), it reports the hook as missing, since agents would
+  then start without their skills.
 - Six of the twelve providers are set up from their documentation and not yet tried with
   the kit ([Providers](#providers)).
 

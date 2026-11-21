@@ -81,6 +81,16 @@ class TeamTest(Sandbox):
         self.work = self.root / "work"
         self.work.mkdir()
         self.briefing_says(tsv(BRIEFING_GOOD))
+        if os.name != "nt":
+            # the hook's Python (ack-team looks for it on PATH, never runs it): a stub in
+            # front of the host's PATH, so the suite does not depend on the host having one;
+            # tests without Python use path_without_python()
+            pybin = self.root / "pybin"
+            pybin.mkdir()
+            stub = pybin / "python3"
+            stub.write_text("#!/bin/sh\nexit 0\n")
+            stub.chmod(0o755)
+            self.env["PATH"] = "%s:%s" % (pybin, self.env["PATH"])
 
     def briefing_says(self, text, exit_code=0):
         """What the fake briefing's `doctor --tsv` prints (bytes as given) and exits with."""
@@ -713,6 +723,179 @@ class TeamTest(Sandbox):
         self.assertEqual([x[0] for x in self.kit_rows(r)],
                          ["readonly", "readonly", "rules", "board", "claude-md", "git", "owners"])
 
+    # ---- the briefing hook needs Python (briefing's starter bin/briefing, find_python:
+    # `python3`, else `python`; a pinned binary, bin/briefing-binaries.sha256, needs none).
+    # `briefing doctor --tsv` runs on Perl and only simulates the hook, so its `hook ok`
+    # says nothing about that Python: check says it.
+
+    def path_without_python(self):
+        """A PATH of fakebin plus links to every other tool of the host, none of them
+        python*/py*: the starter finds no interpreter for the hook there."""
+        if os.name == "nt":
+            self.skipTest("skipped: the PATH without Python is built from POSIX tool directories")
+        tools = self.root / "tools-without-python"
+        if tools.exists():
+            return "%s:%s" % (self.fakebin, tools)
+        tools.mkdir()
+        for top in ("/usr/bin", "/bin"):
+            if not os.path.isdir(top):
+                continue
+            for name in sorted(os.listdir(top)):
+                if re.match(r"(python|py)", name) or (tools / name).exists() \
+                        or (self.fakebin / name).exists():
+                    continue
+                try:
+                    os.symlink(os.path.join(top, name), str(tools / name))
+                except OSError:
+                    pass
+        return "%s:%s" % (self.fakebin, tools)
+
+    def pin_file(self, cached=False):
+        """The plugin's pin file beside the fake briefing (the folder over its bin/ is the
+        plugin folder); cached: also the cached binaries under ~/.claude."""
+        sums = "".join("%s  briefing-1.2.3-%s\n" % (str(n) * 64, a) for n, a in (
+            (1, "linux-x86_64"), (2, "linux-arm64"), (3, "macos-x86_64"),
+            (4, "macos-arm64"), (5, "windows-x86_64.exe")))
+        pin = self.root / "bin" / "briefing-binaries.sha256"
+        pin.parent.mkdir(exist_ok=True)
+        pin.write_text(sums)
+        if cached:
+            for n in (1, 2, 3, 4):
+                f = self.home / ".claude" / "briefing" / "bin" / "1.2.3" / (str(n) * 16) / "briefing"
+                f.parent.mkdir(parents=True)
+                f.write_text("#!/bin/sh\nexit 0\n")
+                f.chmod(0o755)
+
+    def test_hook_ok_without_python_is_missing(self):
+        d = self.complete_team()
+        r = self.at("check", cwd=d, env={"PATH": self.path_without_python()})
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(r.stderr, "")
+        self.assertEqual([x for x in self.of(r, "hook") if x[1] == "ok"], [], r.stdout)
+        row = self.one(r, "hook", "missing", ".")
+        self.assertEqual(len(row), 4, row)
+        text = row[3]
+        self.assertEqual(len(self.sentences(text)), 2, text)    # what is missing, what to do
+        first, second = self.sentences(text)
+        self.assertIn("Python", first)
+        self.assertIn("hook", first)
+        self.assertIn("Install Python 3", second)
+        # a newly installed Python reaches neither the hook nor the Bash tool before a restart
+        self.assertRegex(second, r"(?i)restart|start Claude Code again")
+        # the other lines of briefing pass through, the kit's own still come
+        self.assertEqual(self.one(r, "settings", "ok"), SETTINGS_OK)
+        self.assertEqual(len(self.of(r, "readonly")), 2)
+
+    def test_hook_ok_with_a_python3_stays_ok(self):
+        d = self.complete_team()
+        self.fake("python3", "#!/bin/sh\nexit 0\n")
+        r = self.at("check", cwd=d, env={"PATH": self.path_without_python()})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]], r.stdout)
+
+    def test_hook_ok_with_only_a_python_stays_ok(self):
+        # the starter's second name
+        d = self.complete_team()
+        self.fake("python", "#!/bin/sh\nexit 0\n")
+        r = self.at("check", cwd=d, env={"PATH": self.path_without_python()})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]], r.stdout)
+
+    def test_hook_ok_with_only_py_is_still_missing(self):
+        # the starter never tries `py`, so neither may check
+        d = self.complete_team()
+        self.fake("py", "#!/bin/sh\nexit 0\n")
+        r = self.at("check", cwd=d, env={"PATH": self.path_without_python()})
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.one(r, "hook", "missing", ".")
+
+    # Windows as far as the script can tell: OSTYPE msys (the starter there is
+    # bin/briefing.exe, which also tries `py`, and ignores Microsoft Store stubs).
+
+    def with_python_in(self, folder, name):
+        """PATH of path_without_python() with a fake NAME in FOLDER (below the sandbox) in front."""
+        d = self.root / folder
+        d.mkdir(parents=True)
+        f = d / name
+        f.write_text("#!/bin/sh\nexit 0\n")
+        f.chmod(0o755)
+        return "%s:%s" % (d, self.path_without_python())
+
+    @unittest.skipIf(os.name == "nt", "a fake OSTYPE stands in for Git for Windows")
+    def test_on_windows_a_py_is_a_hook_interpreter(self):
+        d = self.complete_team()
+        path = self.with_python_in("py launcher", "py")
+        r = self.at("check", cwd=d, env={"PATH": path, "OSTYPE": "msys"})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]], r.stdout)
+
+    @unittest.skipIf(os.name == "nt", "a fake OSTYPE stands in for Git for Windows")
+    def test_on_windows_a_store_stub_is_no_interpreter(self):
+        d = self.complete_team()
+        for name in ("python3", "python"):
+            with self.subTest(name):
+                path = self.with_python_in("Local Apps/Microsoft/WindowsApps/" + name, name)
+                r = self.at("check", cwd=d, env={"PATH": path, "OSTYPE": "msys"})
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertEqual([x for x in self.of(r, "hook") if x[1] == "ok"], [], r.stdout)
+                self.one(r, "hook", "missing", ".")
+
+    @unittest.skipIf(os.name == "nt", "a fake OSTYPE stands in for Git for Windows")
+    def test_on_windows_the_missing_text_names_py(self):
+        d = self.complete_team()
+        r = self.at("check", cwd=d, env={"PATH": self.path_without_python(), "OSTYPE": "msys"})
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        text = self.one(r, "hook", "missing", ".")[3]
+        self.assertEqual(len(self.sentences(text)), 2, text)
+        self.assertRegex(self.sentences(text)[1], r"(?i)restart|start Claude Code again")
+        self.assertIn("py", text.replace("python", ""))
+        # elsewhere the text does not offer py
+        r = self.at("check", cwd=d, env={"PATH": self.path_without_python(), "OSTYPE": "linux-gnu"})
+        self.assertNotIn(" py", self.one(r, "hook", "missing", ".")[3].replace("python", ""))
+
+    def test_a_pin_file_does_not_replace_the_python(self):
+        # the hook falls back to Python when the manifest is not canonical, the platform has
+        # no binary or the binary is not cached yet (only `hook session-start` downloads it)
+        # cached=True expects `missing` by the interim ruling until c9; c9 flips that
+        # assertion once briefing ships pin files
+        for cached in (False, True):
+            with self.subTest(cached=cached):
+                d = self.complete_team("harbor %s" % cached)
+                self.pin_file(cached=cached)
+                r = self.at("check", cwd=d, env={"PATH": self.path_without_python()})
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertEqual([x for x in self.of(r, "hook") if x[1] == "ok"], [], r.stdout)
+                self.one(r, "hook", "missing", ".")
+
+    def test_a_hook_warn_without_python_is_missing_too(self):
+        # briefing prints at most one hook line, for the first worker: warn or ok, the
+        # Python check runs on it
+        d = self.complete_team()
+        warn = ["hook", "warn", "harbor-worker", "no skills declared"]
+        self.briefing_says(tsv([x if x[0] != "hook" else warn for x in BRIEFING_GOOD]))
+        r = self.at("check", cwd=d, env={"PATH": self.path_without_python()})
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(self.one(r, "hook", "warn"), warn)
+        self.one(r, "hook", "missing", ".")
+        # the kit's row follows briefing's warn row directly
+        rows = self.rows(r)
+        self.assertEqual(rows.index(warn) + 1, [i for i, x in enumerate(rows)
+                                                if x[:3] == ["hook", "missing", "."]][0], r.stdout)
+        # with a Python the warn passes as it is
+        r = self.at("check", cwd=d)
+        self.assertEqual(self.of(r, "hook"), [warn], r.stdout)
+
+    @unittest.skipIf(os.name == "nt", "a fake OSTYPE stands in for Git for Windows")
+    def test_on_windows_a_real_python_behind_a_store_stub_counts(self):
+        # the bootstrap scans every PATH entry and skips stubs; `type -P` alone sees the first
+        d = self.complete_team()
+        real = self.with_python_in("real python", "python3")
+        path = self.with_python_in("Local Apps/Microsoft/WindowsApps", "python3").replace(
+            ":" + self.path_without_python(), ":" + real)
+        r = self.at("check", cwd=d, env={"PATH": path, "OSTYPE": "msys"})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]], r.stdout)
+
     def sentences(self, text):
         return re.split(r"(?<=\.)\s+", text.strip())
 
@@ -1077,6 +1260,37 @@ class TeamTest(Sandbox):
                 if JSON_TOOL.search(code):
                     hits.append("%s:%d: %s" % (p.relative_to(ROOT), n, code))
         self.assertEqual(hits, [])
+        # the one addition (c32): ack-team looks on PATH for the Python briefing's hook runs
+        # on, presence only. A Python name appears in bin/ and share/ only inside
+        # _hook_runs, and there only as an argument of `type -P`, never as a command.
+        py = re.compile(r"(?<![\w.%$-])(?:python[0-9.]*|py)(?![\w-])")
+        for bad in ('names="python3 python"', "x python3"):
+            self.assertTrue(py.search(bad), bad)
+        for fine in ("py-?*) n=1", "setup.py", "%spython%s"):
+            self.assertFalse(py.search(fine), fine)
+        outside = []
+        for p in files:
+            inside = False
+            for n, line in enumerate(p.read_text(errors="replace").splitlines(), 1):
+                if p.name == "ack-team" and line.startswith("_hook_runs() {"):
+                    inside = True
+                code = line.strip()
+                if inside:
+                    # a found hit ($p) is only looked at (case, [, printf, echo), never
+                    # in command position
+                    if re.search(r"\$\{?p\b", code) and not code.startswith("#"):
+                        self.assertTrue(re.match(r"(case|\[|printf|echo)\b", code)
+                                        and len(re.findall(r"\$\{?p\b", code)) == 1
+                                        and not re.search(r"(;;|\)|;)\s*\S*\$\{?p\b", code),
+                                        "%s:%d runs a found Python: %s" % (p.name, n, code))
+                    self.assertFalse(re.search(r'\bexec\b|\bpython[0-9.]*\s+-|(?<!-P ")\$n\b', code)
+                                     and not code.startswith("#"), "%s:%d: %s" % (p.name, n, code))
+                    if line == "}":
+                        inside = False
+                    continue
+                if not code.startswith("#") and py.search(code):
+                    outside.append("%s:%d: %s" % (p.relative_to(ROOT), n, code))
+        self.assertEqual(outside, [])
 
     # ---- usage
 

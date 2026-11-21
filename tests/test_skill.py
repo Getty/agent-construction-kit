@@ -834,15 +834,22 @@ class SkillTest(Sandbox):
                                  read(ROOT / "bin" / "ack-team"), re.M))
         whats = {spans(row[0])[0] for _, row in tables(read(REFS / "team-rules.md"), "What")}
         self.assertGreaterEqual(len(emitted), 7)
-        # ack-team prints no agent, skill, hook or settings line of its own: they are briefing's
-        self.assertEqual(emitted & set(BRIEFING_WHATS), set(), "ack-team prints briefing's lines itself")
+        # ack-team prints no agent, skill or settings line of its own: they are briefing's.
+        # The one briefing-named row it prints itself is `hook missing .`, when the Python the
+        # briefing hook runs on is absent (briefing's own doctor only simulates the hook).
+        self.assertEqual(emitted & {"agent", "skill", "settings"}, set(),
+                         "ack-team prints briefing's lines itself")
+        self.assertNotRegex(read(ROOT / "bin" / "ack-team"),
+                            r'emit hook (?:ok|warn)\b|hook\$\{TAB\}(?:ok|warn)\b')
+        self.assertRegex(read(ROOT / "bin" / "ack-team"),
+                         r'hook\$\{TAB\}missing\$\{TAB\}\.|emit hook missing "\."')
         self.assertTrue(set(BRIEFING_WHATS) <= whats, "team-rules.md: What table lacks a briefing line")
         # `briefing` is the one line the kit prints for a briefing that does not answer: it is
         # explained in the text, not in the table
         self.assertIn("briefing", emitted)
         self.assertRegex(" ".join(read(REFS / "team-rules.md").split()),
                          r"no briefing answers: one `missing` line")
-        self.assertEqual(whats - set(BRIEFING_WHATS), emitted - {"briefing"},
+        self.assertEqual(whats - set(BRIEFING_WHATS), emitted - {"briefing", "hook"},
                          "the What table of team-rules.md and ack-team differ")
 
     def test_every_repo_and_team_option_is_on_its_help(self):

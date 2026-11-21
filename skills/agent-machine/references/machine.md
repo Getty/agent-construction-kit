@@ -70,7 +70,13 @@ more, or no `settings` line. When briefing answered in time but exited non-zero,
 carries `(exit N: first stderr line)` and its advice follows that line as for
 `runtime:briefing` above: a missing program, perl, or the Perl modules. Otherwise, and for
 any other line, the text ends with `claude plugin update briefing@getty` (or
-`claude plugin install briefing@getty`), then `/reload-plugins`.
+`claude plugin install briefing@getty`), then `/reload-plugins`. When briefing does answer,
+its check runs on Perl and only simulates the hook; the real hook runs on Python from PATH.
+So for a `hook` line that is `ok` or `warn`, `ack-team check` also looks for `python3` or
+`python` on PATH (on Windows also `py`; a Microsoft Store stub under `WindowsApps` does not
+count), and never runs it. None found: one `hook<TAB>missing<TAB>.` line, in place of the
+`ok` line or after the `warn` one, and exit 1; its text asks for Python 3 on PATH, then a
+new Claude Code session and this check again.
 
 ## 2. Starters for other services
 

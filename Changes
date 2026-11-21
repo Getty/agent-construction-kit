@@ -77,6 +77,10 @@ Revision history for agent-construction-kit
       because the perl on PATH is missing ("Install perl") or does not load
       briefing's Perl modules (cpanm --installdeps on the plugin folder), instead
       of advising a plugin update that does not help.
+    - ack-team check no longer says "hook ok" on a machine where briefing's
+      hook cannot run: the hook runs on Python 3 (python3, then python; on
+      Windows also py), so with none found the hook line is "missing" and says
+      to install Python 3 and start Claude Code again.
     - Team texts follow the roles the plan chose: without a reviewer the main
       agent checks before the commit, a card names a result and its delegated
       steps sit below it, the reviewer reads git status and git diff HEAD, and
