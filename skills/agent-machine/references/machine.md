@@ -43,16 +43,34 @@ skilletor needs Node.js 18 or newer, and briefing's hooks need Python 3.
 
 `ack-doctor` takes `plugin:*` from `claude plugin list`; for `runtime:skilletor` and
 `runtime:briefing` it runs `<name> --version` and prints it. Found but silent: `warn` with
-the first error line, advice `claude plugin update <name>@getty`. Not found: `missing`, and
-its advice follows the plugin's state: installed and enabled, update it; disabled,
-`claude plugin enable <name>`; not installed, `claude plugin install <name>@getty`;
-state unknown, update or install. Each ends with `/reload-plugins`.
+the first error line, and its advice follows that line: a program named as missing,
+install it; briefing's starter finds no perl, install perl; its perl does not load
+App::Briefing, install the Perl modules briefing needs with
+`cpanm --installdeps "<plugin folder>"` (the folder above the `bin/` that holds
+`briefing`; it ships the `cpanfile`); anything else, `claude plugin update <name>@getty`.
+Not found: `missing`, and its advice follows the plugin's state: installed and enabled,
+update it; disabled, `claude plugin enable <name>`; not installed,
+`claude plugin install <name>@getty`; state unknown, update or install. Each
+`claude plugin` advice ends with `/reload-plugins`.
+
+The Perl modules advice works only where `cpanm` installs modules that perl then loads.
+`cpanm` comes with App::cpanminus: the system's package (such as `cpanminus`) or
+`cpan App::cpanminus`. Windows (Git Bash): unless another perl comes first on PATH, the
+starter finds Git for Windows' perl, which is not known to ship `cpanm`, `make` or a
+compiler, so the advice is not expected to work there. A full Perl (such as Strawberry
+Perl) ahead of it on PATH should do, but is not yet tested on Windows; or briefing's
+standalone binary once it is switched on. macOS system perl, or a Linux system perl whose
+module folder the user cannot write to: `cpanm` installs into `~/perl5`, which that perl
+finds only with local::lib set up in the shell profile; or use a perl of the user's own
+(perlbrew, plenv).
 
 `ack-team check` prints one `briefing<TAB>missing<TAB>.` line when briefing delivers no
 checks: not on PATH, no answer within `ACK_BRIEFING_WAIT` seconds (default 30), exit 2 or
-more (the text carries `(exit N: first stderr line)`), or no `settings` line. Its text ends
-with the advice: `claude plugin update briefing@getty` (or `claude plugin install
-briefing@getty`), then `/reload-plugins`.
+more, or no `settings` line. When briefing answered in time but exited non-zero, the text
+carries `(exit N: first stderr line)` and its advice follows that line as for
+`runtime:briefing` above: a missing program, perl, or the Perl modules. Otherwise, and for
+any other line, the text ends with `claude plugin update briefing@getty` (or
+`claude plugin install briefing@getty`), then `/reload-plugins`.
 
 ## 2. Starters for other services
 

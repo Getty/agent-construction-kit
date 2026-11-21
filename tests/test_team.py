@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import unittest
 
-from helpers import ROOT, Sandbox
+from helpers import FAKE_BRIEFING, ROOT, Sandbox
 
 AT = str(ROOT / "bin" / "ack-team")
 JSON_TOOL = re.compile(
@@ -799,6 +799,78 @@ class TeamTest(Sandbox):
         row = self.only_briefing_missing(r, d)
         self.assertIn("claude plugin update briefing@getty", row[3])
         self.assertNotIn("Install ", row[3])
+
+    # briefing's starter, when no binary serves `doctor --tsv`: exit 1, the message on stderr
+    # only, nothing on stdout (the starter's own text, not a wording of the kit). The Python
+    # fallback is not tried for `doctor --tsv`, so its part of the message is empty.
+    NO_BINARY = "briefing: no binary (%s) and no fallback (; %s)."
+    PERL_MODULES = "this perl does not load App::Briefing (Moo, Path::Tiny, JSON::MaybeXS, TOML::Tiny are needed)"
+    NO_PERL = "perl was not found on PATH"
+    NO_SCRIPT = "script/briefing is missing"
+
+    def starter_fails(self, message, name, layout=False):
+        """Returns the whole text of the missing line and its advice (the last sentence).
+        layout: briefing sits in a plugin-like folder whose name has a space, its bin/ first
+        on PATH; self.plugin_folder is the plugin folder as the script prints it (resolved)."""
+        d = self.team(name=name)
+        if layout:
+            plug = self.root / "plug dir" / "v1"
+            (plug / "bin").mkdir(parents=True)
+            shutil.copy(str(FAKE_BRIEFING), str(plug / "bin" / "briefing"))
+            (plug / "bin" / "briefing").chmod(0o755)
+            os.remove(str(self.fakebin / "briefing"))
+            self.env["PATH"] = str(plug / "bin") + os.pathsep + self.env["PATH"]
+            self.plugin_folder = os.path.realpath(str(plug))
+        self.briefing_says("", exit_code=1)
+        r = self.at("check", cwd=d, env={"FAKE_BRIEFING_STDERR": message})
+        row = self.only_briefing_missing(r, d, fix=None)
+        self.assertIn("(exit 1: %s)" % message, row[3])         # the starter's text stays
+        return row[3], row[3].split("cannot run. ", 1)[1]
+
+    def test_a_starter_whose_perl_does_not_load_briefings_modules_says_to_install_them(self):
+        for i, why_binary in enumerate(("no binary here", "the binary is not for this system")):
+            with self.subTest(why_binary):
+                text, advice = self.starter_fails(self.NO_BINARY % (why_binary, self.PERL_MODULES),
+                                                  "harbor-mod%d" % i)
+                # updating the plugin does not install Perl modules
+                self.assertNotIn("claude plugin update", text)
+                self.assertNotIn("claude plugin install", text)
+                # cpanm, for the dependencies of the plugin or for the modules the message
+                # names; not resting on App::Briefing being on CPAN (a bare
+                # `cpanm App::Briefing` fails this)
+                self.assertRegex(advice, r"\bcpanm\b")
+                self.assertRegex(advice, r"--installdeps|\bMoo\b")
+                # house rule: one sentence what to do
+                self.assertEqual(len(re.split(r"(?<=\.)\s+", advice.strip())), 1, advice)
+                self.assertTrue(advice.endswith("."), advice)
+
+    @unittest.skipIf(os.name == "nt", "the Windows host keeps its own PATH and path forms")
+    def test_the_modules_advice_names_the_plugin_folder_quoted(self):
+        # the folder with briefing's cpanfile is the parent of the starter's bin/, not bin/
+        # itself and not the current folder; its name has a space, so it must be quoted
+        _, advice = self.starter_fails(self.NO_BINARY % ("no binary here", self.PERL_MODULES),
+                                       "harbor-folder", layout=True)
+        self.assertIn('cpanm --installdeps "%s"' % self.plugin_folder, advice)
+
+    def test_a_starter_without_perl_says_to_install_perl(self):
+        # distinct case: Perl modules are not the cause, installing them cannot help
+        text, advice = self.starter_fails(self.NO_BINARY % ("no binary here", self.NO_PERL),
+                                          "harbor-noperl")
+        self.assertNotIn("claude plugin update", text)
+        self.assertNotIn("claude plugin install", text)
+        self.assertIn("Install perl and run this again", advice)
+        self.assertNotRegex(advice, r"App::Briefing|cpan")
+
+    def test_a_starter_failure_of_another_kind_keeps_the_update_advice(self):
+        # controls: only the modules and the missing perl change the advice; a plugin without
+        # its script/briefing is broken, and updating IS right; a match on the common
+        # "no fallback (" part alone would change it and fail here
+        for i, msg in enumerate(("briefing: cannot start (something else)",
+                                 self.NO_BINARY % ("no binary here", self.NO_SCRIPT))):
+            with self.subTest(msg):
+                text, advice = self.starter_fails(msg, "harbor-other%d" % i)
+                self.assertTrue(text.endswith(" " + FIX), text)
+                self.assertNotRegex(advice, r"App::Briefing|cpan|Install ")
 
     def test_the_first_stderr_line_of_a_failing_briefing_is_in_the_text(self):
         d = self.team()

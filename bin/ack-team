@@ -217,9 +217,12 @@ _briefing_doctor() {
 # one missing line: no command on PATH, no answer in time, exit 2 or more, or no settings
 # line among the contract lines; the text names the command's path and, when the command
 # failed, its exit status and first stderr line. The advice is to install the program
-# that line names as missing (perl, Node.js), else to update or install the plugin.
+# that line names as missing (perl, Node.js), or, when briefing's starter says that perl
+# was not found or does not load App::Briefing, to install perl or the Perl modules
+# briefing needs (cpanm --installdeps with the plugin folder, the starter's bin/.., which
+# holds briefing's cpanfile), else to update or install the plugin.
 check_briefing() {
-  local bin rc line r what st name text valid="" wait="${ACK_BRIEFING_WAIT:-30}" settings=0 why
+  local bin rc line r what st name text valid="" wait="${ACK_BRIEFING_WAIT:-30}" settings=0 why pd
   local tail="so the agent, skill, hook and settings checks cannot run"
   local fix="Update or install the briefing plugin with: claude plugin update briefing@getty (or install it with: claude plugin install briefing@getty), then run /reload-plugins."
   case "$wait" in
@@ -236,8 +239,18 @@ check_briefing() {
     why=" (exit $rc"
     [ -n "$ACK_BOUNDED_ERR" ] && why="$why: $ACK_BOUNDED_ERR"
     why="$why)"
-    # a program briefing needs is missing: installing it helps, updating the plugin not
-    _missing_program "$ACK_BOUNDED_ERR" && fix="Install $REPLY and run this again."
+    # a program briefing needs is missing: installing it helps, updating the plugin not;
+    # the same for briefing's starter: "... no fallback (...perl was not found on PATH)." or
+    # "...this perl does not load App::Briefing (...)."
+    if _missing_program "$ACK_BOUNDED_ERR"; then fix="Install $REPLY and run this again."
+    else
+      case "$ACK_BOUNDED_ERR" in
+        *"perl was not found on PATH"*) fix="Install perl and run this again." ;;
+        *"this perl does not load App::Briefing"*)
+          pd="$(CDPATH= cd -P -- "${bin%/*}/.." 2>/dev/null && pwd)" || pd="${bin%/*}/.."
+          fix="Install the Perl modules briefing needs with: cpanm --installdeps \"$pd\", then run this again." ;;
+      esac
+    fi
   fi
   if [ "$rc" = 124 ]; then
     emit briefing missing "." "The briefing command at $bin did not answer within $wait seconds, $tail. $fix"
