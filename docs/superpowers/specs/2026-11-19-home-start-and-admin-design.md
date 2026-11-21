@@ -419,6 +419,12 @@ findings' numbers from that session; board cards refer to them.
    briefing resolves only the session folder's and the user's skills (as case B's agents
    report; not checked against briefing). The admin keeps Decided 3: it never edits an
    area.
+6. **Three blocks frame the home start's questions,** in this order: the work environment,
+   always there, with one question for how far the admin reaches (this computer only; also
+   the home network or a lab; a lab or network the user's work depends on, which becomes
+   its own `<topic>-admin`); work, paid or unpaid alike, open source included; customers,
+   one folder each. In every block the same two questions set the cut, the folder name and
+   the gates: code or operations, and the stakes.
 
 ### Findings, and the calls made on them, not by the maintainer
 
