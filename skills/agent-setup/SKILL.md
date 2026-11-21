@@ -1,23 +1,23 @@
 ---
 name: agent-setup
-description: "Build or check the agent team for the project in this folder."
+description: "Build or check the agent team for the project in this folder; typed in the home folder, set up an admin and a team for each area of work."
 disable-model-invocation: true
 ---
 
 # Agent setup
 
-End state: a checked team of agents for the project in this folder; the user needs to
+End state: a checked team of agents for the project in this folder, or, in the home
+folder, an admin that steers a checked team per area (hub mode, Step 2); the user needs to
 know nothing about the kit. Open a reference when its step names it, not before. The user
 ran this command to build the team, or to check the agents already here: Steps 0 to 6.
 Words typed after the command, in any form ("I have a small shop website here", "I have a
 homelab and want to develop things"): $ARGUMENTS
 
-Not in this version: a hub (one place steering several teams), an issue tracker as the
-board, a survey of the machine (its computers and services). Asked for, or called for by
-what the user says: say so in a sentence, build the team for this folder. In Step 2,
-before its questions: several areas ("a homelab, and I develop things"): ask which one
-this folder is for; an empty folder: ask what will be made here, and that answer is the
-one sentence of Step 3. The user wants only the machine set up (starters, a model
+Not in this version: an issue tracker as the board. Asked for, or called for by what the
+user says: say so in a sentence, build the team for this folder. In Step 2, before its
+questions, outside hub mode: several areas ("a homelab, and I develop things"): ask which
+one this folder is for; an empty folder: ask what will be made here, and that answer is
+the one sentence of Step 3. The user wants only the machine set up (starters, a model
 service): that is `/agent-machine`; say so and stop.
 
 Presets: Claude does not see the commands in its skill list, but a preset sees that this
@@ -78,9 +78,12 @@ for other services are `/agent-machine`, only if the user asks.
 ## Step 2: the repository
 
 `ack-repo inspect` in this folder (it only reads), then "Reading the repository" in
-[references/team-analysis.md](references/team-analysis.md). A home folder, desktop or
-drive is no project: ask where it is, or suggest a new folder for a new project; the
-user types `/exit`, starts Claude there (`cd "<folder>"`, then `claude`) and types `/agent-setup`.
+[references/team-analysis.md](references/team-analysis.md). The home folder (`home<TAB><dir>`)
+or an admin folder (its rules header holds `shape=hub`) is hub mode: it goes on in
+[references/team-home.md](references/team-home.md) and [references/kind-admin.md](references/kind-admin.md)
+through to the hand-over. A desktop or drive is no project: ask where it is, or suggest a
+new folder for a new project; the user types `/exit`, starts Claude there (`cd "<folder>"`,
+then `claude`) and types `/agent-setup`.
 
 - Agents exist ("An existing team" there): without a repository of its own, question 1
   first. Then `ack-team check`, and say what the team has and what is missing; never
@@ -110,6 +113,7 @@ One message as in [references/using-the-team.md](references/using-the-team.md): 
 start sentence and this folder's full path; first `/exit` and `claude` here again, since
 Claude Code loads agents only when a session starts; at the end, Remote Control in one
 sentence. Then its "Next steps" that apply, one sentence each: `/agent-tune` after real
-work, the hub (several areas), on Windows a second team for this computer only, each
-later-version item from above, a preset's starters that `ack-wrappers list` shows `absent`:
-name them and say `/agent-machine` sets them up, typed in the new session after the restart.
+work, the admin (several areas: `/agent-setup` typed in the home folder), this computer,
+looked after by the admin on every platform, each later-version item from above, a
+preset's starters that `ack-wrappers list` shows `absent`: name them and say
+`/agent-machine` sets them up, typed in the new session after the restart.

@@ -131,3 +131,8 @@ Revision history for agent-construction-kit
       file below DIR and changes nothing.
     - ack-repo inspect names the home folder with a home line and reads
       nothing further there.
+    - /agent-setup typed in the home folder runs hub mode: the survey with its
+      permission question, the questions in three blocks (work environment,
+      work, customers), the plan, then the build of the areas and the admin
+      with its AREAS table. The admin looks after this computer, on every
+      platform.

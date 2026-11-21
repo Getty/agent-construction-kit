@@ -22,9 +22,9 @@ Run `ack-repo inspect` in the project folder; it only reads, offline. One fact p
 - `git<TAB>inside<TAB><top>`: the folder lies inside the repository `<top>`. Before anything
   else ask whether the team belongs to `<top>` (then the user starts Claude there, as in
   Step 2 of SKILL.md) or to this folder alone (question 1). `git<TAB>home<TAB><top>`: that repository is the user's home
-  folder kept in git; never build in it: question 1, or Step 2 of SKILL.md when `<top>` is this folder (a home folder is
-  no project). Neither prints `commits`, `branch`, `dirty` or `remote` lines; the other lines are this folder's.
-  `home<TAB><dir>`: this folder is the home folder itself, in git or not; no line follows: Step 2 of SKILL.md.
+  folder kept in git; never build in it: question 1, or Step 2 of SKILL.md when `<top>` is this folder (hub
+  mode). Neither prints `commits`, `branch`, `dirty` or `remote` lines; the other lines are this folder's.
+  `home<TAB><dir>`: this folder is the home folder itself, in git or not; no line follows: hub mode, Step 2 of SKILL.md.
 - `git<TAB>refused<TAB><dir><TAB><reason>`: git refuses to read the `.git` in `<dir>` (dubious
   ownership, a broken `.git`). Tell the user and stop until it is fixed, by them: nothing is
   built, `ack-repo init` writes nothing there, and you never change their global git config.
@@ -74,7 +74,7 @@ work with an explicit authority boundary, never a standard role.
 
 | The user says, or the repository shows | Propose |
 |---|---|
-| one project here ("I have a small web shop in this folder") | a project team, with only the capabilities the work needs |
+| one project here ("I have a small web shop in this folder") | a project team, with only the capabilities the work needs; several areas, each in a folder of its own: an admin steers them ([team-home.md](team-home.md)) |
 | clearly separate existing or planned parts (`frontend/` and `backend/`, `packages/*`) | a purpose-specific owner for each part only where their work, knowledge or authority differs |
 | distributed runtime or external integration | an operator capability if its operating work and approval boundary are concrete |
 | `sibling` lines that share a core | a family ([team-family.md](team-family.md)) |
@@ -140,7 +140,7 @@ One plain-language message, then "Shall I build it?"; the user may take out or c
 - The name and e-mail from question 4, the copy on a drive and its updates, the board (karr,
   downloaded into the folder `ack-wrappers dir` prints, and with `dir<TAB>missing` the line
   `ack-wrappers path-fix` adds to the shell's startup file), and what is not included that
-  the user might expect (a hub; "karr can come later").
+  the user might expect ("karr can come later").
 
 Example for a new web shop `harbor`, with a copy on a USB drive:
 

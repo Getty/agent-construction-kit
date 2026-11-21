@@ -22,7 +22,7 @@ MACHINE_REFS = MACHINE_DIR / "references"
 MACHINE = MACHINE_REFS / "machine.md"
 TEAM_REFS = ("team-analysis.md", "team-answer-sheet.md", "team-agents.md", "team-rules.md",
              "team-board.md", "team-family.md", "team-second-copy.md", "team-without-code.md",
-             "using-the-team.md")
+             "using-the-team.md", "team-home.md", "kind-admin.md")
 # A new reference may exist before SKILL.md links it; until it does, it must be reached
 # from team-analysis.md. Remove a name once SKILL.md links it (the test says when).
 AWAITING_SKILL_LINK = set()
@@ -288,8 +288,10 @@ class SkillTest(Sandbox):
             "`ack-doctor` is on PATH", "load every one yourself (Skill tool)")
         later = re.search(r"Not in this version: (.*?)\. ", part["intro"])
         self.assertIsNotNone(later, "the intro does not say what this version leaves out")
-        for words in ("a hub", "an issue tracker", "a survey of the machine"):
-            self.assertIn(words, later.group(1))
+        self.assertIn("an issue tracker", later.group(1))
+        for words in ("a hub", "a survey"):
+            self.assertNotIn(words, later.group(1))
+        self.assertIn("home folder", frontmatter(SKILL)["description"])
         self.assertNotRegex(" ".join(text.split()), r"team[^.]*comes with a later version")
         has("Talking with the user", "`/reload-plugins`", "`/exit`", "`/agent-machine`",
             "Nothing is written into the project before the user's yes to the short plan",
@@ -299,12 +301,13 @@ class SkillTest(Sandbox):
             "I recommend yes.", "all `ok`: skip this step")
         has("Step 2", "`ack-repo inspect`", "`ack-repo init`", "`ack-repo disk-remote`",
             "question 1 first. Then `ack-team check`", "never overwrite an agent file unasked",
-            "goes through Steps 3 and 4 first; then Steps 5 and 6")
+            "goes through Steps 3 and 4 first; then Steps 5 and 6", "hub mode",
+            "references/team-home.md", "references/kind-admin.md")
         has("Step 3", "only a yes leads on")
         has("Step 5", "`ack-team check` until no line says `missing`")
         has("Step 6", "`/exit`", "Claude Code loads agents only when a session starts",
             "fixed start sentence and this folder's full path", "Remote Control",
-            "on Windows a second team for this computer only",
+            "the admin", "looked after by the admin on every platform",
             "`ack-wrappers list` shows `absent`", "`/agent-tune`")
         doctor = read(ROOT / "bin" / "ack-doctor")      # Step 1 fixes these lines
         required = set(re.findall(r"\bemit ([a-z:]+) missing [^\n]* required\b", doctor))
@@ -898,6 +901,9 @@ class SkillTest(Sandbox):
         for hub in ("Start Claude always in `admin`; it steers the others.",
                     "Start directly in `developer` only to talk with it alone;"):
             self.assertIn("With a hub: \"" + hub, use)
+        self.assertNotIn("never say these sentences", use)
+        self.assertNotIn("On Linux or macOS such a team", use)
+        self.assertIn("every platform", use)
 
     def test_what_leaves_the_machine_is_said_before_the_yes(self):
         def flat(name):
@@ -984,8 +990,9 @@ class SkillTest(Sandbox):
         self.assertTrue(any(r[1].startswith("+") for r in rows), "no + row in the example")
         for words in ("cannot check; I left that line out.", "the replacing rows together "
                       "replace, then the `+` rows add", "`sources`, `bundles` and `provider`",
-                      "never met in this version", "`<family>-coordination`"):
+                      "`AREAS` row", "`<family>-coordination`"):
             self.assertIn(words, flat)
+        self.assertNotIn("never met in this version", flat)
         provider = [row[3] for _, row in tables(text, "Key") if spans(row[0]) == ["provider"]]
         self.assertTrue(provider and "installs none" in provider[0] and "`absent`" in provider[0])
         self.assertIn("`ack-wrappers list` shows as `absent`",
@@ -1219,6 +1226,7 @@ class SkillTest(Sandbox):
         reading = analysis.partition("## Reading the repository")[2].partition("## An existing")[0]
         home = re.search(r"`git<TAB>home<TAB><top>`:(.*?) - `git<TAB>refused", reading).group(1)
         self.assertIn("Step 2 of SKILL.md when `<top>` is this folder", home)
+        self.assertIn("hub mode", home)
         refused = re.search(r"- `git<TAB>refused<TAB><dir><TAB><reason>`:(.*?) - `branch", reading)
         self.assertIn("never change their global git config", refused.group(1))
         for doc in docs():
@@ -1244,6 +1252,109 @@ class SkillTest(Sandbox):
             self.assertIn(words, karr[0][1])
         setup = flat("team-board.md").partition("### Setting it up")[2].partition("### ")[0]
         self.assertIn("call karr by its full path, `<dir>/karr`", setup)
+
+    # ---- hub mode (the home start)
+
+    def test_hub_mode_is_entered_before_an_existing_team_is_read(self):
+        text = read(SKILL)
+        step = re.search(r"^## Step 2:.*?(?=^## |\Z)", text, re.S | re.M).group(0)
+        self.assertIn("hub mode", step)
+        self.assertIn("Agents exist", step)
+        self.assertLess(step.index("hub mode"), step.index("Agents exist"),
+                        "Step 2 reads an existing team before it names hub mode")
+        home = squash(read(REFS / "team-home.md"))
+        for words in ("home<TAB><dir>", "shape=hub"):
+            self.assertIn(words, home)
+
+    def test_hub_mode_carries_the_fixed_copy(self):
+        home = squash(read(REFS / "team-home.md"))
+        for words in (
+                "May I look at the folder names in your home folder? I read names, whether "
+                "files exist and the date of each repository's last commit, never what is "
+                "inside a file.",
+                "I see 23 projects, 4 of them with a team, and signs of servers you run and of "
+                "Perl releases.",
+                "What do you do on this computer?",
+                "I also see signs of <a> and <b>. Do you work on those here?",
+                "The parent is no area", "It is never built with another kind's rules",
+                "Shall I build it?", "harbor",
+                "Nothing is written into the home folder itself."):
+            self.assertIn(words, home)
+        for name in ("team-home.md", "kind-admin.md"):
+            self.assertNotIn("homelab", read(REFS / name), name)
+
+    def test_every_survey_line_is_documented(self):
+        printed = set()
+        for line in read(ROOT / "bin" / "ack-survey").splitlines()[1:]:
+            if not line.startswith("#"):
+                break
+            printed |= set(re.findall(r'(?:^\s+|\s{2,}|")([a-z]+)<TAB>', line[1:]))
+        self.assertEqual(printed, {"platform", "hub", "project", "family", "signal", "partial"})
+        text = read(REFS / "team-home.md")
+        documented = {s.split("<TAB>")[0] for s in code_spans(text) if "<TAB>" in s}
+        self.assertEqual(printed - documented, set(),
+                         "ack-survey lines team-home.md does not explain")
+        kinds = set(spans(text))
+        for kind in ("operations", "fleet", "content", "pipeline", "machine"):
+            self.assertIn(kind, kinds, "team-home.md: no `%s` span" % kind)
+
+    def test_the_admin_relation_stays_out_of_committed_files(self):
+        raw = read(REFS / "team-home.md")
+        home = squash(raw)
+        for words in (".claude/rules/.local.admin.md",
+                      "Work for another area: a card on the admin's board in `<admin folder>`.",
+                      "info/exclude", "manager=none"):
+            self.assertIn(words, home)
+        for name in ("team-home.md", "kind-admin.md"):
+            text = read(REFS / name)
+            self.assertNotRegex(text, r"manager=(?!none\b)", "%s: a manager that is not none" % name)
+            for header_line in re.findall(r"<!-- ack: ([^>]*?) -->", text):
+                for pair in header_line.split():
+                    key, _, value = pair.partition("=")
+                    self.assertIn(key, ANSWER_KEYS, name)
+                    self.assertNotIn("admin", pair, "%s: the admin in a committed header" % name)
+
+    def test_proposals_are_cards_never_teams(self):
+        admin = squash(read(REFS / "kind-admin.md"))
+        for words in ("five most recently committed", "one card for all other teamless projects",
+                      "did not choose", "`ack-survey`"):
+            self.assertIn(words, admin)
+        home = squash(read(REFS / "team-home.md"))
+        for kind in ("operations", "machine", "fleet", "content", "pipeline", "customers"):
+            self.assertRegex(home, r"`%s`[^.]*a card|a card[^.]*`%s`" % (kind, kind),
+                             "team-home.md: no card naming the kind %s" % kind)
+
+    def test_the_admin_looks_after_this_computer(self):
+        admin = squash(read(REFS / "kind-admin.md"))
+        for words in ("this computer", "every platform", "never spawns", "no customer data"):
+            self.assertIn(words, admin)
+        home = squash(read(REFS / "team-home.md"))
+        for words in ("<topic>-developer", "<topic>-admin"):
+            self.assertIn(words, home)
+
+    def test_the_admin_reference_is_what_the_check_checks(self):
+        raw = read(REFS / "kind-admin.md")
+        admin = squash(raw)
+        self.assertIn("<folder><TAB><kind><TAB><board>", admin)
+        values = {spans(row[0])[0]: spans(row[1])
+                  for _, row in tables(read(REFS / "team-answer-sheet.md"), "Key")}
+        m = re.search(r"<!-- ack: ([^>]*?) -->", raw)
+        self.assertIsNotNone(m, "kind-admin.md: no rules header")
+        pairs = dict(p.partition("=")[::2] for p in m.group(1).split())
+        want = {"shape": "hub", "manager": "none", "committer": "main", "headless": "on"}
+        self.assertEqual({k: pairs.get(k) for k in want}, want)
+        for key, value in pairs.items():
+            self.assertIn(value, values[key], "answer sheet: %s=%s" % (key, value))
+        for words in ("handed to <folder> c<M>", "headless=on", "the permission mode"):
+            self.assertIn(words, admin)
+        for name in ("team-home.md", "kind-admin.md"):
+            self.assertNotIn("from admin", squash(read(REFS / name)), name)
+
+    def test_no_text_promises_the_hub_for_later(self):
+        for doc in skill_docs("agent-setup"):
+            text = squash(read(doc))
+            self.assertNotRegex(text, r"(?i)\bhub\b[^.]*\b(?:next|later) version", doc.name)
+            self.assertNotRegex(text, r"(?i)\b(?:next|later) version[^.]*\bhub\b", doc.name)
 
     def readme_provider_names(self):
         text = read(README)

@@ -13,8 +13,8 @@ presets use; the project rules keep the answers in their first line. "Kit alone"
 
 | Key | Values | Kit alone | Meaning |
 |---|---|---|---|
-| `shape` | `project`, `family` | `project`; question 3 | the shape: one repository, or several around a core |
-| `manager` | `none` | `none` | who steers the team; a hub comes with the next version |
+| `shape` | `project`, `family`, `hub` | `project`; question 3; `hub` only for an admin | the shape: one repository, several around a core, or an admin that steers areas ([kind-admin.md](kind-admin.md)) |
+| `manager` | `none` | `none` | who steers the team: `none` in every committed header, an area an admin steers included; that relation lives only in the admin's `AREAS` and the area's ignored `.claude/rules/.local.admin.md` ([team-home.md](team-home.md)) |
 | `prefix` | a kebab-case name | the name the project's manifest gives (`name` in `package.json`, `Cargo.toml`, `pyproject.toml`, `dist.ini`, `.claude-plugin/plugin.json`, …; an npm scope dropped), else the `prefix` line (the folder name); a long name may get a short form, offered in the plan, never forced: its initials (`agent-construction-kit` → `ack`) or its first word | agents are named `<prefix>-<role>`; `<project>` in the templates is the project's own name |
 | `board` | `file`, `karr` | `file`; question 6 | where the cards live ([team-board.md](team-board.md)) |
 | `committer` | `release-manager`, `main`, `user` | explicitly selected in the plan; `main` until chosen | who writes git history: a release-manager agent only when selected, the session the user talks to, or the user |
@@ -75,7 +75,9 @@ on the kit's own initiative. Its author writes the section like this:
 - A line `- <key> when <condition>: <value>` applies only when the condition is met:
   - `family`: `shape` is `family` (settle `shape` first; its own lines take no
     `family` or `hub`);
-  - `hub`: a hub steers the team; never met in this version;
+  - `hub`: met for a team with an `AREAS` row: every area hub mode builds or adds, and in
+    a folder start a folder whose `.claude/rules/.local.admin.md` names an admin whose
+    `AREAS` lists it;
   - a `signal` kind (`perl`, `node`, `python`, `go`, `rust`, `make`, `ci`): met when
     `ack-repo inspect` printed a `signal` line of that kind;
   - a test in words in double quotes: you check it in the repository.
@@ -118,7 +120,7 @@ on the kit's own initiative. Its author writes the section like this:
   it is left out of the row, with one line to the user saying so.
 - An unknown key is ignored, with one line to the user: "The preset names `<key>`, which
   this version of the kit does not know; I left it out." A value this version cannot
-  build (a hub, an issue tracker as board): the kit's value, and one line saying so.
+  build (an issue tracker as board): the kit's value, and one line saying so.
 - A preset written with the four older names (`bauform` for `shape`, `fremdeingaben` for
   `outside_input`, `quellen` for `sources`, `rollen` for `roles`, also as the first header
   of the table) is read the same; so is a rules header with `bauform=` or `fremdeingaben=`.

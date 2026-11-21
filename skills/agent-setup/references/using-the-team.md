@@ -11,7 +11,7 @@ one message; offer Remote Control at the end, in a sentence, and explain it only
 - Nothing leaves without your word
 - Remote Control: the team on the phone
 - Next steps
-- With a hub (for a later version)
+- With a hub
 
 ## The hand-over message
 
@@ -106,14 +106,14 @@ After the hand-over, a sentence or two each, for what applies; nothing else:
   personal or shared skill collection may be a local or private repository with `skills/<name>/SKILL.md`;
   edit it at the source, then run `skilletor sync`, never hand-edit an installed copy. Choosing one does
   not create a remote, publish or push it.
-- The analysis saw several repositories or areas: "The next version of the kit can
-  steer several teams from one place (a hub); this team would become one of them."
-- On Windows, always: "I recommend a second team later, in a folder of its own, only
-  for this computer: updates, installed programs, the search path (PATH) and other
-  settings, services, WSL, Git for Windows, and questions like 'why does X not work?'.
-  A project agent should hand such work over instead of changing the system on the
-  side. That team comes with the hub, in the next version of the kit."
-- On Linux or macOS such a team for the computer only when the user asks about it.
+- The analysis saw several repositories or areas: "Several teams can be steered from one
+  place: type `/agent-setup` in your home folder. It sets up an admin in a folder of its
+  own, and this team becomes one of its areas."
+- On every platform: "The admin that `/agent-setup` sets up, typed in your home folder,
+  looks after this computer: its first cards hold one for it." On Windows add: "That card
+  names Windows' own duties: updates, installed programs, the search path (PATH) and other
+  settings, services, WSL, Git for Windows. A project agent hands such work over instead
+  of changing the system on the side."
 - Only if the user asked for it, an issue tracker as the board: "That comes with a later
   version of the kit; until then you bring single entries in as cards."
 - Only if the user asked about their machines or services (a homelab, an admin setup): "A
@@ -126,8 +126,10 @@ After the hand-over, a sentence or two each, for what applies; nothing else:
 
 ## With a hub
 
-A structure that steers several teams (a hub) comes with a later version; until then,
-never say these sentences. For that version they are ready, marked "with a hub":
+Hub mode ([team-home.md](team-home.md)) says these two sentences in its hand-over, with
+the real folder names in place of `admin` (the admin's folder) and `developer` (an area's
+folder; one sentence per area, or the areas named together); so does the hand-over of a
+team the admin adds later:
 
 - With a hub: "Start Claude always in `admin`; it steers the others."
 - With a hub: "Start directly in `developer` only to talk with it alone; it then knows
