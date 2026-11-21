@@ -1,6 +1,7 @@
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 import unittest
@@ -67,7 +68,9 @@ def tsv(rows, nl="\n"):
     return "".join(TAB.join(r) + nl for r in rows)
 
 
-class TeamTest(Sandbox):
+class TeamBase(Sandbox):
+    """The sandbox, the fake briefing and the helpers; the tests are in TeamTest."""
+
     def setUp(self):
         super().setUp()
         gitconfig = self.root / "gitconfig"
@@ -201,6 +204,8 @@ class TeamTest(Sandbox):
                  "harbor-test-writer, harbor-reviewer, harbor-api and harbor-docs.\n")
         return d
 
+
+class TeamTest(TeamBase):
     # ---- the good team
 
     def test_good_team_prints_only_ok(self):
@@ -1322,6 +1327,125 @@ class TeamTest(Sandbox):
         r = self.at("--help")
         self.assertEqual(r.returncode, 0)
         self.assertIn("ack-team check", r.stdout)
+
+
+def find_real_briefing():
+    """(path, None) for the real briefing starter, found as a user's machine has it,
+    before any sandbox: ACK_REAL_BRIEFING, else the user-scope plugin in
+    installed_plugins.json (bin/briefing), else a `briefing` on PATH. (None, reason) when
+    there is none. An ACK_REAL_BRIEFING that is set but unusable is final: no fallback."""
+    if os.name == "nt":
+        return None, ("not run on Windows: Claude Code starts bin/briefing.exe there; "
+                      "this test drives the sh starter")
+
+    def usable(c):
+        return os.path.isfile(c) and os.access(c, os.X_OK)
+    forced = os.environ.get("ACK_REAL_BRIEFING", "")
+    if forced:
+        if usable(forced):
+            return forced, None
+        return None, "ACK_REAL_BRIEFING is set to %s, which is not an executable file" % forced
+    cands = []
+    try:
+        import json
+        plugins = pathlib.Path(os.path.expanduser("~")) / ".claude" / "plugins"
+        data = json.loads((plugins / "installed_plugins.json").read_text())
+        for e in data.get("plugins", {}).get("briefing@getty", []):
+            if e.get("scope") == "user":
+                cands.append(str(pathlib.Path(e["installPath"]) / "bin" / "briefing"))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    cands.append(shutil.which("briefing") or "")
+    for c in cands:
+        if c and usable(c):
+            return c, None
+    return None, ("no real briefing starter: set ACK_REAL_BRIEFING, or install "
+                  "briefing@getty (user scope) or put briefing on PATH")
+
+
+REAL_BRIEFING, REAL_BRIEFING_WHY = find_real_briefing()
+NO_START = ("no fallback", "does not load App::Briefing", "perl was not found")
+
+
+class RealBriefingTest(TeamBase):
+    """ack-team check through the really installed briefing starter, not the fake: the
+    first end-to-end proof that briefing's `doctor --tsv` rows reach ack-team (c13).
+    Skipped only when the starter alone cannot run here (decided by a probe of the
+    starter itself, never from ack-team's output); after that, a `briefing` line from
+    ack-team is a failure."""
+
+    def setUp(self):
+        if REAL_BRIEFING is None:
+            self.skipTest(REAL_BRIEFING_WHY)
+        super().setUp()
+        # the real starter behind the sandbox PATH; its Perl modules may live in a
+        # local::lib the sandbox env would hide (never HOME or keys)
+        self.fake("briefing", "#!/bin/sh\nexec %s \"$@\"\n" % shlex.quote(REAL_BRIEFING))
+        for k in ("PERL5LIB", "PERL_LOCAL_LIB_ROOT"):
+            if k in os.environ:
+                self.env[k] = os.environ[k]
+        self.probe()
+
+    def probe(self):
+        """Run the starter alone, as ack-team does (sandbox env, a team folder): skip
+        only when it gives no rows and says it could not start."""
+        d = self.team("probe")
+        r = subprocess.run([REAL_BRIEFING, "doctor", "--tsv"], env=self.env, cwd=str(d),
+                           text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           timeout=RUN_LIMIT)
+        if any(l.count(TAB) >= 3 for l in r.stdout.splitlines()):
+            return
+        line = next((l for l in (r.stderr + r.stdout).splitlines()
+                     if any(m in l for m in NO_START)), None)
+        if line is None:
+            self.fail("the real briefing at %s printed no rows and no start failure "
+                      "(exit %d): %r %r" % (REAL_BRIEFING, r.returncode, r.stdout, r.stderr))
+        self.skipTest("the real briefing at %s cannot run here: %s" % (REAL_BRIEFING, line.strip()))
+
+    def real_team(self):
+        d = self.team()
+        self.put(d, ".claude/skills/harbor-core/SKILL.md",
+                 "---\nname: harbor-core\ndescription: Use for harbor.\n---\n\nBody.\n")
+        self.put(d, ".claude/settings.json", """{
+  "enabledPlugins": {"briefing@getty": true},
+  "extraKnownMarketplaces": {"getty": {"source": {"source": "github", "repo": "Getty/marketplace"}}}
+}
+""")
+        return d
+
+    def check(self, d):
+        r = self.at("check", str(d))
+        self.assertEqual(self.of(r, "briefing"), [], r.stdout)
+        return r
+
+    def test_valid_team_passes_through_hook_ok(self):
+        r = self.check(self.real_team())
+        self.assertEqual(r.returncode, 0, r.stdout)
+        theirs = [x for x in self.rows(r) if x[0] in ("agent", "skill", "hook", "settings")]
+        self.assertEqual([x for x in theirs if x[1] != "ok"], [], r.stdout)
+        self.assertEqual(len(self.of(r, "agent")), 4, r.stdout)
+        self.assertEqual(len(self.of(r, "hook")), 1, r.stdout)
+        self.one(r, "hook", "ok")
+        self.one(r, "skill", "ok", "harbor-core")
+        self.one(r, "settings", "ok")
+
+    def test_unknown_skill_is_found_by_name(self):
+        d = self.real_team()
+        self.agent(d, "worker", skills=("harbor-core", "no-such-skill"))
+        r = self.check(d)
+        hit = self.one(r, "skill", "missing", "no-such-skill")
+        self.assertIn("harbor-worker.md", hit[3])
+        self.assertEqual(r.returncode, 1, r.stdout)
+
+    def test_hook_refusal_names_the_broken_agent(self):
+        d = self.real_team()
+        self.put(d, ".claude/agents/probe-worker.md",
+                 "---\nname: probe-worker\ndescription: probe\nbriefing:\n  skills:\n"
+                 "    - no-such-skill\n---\n")
+        r = self.check(d)
+        hit = self.one(r, "hook", "missing", "probe-worker")
+        self.assertIn("no-such-skill", hit[3])
+        self.assertEqual(r.returncode, 1, r.stdout)
 
 
 if __name__ == "__main__":
