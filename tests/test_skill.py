@@ -718,13 +718,18 @@ class SkillTest(Sandbox):
         for words in ("`OWNERS`", "`<path><TAB><owner>`", "exact", "longest", "directory",
                       "no implicit", "`main`", "planned"):
             self.assertIn(words, text)
-        self.assertIn("`ack-team owner [--dir DIR] [--] FILE...`", text)
-        self.assertIn("`owner<TAB>ok<TAB><relative-file><TAB><owner>`", text)
-        self.assertIn("`owner<TAB>missing", text)
+        # the file describes the lookup in OWNERS itself; the kit's command is not part of it
+        self.assertNotIn("ack-team owner", text)
         routing = "\n".join(read(REFS / name) for name in
                             ("team-analysis.md", "team-agents.md", "team-rules.md"))
         self.assertRegex(routing, r"(?is)OWNERS.{0,180}(?:authoritative|single).{0,100}path")
         self.assertRegex(routing, r"(?is)(?:assign|review).{0,180}OWNERS")
+
+    def test_kit_owner_command_stays_out_of_project_texts(self):
+        # Regression: the kit is a setup tool; its `ack-team owner` must not travel into the
+        # texts that become a project's own rules, agents and ownership map.
+        for name in ("team-rules.md", "team-agents.md", "team-ownership.md", "team-analysis.md"):
+            self.assertNotIn("ack-team owner", read(REFS / name), name)
 
     def test_family_coordination_skill_is_built_for_a_selected_family(self):
         family = read(REFS / "team-family.md")
@@ -852,7 +857,9 @@ class SkillTest(Sandbox):
         self.assertIn("briefing", emitted)
         self.assertRegex(" ".join(read(REFS / "team-rules.md").split()),
                          r"no briefing answers: one `missing` line")
-        self.assertEqual(whats - set(BRIEFING_WHATS), emitted - {"briefing", "hook"},
+        # `owner` is ack-team's subcommand (`ack-team owner FILE...`, tests/test_team.py), not a
+        # line of `check`; the project text no longer mentions it, so the What table omits it
+        self.assertEqual(whats - set(BRIEFING_WHATS), emitted - {"briefing", "hook", "owner"},
                          "the What table of team-rules.md and ack-team differ")
 
     def test_every_repo_and_team_option_is_on_its_help(self):

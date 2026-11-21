@@ -193,7 +193,7 @@ highest ADR. Report ADRs written and gaps left. Never commit. <card lines> Apply
 
 `OWNERS` is the single authoritative path map: [team-ownership.md](team-ownership.md). Descriptions
 name responsibility/incoming work, not copied paths. The main agent or coordinator maintains `OWNERS`;
-before assigning or reviewing, resolve touched/planned paths with `ack-team owner`, fixing unknown
-ownership in `OWNERS` first. One card per result, not per owner. Configuration or docs need a selected
+before assigning or reviewing, look up touched/planned paths in `OWNERS` (the longest matching path wins),
+fixing unknown ownership in `OWNERS` first. One card per result, not per owner. Configuration or docs need a selected
 owner rule in `OWNERS`, for a specialist or `main`. The main or coordinator never bypasses or overrides
 `OWNERS`; registry upkeep follows its mapped writer. Map the changelog with the committer in `OWNERS` when selected.

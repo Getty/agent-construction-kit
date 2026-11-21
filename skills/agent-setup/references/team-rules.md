@@ -63,8 +63,8 @@ paths explicitly mapped to `main` in `OWNERS`; cards cover other agent work.
 ## Check and commits
 
 `<check>` is the check; a card is done only on a passing run, because <the trap>. Before
-assignment and review, resolve every touched or planned path with `ack-team owner`; unknown
-ownership is fixed in `OWNERS` first. <The explicitly selected committer line.>
+assignment and review, look up every touched or planned path in `OWNERS` (the longest matching
+path wins); unknown ownership is fixed in `OWNERS` first. <The explicitly selected committer line.>
 
 ## Board
 
@@ -173,8 +173,7 @@ are briefing's, all but `hook<TAB>missing<TAB>.`, the kit's own (`hook` row); no
 |---|---|---|
 | `agent` | each agent file: frontmatter, `name` equal to the file name (`.local.` dropped), a description, a readable `briefing.skills`; no `allowed-tools`, no top-level `skills:` | fix the file ([team-agents.md](team-agents.md)) |
 | `skill` | each `briefing.skills` entry resolves: in `.claude/skills/`, `~/.claude/skills/`, or in a plugin that is installed and enabled | install it, enable its plugin, write it, or drop the entry |
-| `owner` | resolves supplied files through root `OWNERS` without changing files | fix the map or assign the path, then run `ack-team owner` again ([team-ownership.md](team-ownership.md)) |
-| `owners` | root `OWNERS` is a valid map, by the rules `ack-team owner` applies | `missing`: fix the map ([team-ownership.md](team-ownership.md)); `warn`: no `OWNERS`, as in a team made before the map; it does not fail the check: tell the user and propose the map |
+| `owners` | root `OWNERS` is a valid map, by the rules in [team-ownership.md](team-ownership.md) | `missing`: fix the map ([team-ownership.md](team-ownership.md)); `warn`: no `OWNERS`, as in a team made before the map; it does not fail the check: tell the user and propose the map |
 | `areas` | in an admin folder: each `AREAS` row's folder exists, is a repository, has agents and the board the row names | fix the row or build the team; `warn`: no row yet |
 | `readonly` | agents ending in `-scout`, `-reviewer`, `-checker`, `-coordinator` carry `disallowedTools` naming Edit and Write | add the line |
 | `rules` | a file in `.claude/rules/` | write the project rules |

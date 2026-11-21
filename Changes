@@ -54,8 +54,9 @@ Revision history for agent-construction-kit
       explains that managed skills are edited at their source then synced, and
       offers an optional local or private collection without publishing it.
     - Build teams from planned as well as existing work, selecting only the
-      capabilities each task needs. Each team has one OWNERS map, and
-      ack-team owner resolves a path's assigned owner before work is handed out.
+      capabilities each task needs. Each team has one OWNERS map; its project
+      texts tell agents to look a path up there (longest match, exact) before
+      work is handed out.
     - Add /agent-tune: a manual, project-scoped, read-only
       review of past assignments that reports evidence, uncertainty and
       proposed routing changes without editing, publishing or installing.
@@ -86,7 +87,7 @@ Revision history for agent-construction-kit
       steps sit below it, the reviewer reads git status and git diff HEAD, and
       read-only roles are described as changing nothing, not as unable to write.
     - ack-team check looks at OWNERS too: ok for a valid map, missing for one
-      ack-team owner would refuse, a warning without a map (teams made before
+      that cannot be looked up, a warning without a map (teams made before
       it have none).
     - ack-wrappers test no longer hangs when claude ignores the TERM sent at
       its timeout: after two seconds it gets KILL.

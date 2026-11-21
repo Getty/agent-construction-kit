@@ -32,18 +32,11 @@ path once in the setup. The main agent coordinates later updates. Before handing
 reviewing a finished card, resolve each touched or planned path; resolve an unknown path in
 `OWNERS` before assigning the work.
 
-Run the read-only lookup from the project root: `ack-team owner [--dir DIR] [--] FILE...`.
-Each `FILE` is relative to the selected `DIR`; `--dir` may be absolute.
+Read `OWNERS` and apply the rules above: an exact row for the file wins; otherwise the row for
+the longest directory prefix that contains it. Paths are relative to the repository root. A file
+with no matching row is unowned: add the row to `OWNERS` before assigning the work. Nothing
+beyond reading the file is needed.
 
-```text
-ack-team owner [--dir DIR] [--] FILE...
-```
-
-It emits `owner<TAB>ok<TAB><relative-file><TAB><owner>` for every resolved file. A missing,
-invalid or out-of-repository request emits `owner<TAB>missing<TAB><file-or-map><TAB><two-sentence-guidance>`.
-Exit 0 means every file resolved, 1 means a map or ownership failure, and 2 means usage or an
-unusable directory. The lookup does not create or change files.
-
-`ack-team check` validates the same map on its `owners` line: `ok` for a valid map, `missing`
-(the check fails) for one `ack-team owner` would refuse, and `warn` without `OWNERS`, as in a
-team made before the map; a `warn` does not fail the check.
+`ack-team check` validates the map on its `owners` line: `ok` for a valid map, `missing` (the
+check fails) for a map the rules above reject, and `warn` without `OWNERS`, as in a team made
+before the map; a `warn` does not fail the check.
