@@ -40,6 +40,13 @@ def read(path):
         return f.read()
 
 
+def squash(text):
+    """Collapse every run of whitespace, line breaks included, to one space, and drop a
+    blockquote marker at the start of a line, so a phrase is found wherever the Markdown
+    wraps it."""
+    return " ".join(re.sub(r"(?m)^[>\s]*", "", text).split())
+
+
 def skill_docs(name):
     """SKILL.md of one skill and every reference file next to it."""
     base = SKILLS_DIR / name
@@ -787,7 +794,7 @@ class SkillTest(Sandbox):
         self.assertNotRegex(text, r"(?i)(?:continuous|automatic).{0,80}monitor")
 
     def test_readme_describes_task_derived_boundaries_not_a_universal_roster(self):
-        text = read(README)
+        text = squash(read(README))
         self.assertNotIn("More agents with narrow jobs beat a few that do everything", text)
         self.assertRegex(text, r"(?is)(?:task|work).{0,120}derived.{0,120}boundar")
         self.assertRegex(text, r"(?is)unnecessary.{0,100}hand.?off")
@@ -1251,26 +1258,26 @@ class SkillTest(Sandbox):
         self.assertEqual(sorted(names), shipped_providers())
 
     def test_readme_names_the_three_commands(self):
-        text = read(README)
+        text = squash(read(README))
         for name in SKILL_NAMES:
             self.assertIn("`/%s`" % name, text, name)
             self.assertIn("`/agent-construction-kit:%s`" % name, text, name)
         for gone in ("/agent-construction-kit:tune", "Set up my machine for agent teams",
                      "set up my machine for agent teams", "build an agent team for this project"):
             self.assertNotIn(gone, text, "README still carries the old entry: %r" % gone)
-        self.assertRegex(" ".join(text.split()), r"never starts these three on its own")
+        self.assertRegex(text, r"never starts these three on its own")
 
     def test_readme_names_both_install_lines(self):
-        text = read(README)
+        text = read(README)       # raw: the commands sit in a code block, one per line
         self.assertIn("/plugin marketplace add Getty/marketplace", text)
         self.assertIn("/plugin install agent-construction-kit@getty", text)
 
     def test_readme_prerequisites_come_before_the_install(self):
-        text = read(README)
-        before = text.split("## Install", 1)[0]
+        text = read(README)       # raw: the install commands sit in a code block
+        before = squash(text.split("## Install", 1)[0])
         for word in ("Claude Code", "git", "Git for Windows", "](https://code.claude.com/"):
             self.assertTrue(word in before, "README names %r only after ## Install" % word)
-        after = text.split("/plugin install agent-construction-kit@getty", 1)[1]
+        after = squash(text.split("/plugin install agent-construction-kit@getty", 1)[1])
         self.assertIn("Then type", after, "README: no 'Then type' after the install")
         self.assertTrue("/reload-plugins" in after.split("Then type", 1)[0],
                         "README: no /reload-plugins between the install and 'Then type'")
@@ -1279,34 +1286,36 @@ class SkillTest(Sandbox):
 
     def test_readme_says_what_the_user_does(self):
         text = read(README)
-        self.assertFalse("you only answer" in text, "README: the user does more than answer")
+        self.assertFalse("you only answer" in squash(text), "README: the user does more than answer")
         providers = re.search(r"^## Providers\n(.*?)(?=^## |\Z)", text, re.S | re.M).group(1)
-        self.assertTrue("paid" in providers, "README: providers need an account, usually paid")
+        self.assertTrue("paid" in squash(providers), "README: providers need an account, usually paid")
 
     def test_readme_team_example_is_what_the_kit_does(self):
         text = read(README)
         intro = text.partition("# agent-construction-kit")[2].partition("## What an agent team is")[0]
+        flat_intro = squash(intro)
         setup = re.search(r"^- `/agent-setup` (.*?)(?=^- |^\S|\Z)", intro, re.S | re.M)
         self.assertIsNotNone(setup, "README: the intro does not describe /agent-setup")
-        self.assertIn("builds or checks the team", setup.group(1))
-        self.assertNotIn("next version", intro)       # the team build is not a promise
+        self.assertIn("builds or checks the team", squash(setup.group(1)))
+        self.assertNotIn("next version", flat_intro)       # the team build is not a promise
         example = text.partition("## Example: a team for a software project")[2].partition("\n## ")[0]
+        flat_example = squash(example)
         for gone in ("hub", "issue tracker", "Who may commit", "in one table"):
-            self.assertNotIn(gone, example)
+            self.assertNotIn(gone, flat_example)
         for words in ("`BOARD.md`", "karr", "house rules",
                       "Nothing is uploaded without your word.", "Shall I build it?"):
-            self.assertIn(words, example)
+            self.assertIn(words, flat_example)
         tree = [b for b in FENCE.findall(example) if "harbor/" in b]
         self.assertTrue(tree, "README: no file tree in the team example")
         self.assertIn("BOARD.md", tree[0])
         self.assertNotIn("karr", tree[0])
         self.assertIn("one line per agent", tree[0])
-        roadmap = text.partition("## Roadmap")[2].partition("\n## ")[0]
+        roadmap = squash(text.partition("## Roadmap")[2].partition("\n## ")[0])
         self.assertIn("folders without code", roadmap)
         self.assertIn("More boards: issue trackers", roadmap)
         self.assertNotIn("a rule for input from outside", roadmap)
         changes = read(ROOT / "Changes").partition("{{$NEXT}}")[2]
-        self.assertNotIn("where it is already installed", changes)
+        self.assertNotIn("where it is already installed", squash(changes))
         for words in ("recommended for a family of projects", "not its starters"):
             self.assertIn(words, " ".join(changes.split()))
 
