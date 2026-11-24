@@ -68,11 +68,11 @@ another provider, no `via` Anthropic; your system prompt names it.
 
 ## Step 1: the prerequisites
 
-`claude`, `git`, `marketplace:getty`, `plugin:briefing`, `plugin:skilletor`,
-`runtime:skilletor`, `runtime:briefing` all `ok`: skip this step. Else fix only those by
-step 1 of [machine.md](../agent-machine/references/machine.md), the add-ons in one question ("The
-team needs two free add-ons for Claude Code. May I install them? I recommend yes.");
-after an install, the user types `/reload-plugins`. This kit's install brings both. Starters
+`claude`, `git`, `marketplace:getty`, `plugin:skilletor`,
+`runtime:skilletor` all `ok`: skip this step. Else fix only those by
+step 1 of [machine.md](../agent-machine/references/machine.md), the add-on in one question ("The
+team needs one free add-on for Claude Code. May I install it? I recommend yes.");
+after an install, the user types `/reload-plugins`. This kit's install brings it. Starters
 for other services are `/agent-machine`, only if the user asks.
 
 ## Step 2: the repository
@@ -105,7 +105,7 @@ order" from question 3, and "The plan", which ends "Shall I build it?"; only a y
 ## Step 5: check
 
 "Verification" in team-rules.md: `ack-team check` until no line says `missing`, and its
-hook test once. Then build-order items 9 and 10: one commit, the drive copy if allowed.
+skill probe once. Then build-order items 9 and 10: one commit, the drive copy if allowed.
 
 ## Step 6: hand-over
 

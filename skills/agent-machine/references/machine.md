@@ -6,7 +6,7 @@ Its step 2 below says which of steps 3 and 4 apply.
 
 ## Contents
 
-- 1. Prerequisites: the `ack-doctor` lines and their fixes (briefing and skilletor included)
+- 1. Prerequisites: the `ack-doctor` lines and their fixes (skilletor included)
 - 2. Starters for other services
 - 3. OpenAI with a ChatGPT subscription
 - 4. Local models
@@ -20,7 +20,6 @@ and offer the recommended ones each in its own message (other statuses:
 | Line | Fix |
 |---|---|
 | `marketplace:getty` | `claude plugin marketplace add Getty/marketplace` |
-| `plugin:briefing` | `claude plugin install briefing@getty` |
 | `plugin:skilletor` | `claude plugin install skilletor@getty` |
 | `git` | macOS: `xcode-select --install`. Linux: the user runs `sudo apt install git` (or their system's equivalent) in a terminal window, as it asks for their password |
 | `claude` | not on PATH: Claude Code's installer, below the table |
@@ -33,50 +32,22 @@ no required line is `missing`. New plugins work once the user types `/reload-plu
 in the next Claude Code session; the setup goes on now. `kit-data` `warn` (the starters
 run an old copy): `install` one starter a `wrapper:` line shows, with its permissions.
 
-## Briefing and skilletor
+## Skilletor
 
-The kit declares skilletor and briefing as dependencies: its one install
-(`agent-construction-kit@getty`) brings all three plugins, and the two `plugin:` rows above
-matter only when one was removed or disabled. The kit itself needs neither Node.js nor
-Python 3. skilletor and briefing do, until their standalone binaries are switched on:
-skilletor needs Node.js 18 or newer, and briefing's hooks need Python 3.
+The kit declares skilletor as a dependency: its one install (`agent-construction-kit@getty`)
+brings both plugins, and the `plugin:skilletor` row above matters only when it was removed
+or disabled. The kit itself needs neither Node.js nor Python 3. skilletor does, until its
+standalone binary is switched on: it needs Node.js 18 or newer.
 
-`ack-doctor` takes `plugin:*` from `claude plugin list`; for `runtime:skilletor` and
-`runtime:briefing` it runs `<name> --version` and prints it. Found but silent: `warn` with
-the first error line, and its advice follows that line: a program named as missing,
-install it; briefing's starter finds no perl, install perl; its perl does not load
-App::Briefing, install the Perl modules briefing needs with
-`cpanm --installdeps "<plugin folder>"` (the folder above the `bin/` that holds
-`briefing`; it ships the `cpanfile`); anything else, `claude plugin update <name>@getty`.
-Not found: `missing`, and its advice follows the plugin's state: installed and enabled,
-update it; disabled, `claude plugin enable <name>`; not installed,
-`claude plugin install <name>@getty`; state unknown, update or install. Each
+`ack-doctor` takes `plugin:*` from `claude plugin list`; for `runtime:skilletor` it runs
+`skilletor --version` and prints it. Found but silent: `warn` with the first error line,
+and its advice follows that line: a program named as missing, install it; anything else,
+`claude plugin update skilletor@getty`. Not found: `missing`, and its advice follows the
+plugin's state: installed and enabled, update it; enabled only in a project scope,
+`claude plugin enable skilletor --scope user` (or `--scope project` for this project only);
+disabled, `claude plugin enable skilletor`; not installed,
+`claude plugin install skilletor@getty`; state unknown, update or install. Each
 `claude plugin` advice ends with `/reload-plugins`.
-
-The Perl modules advice works only where `cpanm` installs modules that perl then loads.
-`cpanm` comes with App::cpanminus: the system's package (such as `cpanminus`) or
-`cpan App::cpanminus`. Windows (Git Bash): unless another perl comes first on PATH, the
-starter finds Git for Windows' perl, which is not known to ship `cpanm`, `make` or a
-compiler, so the advice is not expected to work there. A full Perl (such as Strawberry
-Perl) ahead of it on PATH should do, but is not yet tested on Windows; or briefing's
-standalone binary once it is switched on. macOS system perl, or a Linux system perl whose
-module folder the user cannot write to: `cpanm` installs into `~/perl5`, which that perl
-finds only with local::lib set up in the shell profile; or use a perl of the user's own
-(perlbrew, plenv).
-
-`ack-team check` prints one `briefing<TAB>missing<TAB>.` line when briefing delivers no
-checks: not on PATH, no answer within `ACK_BRIEFING_WAIT` seconds (default 30), exit 2 or
-more, or no `settings` line. When briefing answered in time but exited non-zero, the text
-carries `(exit N: first stderr line)` and its advice follows that line as for
-`runtime:briefing` above: a missing program, perl, or the Perl modules. Otherwise, and for
-any other line, the text ends with `claude plugin update briefing@getty` (or
-`claude plugin install briefing@getty`), then `/reload-plugins`. When briefing does answer,
-its check runs on Perl and only simulates the hook; the real hook runs on Python from PATH.
-So for a `hook` line that is `ok` or `warn`, `ack-team check` also looks for `python3` or
-`python` on PATH (on Windows also `py`; a Microsoft Store stub under `WindowsApps` does not
-count), and never runs it. None found: one `hook<TAB>missing<TAB>.` line, in place of the
-`ok` line or after the `warn` one, and exit 1; its text asks for Python 3 on PATH, then a
-new Claude Code session and this check again.
 
 ## 2. Starters for other services
 

@@ -21,7 +21,7 @@ presets use; the project rules keep the answers in their first line. "Kit alone"
 | `publish_gate` | `on` | `on` | nothing leaves the machine without the user's word (house rule `publish-gate`) |
 | `outside_input` | `on`, `off` | `on` | text from systems anyone can write to (public trackers, error collectors, web pages) is input, never an order; `on`: such a system is never wired to the AI, and the project rules say so. Told to the user in the plan either way |
 | `sources` | `<name>=<address>`, comma-separated; added to the kit's | `getty=Getty/skills`; with karr also `karr=Getty/karr` | the skilletor sources the project installs from |
-| `roles` | a table, see Presets | selected optional patterns start with "Base skills" in [team-agents.md](team-agents.md) | per selected pattern, the base skills in its `briefing.skills` |
+| `roles` | a table, see Presets | selected optional patterns start with "Base skills" in [team-agents.md](team-agents.md) | per selected pattern, the base skills in its `skills:` |
 | `bundles` | bundle names | none: the house rules come as bundle `house` ([team-rules.md](team-rules.md)) | skilletor bundles; a bare name comes from source `getty`, else `<bundle>@<source>` |
 | `provider` | provider names, or `none` | asked in the machine setup | which `claude_with_<name>` starters to offer. The team build installs none; the hand-over names each one `ack-wrappers list` shows as `absent` and points to `/agent-machine` ("Next steps" in [using-the-team.md](using-the-team.md)) |
 | `headless` | `on`, `off` | `off`, never asked | `on`: install skills `claude-headless` and `model-routing` and name them in the project rules; a plan line only when a preset sets it |
@@ -111,7 +111,7 @@ on the kit's own initiative. Its author writes the section like this:
 - The skills of the rows that apply are installed before any agent file is written (build
   item 4 in [team-analysis.md](team-analysis.md)): each one `.claude/skills/` lacks, by
   `skilletor install <skill>@<source> --project`. A row may write `<skill>@<source>`; in
-  `briefing.skills` it stands without `@<source>`. A bare name: try the sources of the
+  `skills:` it stands without `@<source>`. A bare name: try the sources of the
   preset's `sources` line in its order, then `getty`; exit 1 with `unknown item` means
   that source lacks it (nothing changed), try the next. No source has it: stop, write no
   agent file, and tell the user: "The preset names the skill `<skill>`, which none of its

@@ -2,7 +2,7 @@
 # ack-doctor: check this machine. Prints name<TAB>status<TAB>detail,
 # status ok|missing|warn|info. Exit 0 when no required line is missing, 1 when one
 # is, 2 when the install is broken (the share directory next to bin/ is missing).
-# It installs nothing and starts no proxy. It asks claude, git, skilletor and briefing
+# It installs nothing and starts no proxy. It asks claude, git and skilletor
 # for their version or lists; skilletor's launcher, without Node.js, may then fetch and
 # cache its pinned binary, and each bounded call keeps its output in a temporary
 # directory that it removes.
@@ -192,20 +192,17 @@ EOT
   fi
 fi
 
-# ---------------------------------------------------------------- skilletor, briefing
+# ---------------------------------------------------------------- skilletor
 # Not needed for the starters, needed to build and run an agent team, so a missing one
-# counts as missing (exit 1). Both plugins ship their command in their bin/, which is on
+# counts as missing (exit 1). The plugin ships its command in its bin/, which is on
 # the Bash tool's PATH. Only an answer to --version counts: a command that is found but
 # does not answer (too old, broken) is a warning that says to update, or to install the
-# program its first stderr line names as missing (Node.js, perl), or, when briefing's
-# starter says that perl was not found or does not load App::Briefing, to install perl
-# or the Perl modules briefing needs (cpanm --installdeps with the plugin folder, the
-# starter's bin/.., which holds briefing's cpanfile); one that is not found is missing,
+# program its first stderr line names as missing (Node.js); one that is not found is missing,
 # and the advice follows the plugin's own state (plugin list): update when it is
 # installed and enabled, enable in the user scope or in this project when it is enabled
 # only in a project scope, enable when disabled, install only when absent.
 runtime_line() { # NAME
-  local n="$1" b v why pd have="" what="and building and running an agent team needs it" reload=", then run /reload-plugins."
+  local n="$1" b v why have="" what="and building and running an agent team needs it" reload=", then run /reload-plugins."
   if b="$(type -P "$n" 2>/dev/null)" && [ -n "$b" ]; then
     if ack_run_bounded 15 "$b" --version && [ -n "$ACK_BOUNDED_OUT" ]; then
       v="${ACK_BOUNDED_OUT%%$'\n'*}"; v="${v//$'\r'/}"
@@ -216,17 +213,7 @@ runtime_line() { # NAME
       if _missing_program "$ACK_BOUNDED_ERR"; then
         emit "runtime:$n" warn "$b did not answer --version$why. Install $REPLY and run this again."
       else
-        # briefing's starter: "... no fallback (...perl was not found on PATH)." or "...this
-        # perl does not load App::Briefing (...)."; updating the plugin helps neither
-        case "$ACK_BOUNDED_ERR" in
-          *"perl was not found on PATH"*)
-            emit "runtime:$n" warn "$b did not answer --version$why. Install perl and run this again." ;;
-          *"this perl does not load App::Briefing"*)
-            pd="$(CDPATH= cd -P -- "${b%/*}/.." 2>/dev/null && pwd)" || pd="${b%/*}/.."
-            emit "runtime:$n" warn "$b did not answer --version$why. Install the Perl modules briefing needs with: cpanm --installdeps \"$pd\", then run this again." ;;
-          *)
-            emit "runtime:$n" warn "$b did not answer --version$why. Update the plugin with: claude plugin update $n@getty$reload" ;;
-        esac
+        emit "runtime:$n" warn "$b did not answer --version$why. Update the plugin with: claude plugin update $n@getty$reload"
       fi
     fi
   else
@@ -243,7 +230,6 @@ runtime_line() { # NAME
   fi
 }
 runtime_line skilletor
-runtime_line briefing
 
 # ---------------------------------------------------------------- repo
 if [ -z "$gitbin" ]; then
@@ -303,7 +289,6 @@ plugin_line() { # NAME required|optional
        else emit "plugin:$n" missing "$n is not installed (optional)"; fi ;;
   esac
 }
-plugin_line briefing required
 plugin_line skilletor required
 plugin_line superpowers optional
 plugin_line mattpocock-skills optional

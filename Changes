@@ -1,6 +1,15 @@
 Revision history for agent-construction-kit
 
 {{$NEXT}}
+    - Agents name their skills in a top-level skills: list, which Claude Code
+      loads when it starts the agent; the team build writes it so, and the
+      briefing plugin is no longer a dependency. ack-team check reads that
+      list (block or inline) and prints an agent line per file and a skill
+      line per name, ok when the skill is in .claude/skills, in the home
+      folder's .claude/skills or in the plugin cache (plugin:skill), missing
+      when it is nowhere, since Claude Code skips an unknown name without a
+      word. An agent with a briefing: block, and a settings file that enables
+      briefing@, are missing lines; ack-doctor no longer asks for briefing.
     - Add claude-with, the launcher behind every starter: it loads a provider
       definition, finds the key, sets the environment and starts Claude Code.
       Definitions ship for MiniMax, Moonshot AI Kimi, Ollama Cloud, Fireworks
@@ -44,12 +53,11 @@ Revision history for agent-construction-kit
       reported with its reason, and init then writes nothing.
     - Add ack-team check, which verifies a team: agent files, the skills they
       name, rules, settings, board, CLAUDE.md, git (with the reason when git
-      refuses the repository). The agent, skill, hook and settings findings are
-      briefing's (briefing doctor --tsv, from the briefing command on PATH, the
-      plugin's own starter); ack-team parses no JSON itself and, when no
-      briefing answers, reports one missing line.
-    - One install of agent-construction-kit brings skilletor and briefing
-      too: the plugin declares them as dependencies.
+      refuses the repository). It reads agent frontmatter, skill folders (the
+      project, the home folder, the plugin cache for plugin:skill names) and
+      settings.json as text and parses no JSON.
+    - One install of agent-construction-kit brings skilletor too: the plugin
+      declares it as a dependency.
     - Team setup finds installed and trusted source skills before authoring,
       explains that managed skills are edited at their source then synced, and
       offers an optional local or private collection without publishing it.
@@ -68,20 +76,12 @@ Revision history for agent-construction-kit
       names, not its starters: the hand-over points to /agent-machine for them.
     - Teams for folders without code: a reading check instead of a test
       command, no test-writer.
-    - ack-doctor checks that skilletor and briefing run and prints their
-      versions; it asks for neither Node.js nor Python 3.
-    - ack-doctor and ack-team advise installing the program a failing
-      skilletor or briefing names as missing (Node.js, perl) instead of
-      updating the plugin; a plugin enabled only in a project scope is not
-      taken for enabled everywhere, and the advice says where to enable it.
-    - ack-doctor and ack-team say what to install when briefing cannot run
-      because the perl on PATH is missing ("Install perl") or does not load
-      briefing's Perl modules (cpanm --installdeps on the plugin folder), instead
-      of advising a plugin update that does not help.
-    - ack-team check no longer says "hook ok" on a machine where briefing's
-      hook cannot run: the hook runs on Python 3 (python3, then python; on
-      Windows also py), so with none found the hook line is "missing" and says
-      to install Python 3 and start Claude Code again.
+    - ack-doctor checks that skilletor runs and prints its version; it asks
+      for neither Node.js nor Python 3.
+    - ack-doctor advises installing the program a failing skilletor names as
+      missing (Node.js) instead of updating the plugin; a plugin enabled only
+      in a project scope is not taken for enabled everywhere, and the advice
+      says where to enable it.
     - Team texts follow the roles the plan chose: without a reviewer the main
       agent checks before the commit, a card names a result and its delegated
       steps sit below it, the reviewer reads git status and git diff HEAD, and
@@ -122,9 +122,8 @@ Revision history for agent-construction-kit
       exceptions shown), form points after, and a command where one measures.
     - The README presents the product for a first-time reader (pitch, the first
       team, a Status section) and states the current limits: skilletor needs
-      Node.js 18 or newer and briefing's hooks need Python 3 until their
-      standalone binaries are switched on. The machine and team references say
-      the same.
+      Node.js 18 or newer until its standalone binary is switched on. The
+      machine and team references say the same.
     - Add ack-survey [DIR]: reports what lies below the home folder by names
       only (platform, hub, projects with their last commit date and whether
       they have a team, families, signals), and says "partial" when the time

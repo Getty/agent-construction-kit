@@ -38,7 +38,7 @@ uses it.
 - git. On Windows, [Git for Windows](https://git-scm.com/downloads/win): the kit's
   commands run in its bash. If git is missing, the setup helps you install it.
 
-What the two plugins the kit brings along still need, and what is proven so far:
+What the plugin the kit brings along still needs, and what is proven so far:
 [Status](#status).
 
 ## Install
@@ -51,10 +51,9 @@ In Claude Code, type:
 /reload-plugins
 ```
 
-One install brings all three plugins an agent team builds on: this kit; skilletor, which
-installs skills and rules into a project and keeps them current; and briefing, which loads
-each agent's skills when the agent starts. The kit declares the other two as dependencies.
-`/reload-plugins` makes the new plugins available at once; restarting Claude Code does the
+One install brings both plugins an agent team builds on: this kit and skilletor, which
+installs skills and rules into a project and keeps them current. The kit declares skilletor
+as a dependency. `/reload-plugins` makes the new plugin available at once; restarting Claude Code does the
 same. Then type `/agent-setup` in your home folder to set up the admin and the teams of
 all your areas of work, or in a project folder to build that one team; `/agent-machine`
 sets up the machine first.
@@ -147,8 +146,8 @@ work the way people do.
   checks independently and a committer that saves the work; other or fewer roles, as the
   work needs. Each agent is a small file in `.claude/agents/`.
 - **Skills are the knowledge.** Your conventions live in skills, once. Each agent names
-  the skills its role needs, and the briefing plugin loads exactly those before the
-  agent's first step. A narrow agent has room left to think, and can run a cheaper model.
+  the skills its role needs in the `skills:` list of its file, and Claude Code loads exactly
+  those before the agent's first step. A narrow agent has room left to think, and can run a cheaper model.
 - **Rules are the discipline.** The session you talk to does not touch the code itself;
   it hands work to the right agent. Nothing is pushed, published or sent without your
   word.
@@ -227,9 +226,9 @@ harbor/
 ```
 
 Before it calls the team ready, the kit checks it: every agent file, every skill an agent
-names, the rules, the board, `CLAUDE.md`, and once, in a scratch folder, that briefing
-refuses to start an agent whose skill is missing. Part of this check comes from briefing;
-[Status](#status) says where briefing does not answer it today.
+names (each must exist, since Claude Code skips an unknown name without a word), the
+rules, the board and `CLAUDE.md`, and once, in a scratch folder, that a missing skill
+shows up as a `skill` line.
 
 From the next session on, work looks like this:
 
@@ -308,7 +307,7 @@ goes roughly like this:
 
 > **You:** `/agent-machine`
 >
-> **Claude:** I checked the machine and changed nothing. Claude Code, git, briefing and
+> **Claude:** I checked the machine and changed nothing. Claude Code, git and
 > skilletor are in place. superpowers, a free add-on that gives agents planning,
 > test-first work and review, is not installed yet. May I install it? I recommend yes.
 >
@@ -345,7 +344,7 @@ claude_with_gemma      Claude Code on the Gemma model on this PC
 
 What it can set up:
 
-- The plugins agent teams build on: briefing and skilletor (required), superpowers and
+- The plugins agent teams build on: skilletor (required), superpowers and
   mattpocock-skills (recommended).
 - One starter per provider you pick, for example `claude_with_kimi`. Type it in any
   terminal instead of `claude`; it takes the same arguments.
@@ -440,18 +439,10 @@ What is proven, and what is not yet:
   code); the lab and the blog posts became cards on the admin's board. Ways 2 and 3 of
   handing work over (a running session, a headless run) are not exercised. On macOS and
   Windows only the automated tests have run.
-- Until their standalone binaries are switched on, the two plugins the kit brings along
-  need a runtime: skilletor needs Node.js 18 or newer, and briefing's hooks need Python 3.
-  The kit's own commands are bash scripts and use neither; the team check only looks
-  whether the Python of briefing's hooks is on PATH, and never runs it.
-- The team check takes its agent, skill and hook findings from briefing
-  (`briefing doctor --tsv`). Until its binary is switched on, briefing answers that
-  command, and its `--version`, only where its Perl modules load; elsewhere the setup
-  reports that briefing does not answer, and the team cannot be handed over as checked.
-  briefing's own check runs on Perl and only simulates the hook, so the team check adds
-  one finding of its own: with no Python for the real hook on PATH (`python3` or
-  `python`, on Windows also `py`), it reports the hook as missing, since agents would
-  then start without their skills.
+- Until its standalone binary is switched on, the plugin the kit brings along needs a
+  runtime: skilletor needs Node.js 18 or newer. The kit's own commands are bash scripts and
+  use neither Node.js nor Python; the team check reads agent files, skill folders and
+  `settings.json` as text.
 - Six of the twelve providers are set up from their documentation and not yet tried with
   the kit ([Providers](#providers)).
 
@@ -483,7 +474,7 @@ in the plugin's `bin/` folder:
   its program. One line per item:
 
   ```
-  plugin:briefing    ok    briefing is installed and enabled
+  plugin:skilletor   ok    skilletor is installed and enabled
   ```
 
 - `ack-wrappers` creates, tests and removes the starters:
@@ -509,7 +500,7 @@ in the plugin's `bin/` folder:
   ```
 
 - `ack-team` checks a finished team: every agent, every skill it names, the rules, the
-  board, and that the briefing plugin would refuse a broken agent:
+  board, and that every skill an agent names exists:
 
   ```
   ack-team check
@@ -546,9 +537,9 @@ The commands sit in the plugin's `bin/` folder; Claude can run them for you.
    (`~/.bashrc`, `~/.zshrc`, `~/.bash_profile`, `~/.bash_login` or `~/.profile`), or the
    line you added yourself if the setup asked you to. On Windows, remove the
    starters' folder from your user `Path` in the environment variable settings.
-5. In Claude Code: `/plugin uninstall agent-construction-kit@getty`. skilletor and
-   briefing are plugins of their own; if no team of yours uses them any more:
-   `/plugin uninstall skilletor@getty` and `/plugin uninstall briefing@getty`.
+5. In Claude Code: `/plugin uninstall agent-construction-kit@getty`.
+   skilletor is a plugin of its own; if no team of yours uses it any more:
+   `/plugin uninstall skilletor@getty`.
 
 claude-code-proxy, if you installed it, is a program of its own: remove it the way you
 installed it (with Homebrew: `brew uninstall claude-code-proxy`).

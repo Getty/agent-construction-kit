@@ -1,27 +1,23 @@
 #!/usr/bin/env bash
 # ack-team: check a finished agent team or resolve repository file ownership. It changes
-# no file in DIR; check's call of briefing keeps its output in a temporary directory that
-# it removes.
+# no file in DIR.
 #   ack-team check [DIR]
 #   ack-team owner [--dir DIR] [--] FILE...
 # DIR defaults to the current directory. One finding per line, four fields separated by
 # tabs (the last may be empty, its tab stays):
 #   WHAT<TAB>ok|missing|warn<TAB>FILE-OR-NAME<TAB>TEXT
-# The agent, skill, hook and settings findings come from the briefing plugin: check runs
-# `briefing doctor --tsv` in DIR for at most ACK_BRIEFING_WAIT seconds (default 30), with
-# no --cwd: a path with characters outside the Windows ANSI code page does not survive a
-# Perl command line, the working directory does. Its lines pass on unchanged, every CR
-# dropped, but only lines of the contract: four
-# tab-separated fields, WHAT one of agent, skill, hook, settings, status ok, missing or
-# warn. See briefing for what each one checks. When no briefing command answers (not on
-# PATH, no answer in time, exit 2 or more, or no settings line among the contract
-# lines), check prints one line, "briefing<TAB>missing<TAB>.<TAB>TEXT", and goes on with
-# its own; TEXT names the command's path when there is one. briefing's check runs on Perl
-# and only simulates the hook, which runs on Python 3 from PATH (python3, else python; on
-# Windows also py, but no Microsoft Store stub). When briefing prints a hook line that is
-# ok or warn and no such Python is on PATH, check prints one line
-# "hook<TAB>missing<TAB>.<TAB>TEXT" instead of the hook ok lines, or after the first hook
-# warn line.
+# check opens with these lines, from the files of DIR and HOME:
+#   agent      per file in .claude/agents (FILE below it): missing without frontmatter,
+#              without a name, with a briefing: key (Claude Code loads the skills of a
+#              top-level skills: list, block or inline) or as a link that leads nowhere;
+#              warn without a description.
+#   skill      per distinct name in the agents' skills: lists: ok when the skill resolves
+#              (a plain name: DIR/.claude/skills/NAME/SKILL.md or HOME/.claude/skills/...;
+#              plugin:skill: HOME/.claude/plugins/cache/<market>/<plugin>/<version>/skills/
+#              <skill>/SKILL.md), else missing. Claude Code skips an unknown name without
+#              a word, so this line is where it shows.
+#   settings   per .claude/settings.json (always) and .claude/settings.local.json (when it
+#              exists): missing when it names a briefing@ plugin, else ok.
 # The kit adds these lines, and no JSON is read for any of them:
 #   readonly   per agent ending in -scout, -reviewer, -checker or -coordinator: warn
 #              unless its disallowedTools name Edit and Write.
@@ -48,7 +44,7 @@
 #              and the board its row names (BOARD.md, or refs/karr/*); missing when one
 #              fails. missing for AREAS when a row is malformed or names a folder twice,
 #              or shape=hub has no AREAS; warn for AREAS without a row. No card is read.
-# Exit codes: 0 no line is missing (briefing's lines included), 1 a line is missing, 2
+# Exit codes: 0 no line is missing, 1 a line is missing, 2
 # usage error or unusable DIR.
 # Errors are two lines on stderr: "ack-team: <what>" and "ack-team: <what to do>".
 
@@ -116,12 +112,28 @@ _unquote() {
   esac
 }
 
-# parse_agent FILE: sets A_FM (1 = has frontmatter), A_HASNAME, A_NAME and A_DIS (the
-# disallowedTools text). Only the frontmatter is read: the lines between a first line
+# _add_skills TEXT: the skill names in TEXT (one name, or a comma list, with or without
+# brackets and quotes) join A_SKILLS, space separated.
+_add_skills() {
+  local t="$1" item
+  t="${t#\[}"; t="${t%\]}"
+  while [ -n "$t" ]; do
+    item="${t%%,*}"
+    if [ "$item" = "$t" ]; then t=""; else t="${t#*,}"; fi
+    _unquote "$item"
+    [ -n "$REPLY" ] && A_SKILLS="$A_SKILLS $REPLY"
+  done
+  return 0
+}
+
+# parse_agent FILE: sets A_FM (1 = has frontmatter), A_HASNAME, A_NAME, A_HASDESC, A_DIS
+# (the disallowedTools text), A_SKILLS (the names under a top-level skills:, block or
+# inline list, space separated) and A_BRIEF (1 = a top-level briefing: key). Only the
+# frontmatter is read: the lines between a first line
 # "---" (a UTF-8 BOM before it is fine) and the next "---".
 parse_agent() {
   local f="$1" line t first=1 mode="" item val
-  A_FM=0 A_HASNAME=0 A_NAME="" A_DIS=""
+  A_FM=0 A_HASNAME=0 A_NAME="" A_DIS="" A_HASDESC=0 A_SKILLS="" A_BRIEF=0
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line//$'\r'/}"
     if [ "$first" = 1 ]; then line="${line#$'\xEF\xBB\xBF'}"; fi
@@ -136,10 +148,15 @@ parse_agent() {
     case "$t" in ''|'#'*) continue ;; esac
     case "$line" in
       ' '*|"$TAB"*)
-        [ "$mode" = dis ] && A_DIS="$A_DIS $t" ;;
+        if [ "$mode" = dis ]; then A_DIS="$A_DIS $t"
+        elif [ "$mode" = skills ]; then
+          case "$t" in -*) _ack_trim "${t#-}"; _add_skills "$REPLY" ;; esac
+        fi ;;
       *)
         if [ "$mode" = dis ]; then
           case "$t" in -*) A_DIS="$A_DIS $t"; continue ;; esac
+        elif [ "$mode" = skills ]; then
+          case "$t" in -*) _ack_trim "${t#-}"; _add_skills "$REPLY"; continue ;; esac
         fi
         mode=""
         case "$t" in
@@ -150,7 +167,10 @@ parse_agent() {
         _ack_trim "${t#*:}"; val="$REPLY"
         case "$item" in
           name) A_HASNAME=1; _unquote "$val"; A_NAME="$REPLY" ;;
+          description) A_HASDESC=1 ;;
+          briefing) A_BRIEF=1 ;;
           disallowedTools) A_DIS="$val"; mode=dis ;;
+          skills) if [ -n "$val" ]; then _add_skills "$val"; else mode=skills; fi ;;
         esac ;;
     esac
   done < "$f"
@@ -187,20 +207,6 @@ _segments() {
   return "$rc"
 }
 
-# _missing_program TEXT -> REPLY: the program a first stderr line says is missing, from
-# "X is required but was not found ..." or "...: X: command not found"; fails otherwise.
-# ack-doctor has the same function.
-_missing_program() {
-  local t="$1"
-  case "$t" in
-    *" is required but was not found"*) t="${t%%" is required but was not found"*}" ;;
-    *": command not found"*) t="${t%%": command not found"*}" ;;
-    *) return 1 ;;
-  esac
-  _ack_trim "${t##*": "}"
-  [ -n "$REPLY" ]
-}
-
 # _collapse_path PATH -> REPLY: a relative path inside its start; fails when PATH is
 # absolute or leaves the start after resolving
 _collapse_path() {
@@ -208,161 +214,105 @@ _collapse_path() {
   _segments "$1" 1
 }
 
-# ---------------------------------------------------------------- briefing
+# ---------------------------------------------------------------- agents, skills, settings
 
-# _briefing_doctor BIN: `BIN doctor --tsv` run from DIR. Meant to run inside
-# ack_run_bounded, which starts it as a background subshell: the cd stays out of the
-# caller, and exec makes BIN that process, so a timeout or a signal kills briefing itself
-# and not just a subshell around it. A cd that fails is an exit 2 with the reason on
-# stderr, which check_briefing reports like any failed run.
-_briefing_doctor() {
-  CDPATH= cd -- "$DIR" 2>/dev/null || {
-    echo "ack-team: cannot enter $DIR to run briefing." >&2
-    return 2
-  }
-  exec "$1" doctor --tsv
-}
-
-# _hook_runs -> REPLY: whether the Python briefing's hook runs on is on PATH, by the names
-# the hook tries: python3, else python; on Windows (bin/briefing.exe) also py. Every hit
-# on PATH counts but a Microsoft Store stub under WindowsApps, which the Windows hook
-# skips. Only presence: nothing is run. Perl is no hook fallback, and a binary pinned in
-# the plugin is not taken for one either: without its cached binary the hook falls back
-# to Python. Fails without a Python; REPLY: the names tried, for the text.
-_hook_runs() {
-  local n p names="python3 python"
-  REPLY="python3 or python"
-  case "$OSTYPE" in msys*|cygwin*) names="python3 python py"; REPLY="python3, python or py" ;; esac
-  for n in $names; do
-    while IFS= read -r p; do
-      case "$p" in ""|*/[Ww]indows[Aa]pps/*) ;; *) return 0 ;; esac
-    done <<EOT
-$(type -a -P "$n" 2>/dev/null)
-EOT
-  done
+# _skill_found NAME: whether Claude Code finds the skill NAME for an agent of DIR: a plain
+# name as a folder with a SKILL.md in DIR/.claude/skills or HOME/.claude/skills, a name
+# plugin:skill below the plugin cache, HOME/.claude/plugins/cache/<market>/<plugin>/<version>/skills/.
+_skill_found() {
+  local n="$1" pl sk p
+  case "$n" in
+    ?*:?*)
+      pl="${n%%:*}"; sk="${n#*:}"
+      for p in "$HOME"/.claude/plugins/cache/*/"$pl"/*/skills/"$sk"/SKILL.md; do
+        [ -f "$p" ] && return 0
+      done ;;
+    *)
+      [ -f "$DIR/.claude/skills/$n/SKILL.md" ] && return 0
+      [ -f "$HOME/.claude/skills/$n/SKILL.md" ] && return 0 ;;
+  esac
   return 1
 }
 
-# check_briefing: the agent, skill, hook and settings lines are the briefing plugin's.
-# Only lines of the contract pass through: four fields split at the tabs (the last may be
-# empty), WHAT one of agent, skill, hook, settings, status ok, missing or warn, a name
-# that is not empty. A valid run always has a settings line. briefing's exit 1 only says
-# some lines are missing, so the passed lines decide RC. The call is cut off after
-# ACK_BRIEFING_WAIT seconds (1 to 5 digits, no leading zero; default 30). Anything else is
-# one missing line: no command on PATH, no answer in time, exit 2 or more, or no settings
-# line among the contract lines; the text names the command's path and, when the command
-# failed, its exit status and first stderr line. The advice is to install the program
-# that line names as missing (perl, Node.js), or, when briefing's starter says that perl
-# was not found or does not load App::Briefing, to install perl or the Perl modules
-# briefing needs (cpanm --installdeps with the plugin folder, the starter's bin/.., which
-# holds briefing's cpanfile), else to update or install the plugin. briefing's doctor
-# runs on Perl and only simulates the hook, so a hook line that is ok or warn calls for
-# the hook's Python (_hook_runs). Without it there is one line
-# "hook<TAB>missing<TAB>.<TAB>TEXT": it takes the place of the first hook ok line (later
-# ones are dropped) or follows the first hook warn line (warn lines stay).
-check_briefing() {
-  local bin rc line r what st name text valid="" wait="${ACK_BRIEFING_WAIT:-30}" settings=0 why pd
-  local hook="" nohook=""
-  local tail="so the agent, skill, hook and settings checks cannot run"
-  local fix="Update or install the briefing plugin with: claude plugin update briefing@getty (or install it with: claude plugin install briefing@getty), then run /reload-plugins."
-  case "$wait" in
-    [1-9]|[1-9][0-9]|[1-9][0-9][0-9]|[1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]) ;;
-    *) wait=30 ;;
-  esac
-  if ! bin="$(type -P briefing 2>/dev/null)" || [ -z "$bin" ]; then
-    emit briefing missing "." "No briefing command was found on PATH, $tail. $fix"
-    return 0
-  fi
-  ack_run_bounded "$wait" _briefing_doctor "$bin"; rc=$?
-  why=""
-  if [ "$rc" != 0 ] && [ "$rc" != 124 ]; then
-    why=" (exit $rc"
-    [ -n "$ACK_BOUNDED_ERR" ] && why="$why: $ACK_BOUNDED_ERR"
-    why="$why)"
-    # a program briefing needs is missing: installing it helps, updating the plugin not;
-    # the same for briefing's starter: "... no fallback (...perl was not found on PATH)." or
-    # "...this perl does not load App::Briefing (...)."
-    if _missing_program "$ACK_BOUNDED_ERR"; then fix="Install $REPLY and run this again."
-    else
-      case "$ACK_BOUNDED_ERR" in
-        *"perl was not found on PATH"*) fix="Install perl and run this again." ;;
-        *"this perl does not load App::Briefing"*)
-          pd="$(CDPATH= cd -P -- "${bin%/*}/.." 2>/dev/null && pwd)" || pd="${bin%/*}/.."
-          fix="Install the Perl modules briefing needs with: cpanm --installdeps \"$pd\", then run this again." ;;
-      esac
-    fi
-  fi
-  if [ "$rc" = 124 ]; then
-    emit briefing missing "." "The briefing command at $bin did not answer within $wait seconds, $tail. $fix"
-    return 0
-  elif [ "$rc" -gt 1 ]; then
-    emit briefing missing "." "The briefing command at $bin did not run the check$why, $tail. $fix"
-    return 0
-  fi
-  while IFS= read -r line || [ -n "$line" ]; do
-    line="${line//$'\r'/}"
-    what="${line%%"$TAB"*}"
-    [ "$what" != "$line" ] || continue
-    r="${line#*"$TAB"}"
-    st="${r%%"$TAB"*}"
-    [ "$st" != "$r" ] || continue
-    r="${r#*"$TAB"}"
-    name="${r%%"$TAB"*}"
-    [ "$name" != "$r" ] || continue
-    text="${r#*"$TAB"}"
-    case "$text" in *"$TAB"*) continue ;; esac
-    [ -n "$name" ] || continue
-    case "$what" in agent|skill|hook|settings) ;; *) continue ;; esac
-    case "$st" in ok|missing|warn) ;; *) continue ;; esac
-    [ "$what" = settings ] && settings=1
-    # hook: ok or warn; "" not looked yet, runs, none (not said yet), said
-    if [ "$what" = hook ] && [ "$st" != missing ] && [ "$hook" != runs ]; then
-      if [ -z "$hook" ]; then
-        if _hook_runs; then hook=runs
-        else
-          hook=none
-          nohook="hook${TAB}missing${TAB}.${TAB}The briefing hook needs Python 3 on PATH ($REPLY), and none was found, so agents start without their skills. Install Python 3, then start Claude Code again and run this check."
-        fi
+# check_agents: one agent line per file in .claude/agents (from scan_agents): missing
+# without frontmatter, without a name, with a briefing: key (Claude Code loads the skills
+# of a top-level skills: list only), or as a link that leads nowhere; warn without a
+# description. Then one skill line per distinct name in the skills: lists, in file order:
+# ok when the skill resolves (_skill_found), else missing with the first agent naming it.
+check_agents() {
+  local i f seen=" " n msg
+  for ((i = 0; i < ${#AF_FILES[@]}; i++)); do
+    f="${AF_FILES[$i]}"
+    case "${AF_STATE[$i]}" in
+      dangling) emit agent missing "$f" "The link leads nowhere. Point it at an existing agent file or remove it." ;;
+      nofm) emit agent missing "$f" "The file has no frontmatter. Start it with a line --- holding name, description and skills, closed by ---." ;;
+      noname) emit agent missing "$f" "The frontmatter has no name. Add a name: line." ;;
+      brief) emit agent missing "$f" "The frontmatter has a briefing: block. Write the list as a top-level skills: key, which Claude Code loads." ;;
+      nodesc) emit agent warn "$f" "The frontmatter has no description. Add a description: line saying when to use the agent." ;;
+      *) emit agent ok "$f" "" ;;
+    esac
+  done
+  for ((i = 0; i < ${#AF_FILES[@]}; i++)); do
+    for n in ${AF_SKILLS[$i]}; do
+      case "$seen" in *" $n "*) continue ;; esac
+      seen="$seen$n "
+      if _skill_found "$n"; then emit skill ok "$n" ""
+      else
+        msg="${AF_FILES[$i]} names this skill, and it is in no skills folder of the project or of HOME"
+        case "$n" in ?*:?*) msg="${AF_FILES[$i]} names this skill, and the plugin cache has no plugin and skill of that name" ;; esac
+        emit skill missing "$n" "$msg. Install it (skilletor or claude plugin install) or correct the name; Claude Code skips an unknown skill without a word."
       fi
-      if [ "$hook" = none ]; then
-        hook=said RC=1
-        if [ "$st" = ok ]; then line="$nohook"; else line="$line"$'\n'"$nohook"; fi
-      elif [ "$hook" = said ] && [ "$st" = ok ]; then
-        continue
-      fi
-    fi
-    [ "$st" = missing ] && RC=1
-    valid="$valid$line"$'\n'
-  done <<EOT
-$ACK_BOUNDED_OUT
-EOT
-  if [ "$settings" = 0 ]; then
-    # the lines that were counted belong to a run that is not used
-    RC=0
-    emit briefing missing "." "The briefing command at $bin printed no check lines in the expected format$why, $tail. $fix"
-    return 0
-  fi
-  printf '%s' "$valid"
-  return 0
+    done
+  done
 }
 
-# scan_agents: the agents the readonly and claude-md lines look at, quietly (briefing
-# reports the broken ones). A file counts when it has frontmatter; its name is the file
-# name without ".md" and without one leading ".local." (skilletor installs
-# ".local.<name>.md").
+# check_settings: one settings line for .claude/settings.json (and for settings.local.json
+# when it exists): missing when it enables a plugin briefing@..., else ok.
+check_settings() {
+  local rel f found=0
+  for rel in .claude/settings.json .claude/settings.local.json; do
+    f="$DIR/$rel"
+    if [ ! -f "$f" ]; then
+      [ "$rel" = .claude/settings.json ] && emit settings ok "$rel" ""
+      continue
+    fi
+    if grep -E '"briefing@' "$f" >/dev/null 2>&1; then
+      emit settings missing "$rel" "enabledPlugins names briefing@. Remove that entry: Claude Code loads the skills of an agent itself."
+    else
+      emit settings ok "$rel" ""
+    fi
+  done
+}
+
+# scan_agents: the agents every later line looks at. AG_* hold the agents with frontmatter
+# for the readonly and claude-md lines: a file counts when it has frontmatter; its name is
+# the file name without ".md" and without one leading ".local." (skilletor installs
+# ".local.<name>.md"). AF_* hold every agent file for check_agents: path below
+# .claude/agents, state (ok, dangling, nofm, noname, brief, nodesc) and skill names.
 scan_agents() {
-  local f rel base list
+  local f rel base list st
   AG_NAMES=()      # names, in file order
   AG_DIS=()        # their disallowedTools text
   AG_FILES=()      # their paths below .claude/agents
+  AF_FILES=() AF_STATE=() AF_SKILLS=()
   [ -d "$DIR/.claude/agents" ] || return 0
   list="$(find -H "$DIR/.claude/agents" \( -type f -o -type l \) -name '*.md' -print 2>/dev/null | LC_ALL=C sort)"
   while IFS= read -r f; do
-    [ -f "$f" ] || continue
+    [ -n "$f" ] || continue
     rel="${f#"$DIR/.claude/agents/"}"
+    if [ ! -f "$f" ]; then
+      AF_FILES[${#AF_FILES[@]}]="$rel"; AF_STATE[${#AF_STATE[@]}]=dangling; AF_SKILLS[${#AF_SKILLS[@]}]=""
+      continue
+    fi
     base="${rel##*/}"; base="${base%.md}"
     case "$base" in .local.?*) base="${base#.local.}" ;; esac
     parse_agent "$f"
+    st=ok
+    if [ "$A_FM" != 1 ]; then st=nofm
+    elif [ "$A_HASNAME" != 1 ] || [ -z "$A_NAME" ]; then st=noname
+    elif [ "$A_BRIEF" = 1 ]; then st=brief
+    elif [ "$A_HASDESC" != 1 ]; then st=nodesc; fi
+    AF_FILES[${#AF_FILES[@]}]="$rel"; AF_STATE[${#AF_STATE[@]}]="$st"; AF_SKILLS[${#AF_SKILLS[@]}]="$A_SKILLS"
     [ "$A_FM" = 1 ] || continue
     AG_NAMES[${#AG_NAMES[@]}]="$base"
     AG_FILES[${#AG_FILES[@]}]="$rel"
@@ -831,8 +781,9 @@ cmd_check() {
   if command -v git >/dev/null 2>&1; then
     GITTOP="$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null)"
   fi
-  check_briefing
   scan_agents
+  check_agents
+  check_settings
   check_readonly
   check_rules
   check_board

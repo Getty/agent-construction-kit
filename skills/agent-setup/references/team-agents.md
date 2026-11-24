@@ -1,7 +1,7 @@
 # Agents: capabilities, files and templates
 
 Each agent is `.claude/agents/<prefix>-<role>.md`: frontmatter routes and briefs it; its short
-body sets the lane. Skilletor provides/updates skills; the main invokes them while `briefing.skills` preloads them, never copy skill text.
+body sets the lane. Skilletor provides/updates skills; the main invokes them while the agent's `skills:` list preloads them, never copy skill text.
 
 ## Contents
 
@@ -39,11 +39,12 @@ unambiguous routing. `haiku` is cheap, `sonnet` middle, `opus` strong and `inher
 ## Frontmatter contract and body
 
 - Use only `name` (file name without `.md`), `description`, `model`, `disallowedTools` and
-  `briefing.skills`. Route on a specific description; never `allowed-tools` (ignored) or `tools:`
+  `skills`. Route on a specific description; never `allowed-tools` (ignored) or `tools:`
   (an allow-list that removes unlisted tools).
 - Only a read-only pattern gets `disallowedTools: Edit, Write, NotebookEdit`; it keeps Bash.
-- Every `briefing.skills` entry exists in `.claude/skills/` or as an enabled `<plugin>:<skill>`;
-  a top-level `skills:` does nothing for briefing.
+- `skills` is a top-level key of the frontmatter, a list; Claude Code loads each entry when it
+  starts the agent. Every entry exists in `.claude/skills/` or as an enabled `<plugin>:<skill>`:
+  Claude Code skips an unknown name without a word.
 - Body: `You are the <prefix>-<role> for **<project>**.`, two or three sentences on lane, return
   and boundary, card lines, "Apply the skills above silently.", then only project-specific traps.
 
@@ -81,9 +82,8 @@ name: <prefix>-scout
 description: "Reads and searches <project> and reports what it finds, with file and line: where something is, how it works, what is missing. Changes nothing."
 model: haiku
 disallowedTools: Edit, Write, NotebookEdit
-briefing:
-  skills:
-    - <prefix>-core
+skills:
+  - <prefix>-core
 ---
 You are the <prefix>-scout for **<project>**. Answer the question from the code and its history,
 with file and line per finding; say plainly what you did not find. Never change a file. Apply
@@ -95,10 +95,9 @@ the skills above silently.
 name: <prefix>-worker
 description: "Default <project> worker: implements, refactors and debugs code. Leaves a finished, checked tree and a report; never commits."
 model: inherit
-briefing:
-  skills:
-    - <prefix>-core
-    - <base>
+skills:
+  - <prefix>-core
+  - <base>
 ---
 You are the <prefix>-worker for **<project>**. Do the job on your card and nothing beside it; a
 finding outside it goes into your report. Run `<check>`, then report what changed and why, the
@@ -111,10 +110,9 @@ skills above silently.
 name: <prefix>-test-writer
 description: "Writes and extends <project> tests: new tests, a test that shows a bug, the tests a card asks for. Leaves the code under test to the worker; never commits."
 model: sonnet
-briefing:
-  skills:
-    - <prefix>-core
-    - <base>
+skills:
+  - <prefix>-core
+  - <base>
 ---
 You are the <prefix>-test-writer for **<project>**. Whoever hands you the job decides which
 behaviour matters; you decide how the test proves it; unclear: ask. Your step is the test: a
@@ -128,10 +126,9 @@ name: <prefix>-reviewer
 description: "Reviews a finished <project> job against its card and the conventions and runs the tests itself. Reports a verdict and findings with file and line; changes nothing."
 model: opus
 disallowedTools: Edit, Write, NotebookEdit
-briefing:
-  skills:
-    - <prefix>-core
-    - <base>
+skills:
+  - <prefix>-core
+  - <base>
 ---
 You are the <prefix>-reviewer for **<project>**. Read the card, the report, `git status`,
 `git diff HEAD` and new files; run `<check>` yourself: no passing run, no "ready". Report the
@@ -144,9 +141,8 @@ fixes go back to the worker. You start no agents. <card lines> Apply the skills 
 name: <prefix>-release-manager
 description: "Owns <project>'s git history: commits reviewed work, writes the commit message and the changelog entry, marks the card done, checks a release on request. Pushes only where the project rules allow it; never tags or releases on its own."
 model: sonnet
-briefing:
-  skills:
-    - <prefix>-core
+skills:
+  - <prefix>-core
 ---
 You are the <prefix>-release-manager for **<project>**. Commit only what <the reviewer|the main
 agent> passed, unchanged since: one commit per change, staged by path, never `git add -A` (other
@@ -166,9 +162,8 @@ in the project: the description drops "and the changelog entry", the body the ch
 name: <prefix>-doc-writer
 description: "Writes <project> documentation in its own format (<the format>), in the files it is given. Never changes behaviour, never commits."
 model: sonnet
-briefing:
-  skills:
-    - <prefix>-core
+skills:
+  - <prefix>-core
 ---
 You are the <prefix>-doc-writer for **<project>**. Write as <where the format is
 described> says. Never commit. <card lines> Apply the skills above silently.
@@ -179,10 +174,9 @@ described> says. Never commit. <card lines> Apply the skills above silently.
 name: <prefix>-adr-auditor
 description: "Finds architecture decisions in <project> that nobody wrote down and records them in docs/adr/: structure first, each reason confirmed from git history."
 model: opus
-briefing:
-  skills:
-    - <prefix>-core
-    - <base>
+skills:
+  - <prefix>-core
+  - <base>
 ---
 You are the <prefix>-adr-auditor for **<project>**. Walk the structure (modules, seams, data
 shapes), confirm each reason from git history and code; old plans only confirm. Number from the

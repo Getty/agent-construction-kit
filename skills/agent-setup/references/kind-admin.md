@@ -148,9 +148,8 @@ name: <prefix>-scout
 description: "Reads AREAS and each steered area's board and last commits, and reports their state, with folder and file. Changes nothing."
 model: haiku
 disallowedTools: Edit, Write, NotebookEdit
-briefing:
-  skills:
-    - <prefix>-hub
+skills:
+  - <prefix>-hub
 ---
 You are the <prefix>-scout for **the admin of this computer**. Read `AREAS`; for each row
 read the area's board (with karr `karr board` there) and its last commits
@@ -159,7 +158,7 @@ what you could not read. Never change a file, here or in an area. Apply the skil
 silently.
 ```
 
-With karr, `kanban-issues-karr-coordination` joins `briefing.skills` ([team-board.md](team-board.md)).
+With karr, `kanban-issues-karr-coordination` joins `skills:` ([team-board.md](team-board.md)).
 
 ## Handing work to an area
 

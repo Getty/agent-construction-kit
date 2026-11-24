@@ -17,7 +17,7 @@ a kit command.
 
 ### ack-doctor
 
-Exit 1 means a required line (`claude`, `git`, `marketplace:getty`, `plugin:briefing`,
+Exit 1 means a required line (`claude`, `git`, `marketplace:getty`,
 `plugin:skilletor`) is `missing`; otherwise 0. Exit 2 with no lines means the kit's own
 files are incomplete. Then offer to reinstall the kit
 (`claude plugin uninstall agent-construction-kit@getty`, then

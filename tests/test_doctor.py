@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import unittest
 
-from helpers import FAKE_BRIEFING, FAKE_SKILLETOR, ROOT, Sandbox
+from helpers import FAKE_SKILLETOR, ROOT, Sandbox
 
 AD = str(ROOT / "bin" / "ack-doctor")
 AW = str(ROOT / "bin" / "ack-wrappers")
@@ -36,8 +36,7 @@ def plugin_blocks(*entries, nl="\n"):
 
 
 def good_plugins(nl="\n"):
-    return plugin_blocks(("briefing@getty", "user", "enabled"),
-                         ("skilletor@getty", "user", "enabled"), nl=nl)
+    return plugin_blocks(("skilletor@getty", "user", "enabled"), nl=nl)
 
 
 class DoctorTest(Sandbox):
@@ -58,7 +57,7 @@ class DoctorTest(Sandbox):
         self.write("marketplaces.txt", text)
 
     def good(self):
-        self.plugins("briefing@getty", "skilletor@getty")
+        self.plugins("skilletor@getty")
         self.marketplaces("getty")
 
     def doc(self, env=None, cwd=None):
@@ -71,31 +70,32 @@ class DoctorTest(Sandbox):
         self.good()
         r = self.doc()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("plugin:briefing\tok\t", r.stdout)
+        self.assertIn("plugin:skilletor\tok\t", r.stdout)
+        self.assertNotIn("briefing", r.stdout)
         self.assertIn("marketplace:getty\tok\t", r.stdout)
         self.assertIn("claude\tok\t", r.stdout)
         self.assertIn("plugin:superpowers\tmissing\t", r.stdout)   # not required
 
     def test_missing_required_plugin_is_exit_1(self):
-        self.plugins("skilletor@getty")
+        self.plugins()
         self.marketplaces("getty")
         r = self.doc()
         self.assertEqual(r.returncode, 1)
-        self.assertIn("plugin:briefing\tmissing\t", r.stdout)
+        self.assertIn("plugin:skilletor\tmissing\t", r.stdout)
 
     def test_missing_marketplace_is_exit_1(self):
-        self.plugins("briefing@getty", "skilletor@getty")
+        self.plugins("skilletor@getty")
         self.marketplaces("other")
         r = self.doc()
         self.assertEqual(r.returncode, 1)
         self.assertIn("marketplace:getty\tmissing\t", r.stdout)
 
     def test_disabled_plugin_is_warn(self):
-        self.plugins("briefing@getty", "skilletor@getty", disabled=("briefing@getty",))
+        self.plugins("skilletor@getty", disabled=("skilletor@getty",))
         self.marketplaces("getty")
         r = self.doc()
         self.assertEqual(r.returncode, 0)
-        self.assertIn("plugin:briefing\twarn\t", r.stdout)
+        self.assertIn("plugin:skilletor\twarn\t", r.stdout)
 
     def listed(self, text):
         self.write("plugins.txt", text)
@@ -107,58 +107,51 @@ class DoctorTest(Sandbox):
         for order in (("disabled", "enabled"), ("enabled", "disabled")):
             with self.subTest(order):
                 r = self.listed(plugin_blocks(
-                    ("briefing@getty", "project", order[0]), ("briefing@getty", "user", order[1]),
-                    ("skilletor@getty", "user", "enabled")))
-                self.assertIn("plugin:briefing\tok\t", r.stdout)
+                    ("skilletor@getty", "project", order[0]), ("skilletor@getty", "user", order[1])))
+                self.assertIn("plugin:skilletor\tok\t", r.stdout)
                 self.assertEqual(r.returncode, 0, r.stdout)
 
     def test_a_plugin_disabled_in_every_scope_is_a_warning(self):
         r = self.listed(plugin_blocks(
-            ("briefing@getty", "project", "disabled"), ("briefing@getty", "user", "disabled"),
-            ("skilletor@getty", "user", "enabled")))
-        self.assertIn("plugin:briefing\twarn\t", r.stdout)
+            ("skilletor@getty", "project", "disabled"), ("skilletor@getty", "user", "disabled")))
+        self.assertIn("plugin:skilletor\twarn\t", r.stdout)
         self.assertEqual(r.returncode, 0)
 
     def test_a_block_without_a_recognisable_status_counts_as_disabled(self):
         for label, status in (("no Status line", None), ("unknown word", "pending"),
                               ("empty", "")):
             with self.subTest(label):
-                r = self.listed(plugin_blocks(("briefing@getty", "user", status),
-                                              ("skilletor@getty", "user", "enabled")))
-                self.assertIn("plugin:briefing\twarn\t", r.stdout)
-                self.assertIn("plugin:skilletor\tok\t", r.stdout)
+                r = self.listed(plugin_blocks(("skilletor@getty", "user", status)))
+                self.assertIn("plugin:skilletor\twarn\t", r.stdout)
 
     def test_a_status_belongs_to_its_own_block_only(self):
-        # the block of skilletor has no Status line; briefing's enabled above it is not
+        # the block of superpowers has no Status line; the enabled one above it is not
         # inherited, and the last block (no line after it) is closed at the end of the text
-        r = self.listed(plugin_blocks(("briefing@getty", "user", "enabled"),
-                                      ("skilletor@getty", "user", None)))
-        self.assertIn("plugin:briefing\tok\t", r.stdout)
-        self.assertIn("plugin:skilletor\twarn\t", r.stdout)
+        r = self.listed(plugin_blocks(("skilletor@getty", "user", "enabled"),
+                                      ("superpowers@getty", "user", None)))
+        self.assertIn("plugin:skilletor\tok\t", r.stdout)
+        self.assertIn("plugin:superpowers\twarn\t", r.stdout)
 
     def test_crlf_in_the_plugin_list_is_read_the_same(self):
         r = self.listed(good_plugins(nl="\r\n"))
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("plugin:briefing\tok\t", r.stdout)
         self.assertIn("plugin:skilletor\tok\t", r.stdout)
         self.assertNotIn("\r", r.stdout)
 
     def test_a_longer_id_does_not_satisfy_a_shorter_name(self):
-        r = self.listed(plugin_blocks(("briefing-extra@getty", "user", "enabled"),
-                                      ("skilletor@getty", "user", "enabled")))
-        self.assertIn("plugin:briefing\tmissing\t", r.stdout)
+        r = self.listed(plugin_blocks(("skilletor-extra@getty", "user", "enabled")))
+        self.assertIn("plugin:skilletor\tmissing\t", r.stdout)
         self.assertEqual(r.returncode, 1)
 
     def test_a_status_word_in_another_line_is_not_the_status(self):
-        r = self.listed("Installed plugins:\n\n  \u276f briefing@getty\n"
+        r = self.listed("Installed plugins:\n\n  \u276f skilletor@getty\n"
                         "    Description: enabled in every scope\n"
-                        "    Status: \u2718 disabled\n\n"
-                        "  \u276f skilletor@getty\n    Status: \u2714 enabled\n")
-        self.assertIn("plugin:briefing\twarn\t", r.stdout)
+                        "    Status: \u2718 disabled\n\n")
+        self.assertIn("plugin:skilletor\twarn\t", r.stdout)
 
     def test_a_long_plugin_list_is_read(self):
         entries = [("p%d@m" % i, "user", "enabled") for i in range(300)]
-        entries += [("briefing@getty", "user", "enabled"), ("skilletor@getty", "user", "enabled")]
+        entries += [("skilletor@getty", "user", "enabled")]
         r = self.listed(plugin_blocks(*entries))
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("plugin:skilletor\tok\t", r.stdout)
@@ -174,7 +167,7 @@ class DoctorTest(Sandbox):
         calls = (self.home / "calls").read_text().splitlines()
         self.assertEqual(calls, ["--version"])
         self.assertIn("claude\twarn\t", r.stdout)
-        self.assertIn("plugin:briefing\twarn\tcould not ask claude", r.stdout)
+        self.assertIn("plugin:skilletor\twarn\tcould not ask claude", r.stdout)
         self.assertEqual(r.returncode, 0)
 
     def test_a_signal_during_a_bounded_call_stops_the_child_and_leaves_nothing(self):
@@ -193,7 +186,7 @@ class DoctorTest(Sandbox):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         req = "could not ask claude, so this required line is not counted as missing; run the check again\n"
         opt = "could not ask claude; run the check again\n"
-        for name in ("marketplace:getty", "plugin:briefing", "plugin:skilletor"):
+        for name in ("marketplace:getty", "plugin:skilletor"):
             self.assertIn("%s\twarn\t%s" % (name, req), r.stdout)
         for name in ("plugin:superpowers", "plugin:mattpocock-skills"):
             self.assertIn("%s\twarn\t%s" % (name, opt), r.stdout)
@@ -403,16 +396,16 @@ class DoctorTest(Sandbox):
 
 
 class RuntimeTest(Sandbox):
-    """skilletor and briefing, the two plugins' commands: ok with a version, warn when
-    --version does not answer, missing (and exit 1) when absent. The shared sandbox puts a
-    fake of each in fakebin; a test that wants one absent removes it."""
+    """skilletor, the plugin's command: ok with a version, warn when --version does not
+    answer, missing (and exit 1) when absent. The shared sandbox puts a fake in fakebin; a
+    test that wants it absent removes it."""
 
-    NAMES = ("skilletor", "briefing")
+    NAMES = ("skilletor",)
 
     def setUp(self):
         super().setUp()
         self.fake("claude", FAKE_CLAUDE)
-        # everything else is in order, so the exit code speaks of the two commands only
+        # everything else is in order, so the exit code speaks of the command only
         self.write("plugins.txt", good_plugins())
         self.write("marketplaces.txt", "Configured marketplaces:\n\n  \u276f getty\n"
                    "    Source: GitHub (x/getty)\n\n")
@@ -425,13 +418,12 @@ class RuntimeTest(Sandbox):
     def doc(self, env=None):
         return self.run_cmd("bash", AD, env=env)
 
-    def test_both_present_are_ok_with_their_version(self):
+    def test_the_command_is_ok_with_its_version(self):
         r = self.doc()
-        s, b = self.line(r, "runtime:skilletor"), self.line(r, "runtime:briefing")
+        s = self.line(r, "runtime:skilletor")
         self.assertEqual(s[1], "ok")
         self.assertIn("skilletor 1.2.3", s[2])
-        self.assertEqual(b[1], "ok")
-        self.assertIn("briefing 9.8.7", b[2])
+        self.assertNotIn("runtime:briefing", r.stdout)
 
     def test_the_old_node_and_python_lines_are_gone(self):
         r = self.doc()
@@ -439,176 +431,73 @@ class RuntimeTest(Sandbox):
         self.assertNotIn("runtime:python", r.stdout)
 
     def test_a_version_on_a_crlf_line_is_read_without_the_cr(self):
-        self.fake("briefing", "#!/bin/sh\nprintf 'briefing 5.5.5\\r\\n'\n")
-        row = self.line(self.doc(), "runtime:briefing")
+        self.fake("skilletor", "#!/bin/sh\nprintf 'skilletor 5.5.5\\r\\n'\n")
+        row = self.line(self.doc(), "runtime:skilletor")
         self.assertEqual(row[1], "ok")
         self.assertNotIn("\r", row[2])
-        self.assertIn("briefing 5.5.5", row[2])
+        self.assertIn("skilletor 5.5.5", row[2])
 
     def test_a_command_that_does_not_answer_version_is_a_warning(self):
-        for name, var in (("skilletor", "FAKE_SKILLETOR_VERSION_EXIT"),
-                          ("briefing", "FAKE_BRIEFING_VERSION_EXIT")):
-            with self.subTest(name):
-                r = self.doc(env={var: "3"})
-                row = self.line(r, "runtime:" + name)
-                self.assertEqual(row[1], "warn", r.stdout)
-                self.assertIn("--version", row[2])
-                self.assertIn("%s: cannot start (fake failure)" % name, row[2])   # first stderr line
-                self.assertNotIn("second stderr line", row[2])
-                self.assertIn("claude plugin update %s@getty" % name, row[2])
-                # the other one is not touched
-                other = [n for n in self.NAMES if n != name][0]
-                self.assertEqual(self.line(r, "runtime:" + other)[1], "ok")
-                # a warning does not turn the exit code
-                self.assertEqual(r.returncode, self.doc().returncode)
+        r = self.doc(env={"FAKE_SKILLETOR_VERSION_EXIT": "3"})
+        row = self.line(r, "runtime:skilletor")
+        self.assertEqual(row[1], "warn", r.stdout)
+        self.assertIn("--version", row[2])
+        self.assertIn("skilletor: cannot start (fake failure)", row[2])   # first stderr line
+        self.assertNotIn("second stderr line", row[2])
+        self.assertIn("claude plugin update skilletor@getty", row[2])
+        # a warning does not turn the exit code
+        self.assertEqual(r.returncode, self.doc().returncode)
 
     def test_a_command_that_answers_with_nothing_is_a_warning(self):
         self.fake("skilletor", "#!/bin/sh\nexit 0\n")
         self.assertEqual(self.line(self.doc(), "runtime:skilletor")[1], "warn")
 
     def test_the_warn_text_ends_with_the_reload_advice(self):
-        row = self.line(self.doc(env={"FAKE_BRIEFING_VERSION_EXIT": "3"}), "runtime:briefing")
-        self.assertTrue(row[2].endswith("claude plugin update briefing@getty, then run /reload-plugins."),
-                        row[2])
         row = self.line(self.doc(env={"FAKE_SKILLETOR_VERSION_EXIT": "3"}), "runtime:skilletor")
         self.assertTrue(row[2].endswith("claude plugin update skilletor@getty, then run /reload-plugins."),
                         row[2])
 
     def test_a_failure_that_names_a_missing_program_says_to_install_it(self):
-        cases = {
-            "skilletor": ("skilletor: Node.js is required but was not found on PATH", "Node.js"),
-            "briefing": ("briefing: perl: command not found", "perl"),
-        }
-        for name, (err, program) in cases.items():
-            with self.subTest(name):
-                self.fake(name, "#!/bin/sh\necho '%s' >&2\necho 'second stderr line' >&2\nexit 127\n" % err)
-                r = self.doc()
-                row = self.line(r, "runtime:" + name)
-                self.assertEqual(row[1], "warn", r.stdout)       # still a warning, exit code unchanged
-                self.assertIn(err, row[2])                         # the error text stays
-                self.assertNotIn("second stderr line", row[2])
-                self.assertIn("Install %s and run this again" % program, row[2])
-                self.assertNotIn("claude plugin update", row[2])
-                self.assertEqual(r.returncode, 0, r.stdout)
-
-    # what briefing's starter prints (stderr, exit 1) for `--version` when no binary serves it
-    # and its Perl fallback fails: the Python fallback is not tried for --version, so the
-    # fallback part is the Perl reason alone (the starter's own text, not a wording of the kit)
-    NO_BINARY = "briefing: no binary (%s) and no fallback (%s)."
-    PERL_MODULES = "this perl does not load App::Briefing (Moo, Path::Tiny, JSON::MaybeXS, TOML::Tiny are needed)"
-    NO_PERL = "perl was not found on PATH"
-    NO_SCRIPT = "script/briefing is missing"
-
-    def plugin_layout(self):
-        """briefing in a plugin-like folder whose name has a space, its bin/ first on PATH and
-        no briefing in fakebin; returns the plugin folder as the script prints it (resolved)."""
-        plug = self.root / "plug dir" / "v1"
-        (plug / "bin").mkdir(parents=True)
-        self.fakebin.joinpath("briefing").unlink()
-        self.env["PATH"] = str(plug / "bin") + os.pathsep + self.env["PATH"]
-        return plug, os.path.realpath(str(plug))
-
-    def starter_fails(self, message, layout=False):
-        script = "#!/bin/sh\necho '%s' >&2\nexit 1\n" % message
-        if layout:
-            plug, self.plugin_folder = self.plugin_layout()
-            p = plug / "bin" / "briefing"
-            with open(str(p), "w", newline="") as f:
-                f.write(script)
-            p.chmod(0o755)
-        else:
-            self.fake("briefing", script)
+        err = "skilletor: Node.js is required but was not found on PATH"
+        self.fake("skilletor", "#!/bin/sh\necho '%s' >&2\necho 'second stderr line' >&2\nexit 127\n" % err)
         r = self.doc()
-        row = self.line(r, "runtime:briefing")
-        self.assertEqual(row[1], "warn", r.stdout)          # still a warning, exit code unchanged
+        row = self.line(r, "runtime:skilletor")
+        self.assertEqual(row[1], "warn", r.stdout)       # still a warning, exit code unchanged
+        self.assertIn(err, row[2])                         # the error text stays
+        self.assertNotIn("second stderr line", row[2])
+        self.assertIn("Install Node.js and run this again", row[2])
+        self.assertNotIn("claude plugin update", row[2])
         self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn(message, row[2])                       # the starter's text stays
-        # the advice: what follows the quoted message
-        tail = row[2].split(message, 1)[1].lstrip(").").strip()
-        return row[2], tail
-
-    def sentences(self, text):
-        return [s for s in re.split(r"(?<=\.)\s+", text.strip()) if s]
-
-    def test_a_perl_that_does_not_load_briefings_modules_says_to_install_them(self):
-        for why_binary in ("no binary here", "the binary is not for this system"):
-            with self.subTest(why_binary):
-                msg = self.NO_BINARY % (why_binary, self.PERL_MODULES)
-                row, tail = self.starter_fails(msg)
-                # updating the plugin does not install Perl modules
-                self.assertNotIn("claude plugin update", row)
-                # the advice, outside the quoted message: cpanm, for the dependencies of the
-                # plugin or for the modules the message names; it does not rest on
-                # App::Briefing being on CPAN (a bare `cpanm App::Briefing` fails this)
-                self.assertRegex(tail, r"\bcpanm\b")
-                self.assertRegex(tail, r"--installdeps|\bMoo\b")
-                # house rule: one sentence what is missing, one what to do (the quoted
-                # message may be the first); the tail is one or two sentences
-                sents = self.sentences(tail)
-                self.assertIn(len(sents), (1, 2), tail)
-                self.assertTrue(all(s.endswith(".") for s in sents), tail)
-
-    @unittest.skipIf(os.name == "nt", "the Windows host keeps its own PATH and path forms")
-    def test_the_modules_advice_names_the_plugin_folder_quoted(self):
-        # the folder with briefing's cpanfile is the parent of the starter's bin/, not bin/
-        # itself and not the current folder; its name has a space, so it must be quoted
-        msg = self.NO_BINARY % ("no binary here", self.PERL_MODULES)
-        row, tail = self.starter_fails(msg, layout=True)
-        self.assertIn('cpanm --installdeps "%s"' % self.plugin_folder, tail)
-
-    def test_a_missing_perl_in_the_starters_message_says_to_install_perl(self):
-        # distinct case: perl is absent, so Perl modules are not the cause and installing
-        # them cannot help; the advice is the one for any missing program (Install perl ...)
-        msg = self.NO_BINARY % ("no binary here", self.NO_PERL)
-        row, tail = self.starter_fails(msg)
-        self.assertNotIn("claude plugin update", row)
-        self.assertIn("Install perl and run this again", tail)
-        self.assertNotRegex(tail, r"App::Briefing|cpan")
-
-    def test_a_starter_message_of_another_kind_keeps_the_update_advice(self):
-        # controls: only the modules and the missing perl change the advice; a plugin without
-        # its script/briefing is broken, and updating IS right; a match on the common
-        # "no fallback (" part alone would change it and fail here
-        for msg in ("briefing: cannot start (something else)",
-                    self.NO_BINARY % ("no binary here", self.NO_SCRIPT)):
-            with self.subTest(msg):
-                row, tail = self.starter_fails(msg)
-                self.assertIn("claude plugin update briefing@getty", tail)
-                self.assertNotRegex(tail, r"App::Briefing|cpan|Install ")
 
     def test_a_project_or_local_scoped_only_enabled_plugin_is_not_taken_for_enabled_here(self):
         self.assertEqual(self.doc().returncode, 0, "the baseline must be green")
-        for scope, name in [(sc, n) for sc in ("project", "local") for n in self.NAMES]:
-            with self.subTest(scope=scope, name=name):
-                other = [n for n in self.NAMES if n != name][0]
-                self.write("plugins.txt", plugin_blocks(
-                    (other + "@getty", "user", "enabled"), (name + "@getty", scope, "enabled")))
-                (self.fakebin / name).unlink()
+        for scope in ("project", "local"):
+            with self.subTest(scope=scope):
+                self.write("plugins.txt", plugin_blocks(("skilletor@getty", scope, "enabled")))
+                (self.fakebin / "skilletor").unlink()
                 r = self.doc()
-                row = self.line(r, "runtime:" + name)
+                row = self.line(r, "runtime:skilletor")
                 self.assertEqual(row[1], "missing", r.stdout)
                 self.assertIn("enabled only in a project scope", row[2])
-                self.assertIn("claude plugin enable %s" % name, row[2])
+                self.assertIn("claude plugin enable skilletor", row[2])
                 self.assertIn("user scope", row[2])
                 self.assertIn("this project", row[2])
                 self.assertNotIn("claude plugin update", row[2])
                 self.assertEqual(r.returncode, 1, r.stdout)
                 # the plugin line stays ok (a plugin enabled somewhere counts) but says where
-                pl = self.line(r, "plugin:" + name)
+                pl = self.line(r, "plugin:skilletor")
                 self.assertEqual(pl[1], "ok", r.stdout)
                 self.assertIn("project", pl[2])
-                shutil.copy(str(FAKE_SKILLETOR if name == "skilletor" else FAKE_BRIEFING),
-                            str(self.fakebin / name))
-                (self.fakebin / name).chmod(0o755)
+                shutil.copy(str(FAKE_SKILLETOR), str(self.fakebin / "skilletor"))
+                (self.fakebin / "skilletor").chmod(0o755)
 
     def test_a_user_scoped_enabled_plugin_keeps_the_update_advice_next_to_a_project_one(self):
-        (self.fakebin / "briefing").unlink()
+        (self.fakebin / "skilletor").unlink()
         self.write("plugins.txt", plugin_blocks(
-            ("skilletor@getty", "user", "enabled"),
-            ("briefing@getty", "project", "enabled"), ("briefing@getty", "user", "enabled")))
-        row = self.line(self.doc(), "runtime:briefing")
+            ("skilletor@getty", "project", "enabled"), ("skilletor@getty", "user", "enabled")))
+        row = self.line(self.doc(), "runtime:skilletor")
         self.assertIn("is installed and enabled but its command was not found", row[2])
-        self.assertIn("claude plugin update briefing@getty", row[2])
+        self.assertIn("claude plugin update skilletor@getty", row[2])
         self.assertNotIn("project scope", row[2])
 
     # the advice of a command that is not on PATH follows the state of its plugin
@@ -624,8 +513,7 @@ class RuntimeTest(Sandbox):
     }
 
     def plugin_state(self, name, state):
-        other = [n for n in self.NAMES if n != name][0]
-        entries = [(other + "@getty", "user", "enabled")]
+        entries = []
         if state in ("enabled", "disabled"):
             entries.append((name + "@getty", "user", state))
         self.write("plugins.txt", plugin_blocks(*entries))
@@ -635,30 +523,26 @@ class RuntimeTest(Sandbox):
     @unittest.skipIf(os.name == "nt", "the Windows host keeps its own PATH, which may hold the plugins")
     def test_an_absent_command_is_missing_and_the_advice_follows_the_plugin_state(self):
         self.assertEqual(self.doc().returncode, 0, "the baseline must be green")
-        for name in self.NAMES:
-            for state, (why, how, never) in self.ABSENT.items():
-                with self.subTest(name=name, state=state):
-                    self.plugin_state(name, state)
-                    (self.fakebin / name).unlink()
-                    r = self.doc()
-                    row = self.line(r, "runtime:" + name)
-                    self.assertEqual(row[1], "missing", r.stdout)
-                    self.assertIn("%s %s" % (name, why), row[2])
-                    self.assertIn("agent team", row[2])
-                    self.assertIn(how.replace("%s", name), row[2])
-                    for other_advice in never:
-                        self.assertNotIn(other_advice, row[2])
-                    self.assertTrue(row[2].endswith(", then run /reload-plugins."), row[2])
-                    # missing is what turns the exit code; the other command stays ok
-                    self.assertEqual(r.returncode, 1, r.stdout)
-                    other = [n for n in self.NAMES if n != name][0]
-                    self.assertEqual(self.line(r, "runtime:" + other)[1], "ok")
-                    # a plugin that is not required is not why: put the command back
-                    fake = FAKE_SKILLETOR if name == "skilletor" else FAKE_BRIEFING
-                    shutil.copy(str(fake), str(self.fakebin / name))
-                    (self.fakebin / name).chmod(0o755)
-                    (self.home / "claude-fails").unlink(missing_ok=True)
-                    self.write("plugins.txt", good_plugins())
+        name = "skilletor"
+        for state, (why, how, never) in self.ABSENT.items():
+            with self.subTest(name=name, state=state):
+                self.plugin_state(name, state)
+                (self.fakebin / name).unlink()
+                r = self.doc()
+                row = self.line(r, "runtime:" + name)
+                self.assertEqual(row[1], "missing", r.stdout)
+                self.assertIn("%s %s" % (name, why), row[2])
+                self.assertIn("agent team", row[2])
+                self.assertIn(how.replace("%s", name), row[2])
+                for other_advice in never:
+                    self.assertNotIn(other_advice, row[2])
+                self.assertTrue(row[2].endswith(", then run /reload-plugins."), row[2])
+                # missing is what turns the exit code
+                self.assertEqual(r.returncode, 1, r.stdout)
+                shutil.copy(str(FAKE_SKILLETOR), str(self.fakebin / name))
+                (self.fakebin / name).chmod(0o755)
+                (self.home / "claude-fails").unlink(missing_ok=True)
+                self.write("plugins.txt", good_plugins())
 
 
 if __name__ == "__main__":

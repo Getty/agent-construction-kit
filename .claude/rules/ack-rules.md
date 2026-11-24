@@ -48,7 +48,7 @@ worktree, so the board stays here. Per task, one after another: the owning worke
 (`ack-worker-scripts` or `ack-worker-skill`; a test task: `ack-test-writer`) is told to
 skip the implementer prompt's commit step; `ack-reviewer` reviews the uncommitted change
 (`git status`, `git diff HEAD`, new files); then `ack-release-manager` commits that state,
-so one writes history. Never `general-purpose`: built-in agents get no briefing.
+so one writes history. Never `general-purpose`: built-in agents get none of the team's skills.
 Brainstorming and the plan stay with the main agent: they need the user.
 
 ## Outside input
@@ -60,9 +60,8 @@ can write there; none is wired to the AI, the user brings single entries in as c
 
 - bash 3.2 is the floor, as macOS ships it: no associative arrays, no `mapfile`, no
   `${var,,}`, no `&>>`. No script of the kit reads JSON or requires jq, Node or Python:
-  agent, skill, hook and settings checks come from `briefing doctor --tsv`; the one
-  addition is `ack-team`'s look on PATH for the Python briefing's hook runs on (presence
-  only, never run, c32); never install from a check.
+  `ack-team check` reads agent frontmatter, skill folders and `settings.json` as text;
+  never install from a check.
 - Only tools and flags common to GNU, BSD (macOS) and Git for Windows, since all of them
   work on Linux and a Linux run stays green: never `stat`, `readlink -f`, `realpath`,
   `sed -i`, `date -d`, `grep -P`, `/dev/tcp`, `mktemp` with a switch other than `-d`.

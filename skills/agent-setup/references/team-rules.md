@@ -76,7 +76,7 @@ A plan runs in this folder on this branch (`main` too: the yes to the team cover
 worktree, so the board stays here. Per task, the owning agent is told to skip the implementer
 prompt's commit step; the reviewer (none selected: the main agent) checks `git status` and
 `git diff HEAD`; then the committer writes history. Never `general-purpose`: built-in agents get
-no briefing. Brainstorming and the plan stay with the main agent: they need the user.
+none of the team's skills. Brainstorming and the plan stay with the main agent: they need the user.
 
 ## Outside input
 
@@ -121,7 +121,6 @@ and its marketplace there: "updated — commit it"); none yet: create it. The te
 ```json
 {
   "enabledPlugins": {
-    "briefing@getty": true,
     "skilletor@getty": true
   },
   "extraKnownMarketplaces": {
@@ -166,33 +165,30 @@ commits. Include a changelog or release check only when the selected responsibil
 Run `ack-team check` in the project folder; it only reads. One line per finding:
 `<what><TAB><status><TAB><file or name><TAB><text>`, status `ok`, `missing` or `warn`. Exit 0:
 no line is `missing`; 1: at least one is; 2: usage error or unusable folder. Fix, run again
-until none is; tell the user each `warn` in one sentence. `agent`, `skill`, `hook`, `settings`
-are briefing's, all but `hook<TAB>missing<TAB>.`, the kit's own (`hook` row); no briefing answers: one `missing` line, `briefing<TAB>missing<TAB>.`, whose text ends with the cure ([machine.md](../../agent-machine/references/machine.md)).
+until none is; tell the user each `warn` in one sentence.
 
 | What | Checks | On `missing` or `warn` |
 |---|---|---|
-| `agent` | each agent file: frontmatter, `name` equal to the file name (`.local.` dropped), a description, a readable `briefing.skills`; no `allowed-tools`, no top-level `skills:` | fix the file ([team-agents.md](team-agents.md)) |
-| `skill` | each `briefing.skills` entry resolves: in `.claude/skills/`, `~/.claude/skills/`, or in a plugin that is installed and enabled | install it, enable its plugin, write it, or drop the entry |
+| `agent` | each agent file: frontmatter, a `name`, a description, its skills under a top-level `skills:` list (block or inline) | fix the file ([team-agents.md](team-agents.md)) |
+| `skill` | each `skills:` entry resolves: in `.claude/skills/`, `~/.claude/skills/`, or as `<plugin>:<skill>` in the plugin cache of a plugin that is installed; Claude Code skips an unknown name without a word, so this line is where it shows | install it, enable its plugin, write it, or drop the entry |
 | `owners` | root `OWNERS` is a valid map, by the rules in [team-ownership.md](team-ownership.md) | `missing`: fix the map ([team-ownership.md](team-ownership.md)); `warn`: no `OWNERS`, as in a team made before the map; it does not fail the check: tell the user and propose the map |
 | `areas` | in an admin folder: each `AREAS` row's folder exists, is a repository, has agents and the board the row names | fix the row or build the team; `warn`: no row yet |
 | `readonly` | agents ending in `-scout`, `-reviewer`, `-checker`, `-coordinator` carry `disallowedTools` naming Edit and Write | add the line |
 | `rules` | a file in `.claude/rules/` | write the project rules |
-| `settings` | `.claude/settings.json`: readable, every marketplace declared, briefing enabled | merge as above |
+| `settings` | `.claude/settings.json` (and `settings.local.json` when it exists) enables no plugin the team no longer uses | merge as above |
 | `board` | karr refs, or `BOARD.md` with the four headings | add what the text names |
 | `claude-md` | `CLAUDE.md` names every agent | add the name to the section |
 | `git` | a repository, and a remote | no remote: fine when the user chose "only on this computer". `missing` with "git cannot read the repository: <reason>": the reason (dubious ownership, a broken `.git`); tell the user, change nothing until they fixed it |
-| `hook` | briefing's line: the hook run as if each agent were started; the first worker (else the first agent) must also get a briefing. The kit's own, after a briefing `ok` or `warn` (briefing's check runs on Perl and only simulates the hook): the Python the real hook runs on is on PATH, `python3` or `python`, on Windows also `py`, a Microsoft Store stub under `WindowsApps` not counted; looked up, never run | every agent passes: ONE line `hook<TAB>ok<TAB><first worker>`, standing for all of them. `missing`: one line per agent the hook refuses, or for the first worker when it hands an abort; the text is briefing's reason: fix that entry. `missing` named `.`: the kit's, no such Python, so agents start without their skills; it takes the place of the `ok` line, or follows the `warn` one: Python 3 on PATH, then a new Claude Code session and the check again. `warn`: the text says why (briefing's hook not found, no answer in time: run again; or it briefs nothing for the first worker: give it `briefing.skills`) |
-That the hook refuses a broken agent is checked once by hand, in a scratch folder (`ack-team` passes briefing's `hook` line through):
+
+A skill that Claude Code loads at an agent's start is checked once by hand, in a scratch folder:
 
 ```bash
 d="$(mktemp -d)"; mkdir -p "$d/.claude/agents"
-printf '%s\n' '---' 'name: probe-worker' 'description: probe' 'briefing:' '  skills:' '    - no-such-skill' '---' > "$d/.claude/agents/probe-worker.md"
-bash "<skill base dir>/../../bin/ack-team" check "$d" | grep '^hook'; rm -rf "$d"
+printf '%s\n' '---' 'name: probe-worker' 'description: probe' 'skills:' '  - no-such-skill' '---' > "$d/.claude/agents/probe-worker.md"
+bash "<skill base dir>/../../bin/ack-team" check "$d" | grep '^skill'; rm -rf "$d"
 ```
 
-Expected: a line `hook<TAB>missing<TAB>probe-worker<TAB>` whose text, briefing's reason,
-names `no-such-skill`. Any other result means the team is not checked: never hand it over
-as checked. `ok`: the hook lets broken agents start; report it. `warn`, or no `hook` line:
-briefing did not run; tell the user so, naming the `runtime:briefing` line of `ack-doctor`.
+Expected: a line `skill<TAB>missing<TAB>no-such-skill<TAB>` whose text names `probe-worker.md`.
+Any other result means the team is not checked: never hand it over as checked.
 
 New agents start only in a new session (Claude Code reads agent files when a session starts); the hand-over says so ([using-the-team.md](using-the-team.md)).

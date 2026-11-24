@@ -30,9 +30,8 @@ Example for `harbor`, with a copy on the drive 'BACKUP':
 > - Nothing is uploaded, released or posted without your word. The one exception you
 >   allowed: the copy on 'BACKUP' is updated after every saved change.
 > - Everything I set up is saved as one commit, here and on 'BACKUP'.
-> - One install of the kit brought skilletor and briefing too. Until their standalone
->   binaries are switched on, skilletor needs Node.js 18 or newer and briefing's hooks
->   need Python 3.
+> - One install of the kit brought skilletor too. Until its standalone binary is
+>   switched on, skilletor needs Node.js 18 or newer.
 > - You can also follow and steer the team from your phone (Remote Control). Shall I
 >   tell you how?
 

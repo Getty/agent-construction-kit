@@ -20,7 +20,7 @@ A Claude Code plugin that sets up a machine and a repository for agent teams
   names it.
 - `tests/`: Python `unittest`, one `test_*.py` per command plus `test_skill.py`;
   `tests/helpers.py` (`Sandbox`: a fresh HOME with a space in its name, a fake `claude`
-  first on PATH); `tests/fake/`: fake `claude`, `briefing` and `skilletor`.
+  first on PATH); `tests/fake/`: fake `claude` and `skilletor`.
 - `.claude-plugin/plugin.json`: the manifest; `.github/workflows/ci.yml`: the tests on
   Ubuntu, macOS and Windows, in bash.
 - `.superpowers/` (gitignored): plans and reviews of earlier stages; history, not rules.

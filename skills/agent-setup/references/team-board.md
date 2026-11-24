@@ -144,7 +144,7 @@ No `BOARD.md` then: one board, not two.
 `sources` gains `karr=Getty/karr`: `skilletor add Getty/karr --project` (source name
 `karr`), then `skilletor install kanban-issues-karr-ticket@karr kanban-issues-karr-coordination@karr --project`.
 
-| Skill | Covers | Into `briefing.skills` of |
+| Skill | Covers | Into `skills:` of |
 |---|---|---|
 | `kanban-issues-karr-ticket` | working one handed-over card: read, note, block, hand on | worker, test-writer, reviewer, release-manager, doc-writer, adr-auditor |
 | `kanban-issues-karr-coordination` | reading the board, creating and claiming cards, cards between repositories | coordinator; the main agent loads it itself |

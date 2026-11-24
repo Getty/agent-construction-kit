@@ -1,12 +1,11 @@
 import os
 import pathlib
 import re
-import shlex
 import shutil
 import subprocess
 import unittest
 
-from helpers import FAKE_BRIEFING, ROOT, Sandbox
+from helpers import ROOT, Sandbox
 
 AT = str(ROOT / "bin" / "ack-team")
 JSON_TOOL = re.compile(
@@ -34,42 +33,30 @@ def agent_text(name, skills=("harbor-core",), extra="", description="Does the wo
     if tools:
         lines.append("disallowedTools: " + tools)
     if skills is not None:
-        lines.append("briefing:")
         if style == "block":
-            lines.append(indent + "skills:")
-            lines += [indent + indent + "- " + s for s in skills]
+            lines.append("skills:")
+            lines += [indent + "- " + s for s in skills]
         elif style == "inline":
-            lines.append(indent + "skills: [" + ", ".join(skills) + "]")
+            lines.append("skills: [" + ", ".join(skills) + "]")
     if extra:
         lines.append(extra)
     lines += ["---", "", "You are " + name + ".", ""]
     return nl.join(lines)
 
 
-# What a healthy `briefing doctor --tsv` prints for the team below (the contract's WHAT
-# values agent, skill, hook and settings); the fake briefing prints it as it is.
-BRIEFING_GOOD = [
+# What the check prints first for the team below: the agent, skill and settings lines.
+TEAM_GOOD = [
     ["agent", "ok", "harbor-reviewer.md", ""],
     ["agent", "ok", "harbor-scout.md", ""],
     ["agent", "ok", "harbor-test-writer.md", ""],
     ["agent", "ok", "harbor-worker.md", ""],
     ["skill", "ok", "harbor-core", ""],
-    ["hook", "ok", "harbor-worker", ""],
     ["settings", "ok", ".claude/settings.json", ""],
 ]
 
 
-FIX = ("Update or install the briefing plugin with: claude plugin update briefing@getty "
-       "(or install it with: claude plugin install briefing@getty), then run /reload-plugins.")
-SETTINGS_OK = ["settings", "ok", ".claude/settings.json", ""]
-
-
-def tsv(rows, nl="\n"):
-    return "".join(TAB.join(r) + nl for r in rows)
-
-
 class TeamBase(Sandbox):
-    """The sandbox, the fake briefing and the helpers; the tests are in TeamTest."""
+    """The sandbox and the helpers; the tests are in TeamTest."""
 
     def setUp(self):
         super().setUp()
@@ -83,27 +70,6 @@ class TeamBase(Sandbox):
         })
         self.work = self.root / "work"
         self.work.mkdir()
-        self.briefing_says(tsv(BRIEFING_GOOD))
-        if os.name != "nt":
-            # the hook's Python (ack-team looks for it on PATH, never runs it): a stub in
-            # front of the host's PATH, so the suite does not depend on the host having one;
-            # tests without Python use path_without_python()
-            pybin = self.root / "pybin"
-            pybin.mkdir()
-            stub = pybin / "python3"
-            stub.write_text("#!/bin/sh\nexit 0\n")
-            stub.chmod(0o755)
-            self.env["PATH"] = "%s:%s" % (pybin, self.env["PATH"])
-
-    def briefing_says(self, text, exit_code=0):
-        """What the fake briefing's `doctor --tsv` prints (bytes as given) and exits with."""
-        out = self.root / "briefing-out.tsv"
-        with open(str(out), "w", newline="") as f:
-            f.write(text)
-        self.env.update({"FAKE_BRIEFING_OUT": str(out), "FAKE_BRIEFING_EXIT": str(exit_code)})
-
-    def no_briefing(self):
-        os.remove(str(self.fakebin / "briefing"))
 
     # ---- helpers
 
@@ -153,6 +119,8 @@ class TeamBase(Sandbox):
         self.git(d, "symbolic-ref", "HEAD", "refs/heads/main")
         for role in ROLES:
             self.agent(d, role)
+        self.put(d, ".claude/skills/harbor-core/SKILL.md",
+                 "---\nname: harbor-core\ndescription: Use for harbor.\n---\n\nBody.\n")
         self.put(d, ".claude/rules/harbor.md", "Be careful.\n")
         if board == "file":
             self.put(d, "BOARD.md", "# Board\n\n## Todo\n\n## In progress\n\n## Review\n\n## Done\n")
@@ -223,8 +191,8 @@ class TeamTest(TeamBase):
         r = self.at("check", cwd=d)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(r.stderr, "")
-        # briefing's lines first and unchanged, then the kit's own, in this order
-        self.assertEqual(self.rows(r), BRIEFING_GOOD + [
+        # the agent, skill and settings lines first, then the others, in this order
+        self.assertEqual(self.rows(r), TEAM_GOOD + [
             ["readonly", "ok", "harbor-reviewer.md", ""],
             ["readonly", "ok", "harbor-scout.md", ""],
             ["rules", "ok", ".claude/rules", ""],
@@ -239,7 +207,7 @@ class TeamTest(TeamBase):
         r = self.at("check", str(d), cwd=self.root)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual([x for x in self.rows(r) if x[1] != "ok"], [])
-        self.assertEqual(len(self.rows(r)), len(BRIEFING_GOOD) + 7)
+        self.assertEqual(len(self.rows(r)), len(TEAM_GOOD) + 7)
 
     def test_default_directory_is_the_current_one(self):
         d = self.team()
@@ -424,7 +392,7 @@ class TeamTest(TeamBase):
         d = self.team()
         self.put(d, ".claude/agents/harbor-reviewer.md",
                  "---\nname: harbor-reviewer\ndescription: x\ndisallowedTools:\n  - Edit\n"
-                 "  - Write\nbriefing:\n  skills:\n    - harbor-core\n---\n")
+                 "  - Write\nskills:\n  - harbor-core\n---\n")
         r = self.at("check", cwd=d)
         self.one(r, "readonly", "ok", "harbor-reviewer.md")
 
@@ -712,7 +680,7 @@ class TeamTest(TeamBase):
         d = self.team()
         self.put(d, ".claude/agents/harbor-reviewer.md",
                  "---\nname: harbor-reviewer\ndescription: x\ndisallowedTools:\n- Edit\n- Write\n"
-                 "briefing:\n  skills:\n  - harbor-core\n---\n")
+                 "skills:\n- harbor-core\n---\n")
         r = self.at("check", cwd=d)
         self.one(r, "readonly", "ok", "harbor-reviewer.md")
 
@@ -780,7 +748,7 @@ class TeamTest(TeamBase):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.one(r, "readonly", "ok", "harbor-reviewer.md")
 
-    def test_dangling_symlink_is_no_agent_for_the_kit(self):
+    def test_dangling_symlink_is_a_missing_agent_line_only(self):
         d = self.team()
         link = d / ".claude" / "agents" / "harbor-gone.md"
         try:
@@ -788,9 +756,10 @@ class TeamTest(TeamBase):
         except (OSError, NotImplementedError):
             self.skipTest("no symlinks here")
         r = self.at("check", cwd=d)
-        self.assertEqual(r.returncode, 0, r.stdout)
-        # briefing reports the dangling link; the kit neither counts it nor names it
-        self.assertNotIn("harbor-gone", r.stdout)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        # the agent line reports the dangling link; no other line counts or names it
+        self.one(r, "agent", "missing", "harbor-gone.md")
+        self.assertEqual([x for x in self.rows(r) if "harbor-gone" in x[2] and x[0] != "agent"], [])
 
     def test_only_symlinked_agents_are_not_reported_as_none(self):
         d = self.team()
@@ -823,553 +792,114 @@ class TeamTest(TeamBase):
                                           "ownership"), row)
         self.assertNotIn("fatal", r.stdout + r.stderr)
 
-    # ---- briefing: the agent, skill, hook and settings lines are its
-
-    def briefing_rows(self):
-        return [
-            ["agent", "ok", "harbor-worker.md", ""],
-            ["agent", "missing", "harbor-scout.md", "no description"],
-            ["skill", "warn", "harbor-core", "found in two places"],
-            ["hook", "ok", "harbor-worker", ""],
-            ["settings", "ok", ".claude/settings.json", ""],
-        ]
-
-    def kit_rows(self, r):
-        """The lines that are the kit's own, not briefing's."""
-        return [x for x in self.rows(r) if x[0] not in ("agent", "skill", "hook", "settings")]
-
-    def test_briefing_lines_pass_through_with_four_tab_separated_fields(self):
-        d = self.team()
-        rows = self.briefing_rows()
-        self.briefing_says(tsv(rows))
-        r = self.at("check", cwd=d)
-        lines = r.stdout.splitlines()
-        self.assertEqual(lines[:len(rows)], [TAB.join(x) for x in rows], r.stdout)
-        for line in lines:
-            self.assertEqual(line.count(TAB), 3, repr(line))
-        # an empty last field keeps its tab
-        self.assertEqual(lines[3], "hook\tok\tharbor-worker\t")
-        # the kit's own lines follow, once each
-        self.assertEqual([x[0] for x in self.kit_rows(r)],
-                         ["readonly", "readonly", "rules", "board", "claude-md", "git", "owners"])
-
-    # ---- the briefing hook needs Python (briefing's starter bin/briefing, find_python:
-    # `python3`, else `python`; a pinned binary, bin/briefing-binaries.sha256, needs none).
-    # `briefing doctor --tsv` runs on Perl and only simulates the hook, so its `hook ok`
-    # says nothing about that Python: check says it.
-
-    def path_without_python(self):
-        """A PATH of fakebin plus links to every other tool of the host, none of them
-        python*/py*: the starter finds no interpreter for the hook there."""
-        if os.name == "nt":
-            self.skipTest("skipped: the PATH without Python is built from POSIX tool directories")
-        tools = self.root / "tools-without-python"
-        if tools.exists():
-            return "%s:%s" % (self.fakebin, tools)
-        tools.mkdir()
-        for top in ("/usr/bin", "/bin"):
-            if not os.path.isdir(top):
-                continue
-            for name in sorted(os.listdir(top)):
-                if re.match(r"(python|py)", name) or (tools / name).exists() \
-                        or (self.fakebin / name).exists():
-                    continue
-                try:
-                    os.symlink(os.path.join(top, name), str(tools / name))
-                except OSError:
-                    pass
-        return "%s:%s" % (self.fakebin, tools)
-
-    def pin_file(self, cached=False):
-        """The plugin's pin file beside the fake briefing (the folder over its bin/ is the
-        plugin folder); cached: also the cached binaries under ~/.claude."""
-        sums = "".join("%s  briefing-1.2.3-%s\n" % (str(n) * 64, a) for n, a in (
-            (1, "linux-x86_64"), (2, "linux-arm64"), (3, "macos-x86_64"),
-            (4, "macos-arm64"), (5, "windows-x86_64.exe")))
-        pin = self.root / "bin" / "briefing-binaries.sha256"
-        pin.parent.mkdir(exist_ok=True)
-        pin.write_text(sums)
-        if cached:
-            for n in (1, 2, 3, 4):
-                f = self.home / ".claude" / "briefing" / "bin" / "1.2.3" / (str(n) * 16) / "briefing"
-                f.parent.mkdir(parents=True)
-                f.write_text("#!/bin/sh\nexit 0\n")
-                f.chmod(0o755)
-
-    def test_hook_ok_without_python_is_missing(self):
-        d = self.complete_team()
-        r = self.at("check", cwd=d, env={"PATH": self.path_without_python()})
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertEqual(r.stderr, "")
-        self.assertEqual([x for x in self.of(r, "hook") if x[1] == "ok"], [], r.stdout)
-        row = self.one(r, "hook", "missing", ".")
-        self.assertEqual(len(row), 4, row)
-        text = row[3]
-        self.assertEqual(len(self.sentences(text)), 2, text)    # what is missing, what to do
-        first, second = self.sentences(text)
-        self.assertIn("Python", first)
-        self.assertIn("hook", first)
-        self.assertIn("Install Python 3", second)
-        # a newly installed Python reaches neither the hook nor the Bash tool before a restart
-        self.assertRegex(second, r"(?i)restart|start Claude Code again")
-        # the other lines of briefing pass through, the kit's own still come
-        self.assertEqual(self.one(r, "settings", "ok"), SETTINGS_OK)
-        self.assertEqual(len(self.of(r, "readonly")), 2)
-
-    def test_hook_ok_with_a_python3_stays_ok(self):
-        d = self.complete_team()
-        self.fake("python3", "#!/bin/sh\nexit 0\n")
-        r = self.at("check", cwd=d, env={"PATH": self.path_without_python()})
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]], r.stdout)
-
-    def test_hook_ok_with_only_a_python_stays_ok(self):
-        # the starter's second name
-        d = self.complete_team()
-        self.fake("python", "#!/bin/sh\nexit 0\n")
-        r = self.at("check", cwd=d, env={"PATH": self.path_without_python()})
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]], r.stdout)
-
-    def test_hook_ok_with_only_py_is_still_missing(self):
-        # the starter never tries `py`, so neither may check
-        d = self.complete_team()
-        self.fake("py", "#!/bin/sh\nexit 0\n")
-        r = self.at("check", cwd=d, env={"PATH": self.path_without_python()})
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.one(r, "hook", "missing", ".")
-
-    # Windows as far as the script can tell: OSTYPE msys (the starter there is
-    # bin/briefing.exe, which also tries `py`, and ignores Microsoft Store stubs).
-
-    def with_python_in(self, folder, name):
-        """PATH of path_without_python() with a fake NAME in FOLDER (below the sandbox) in front."""
-        d = self.root / folder
-        d.mkdir(parents=True)
-        f = d / name
-        f.write_text("#!/bin/sh\nexit 0\n")
-        f.chmod(0o755)
-        return "%s:%s" % (d, self.path_without_python())
-
-    @unittest.skipIf(os.name == "nt", "a fake OSTYPE stands in for Git for Windows")
-    def test_on_windows_a_py_is_a_hook_interpreter(self):
-        d = self.complete_team()
-        path = self.with_python_in("py launcher", "py")
-        r = self.at("check", cwd=d, env={"PATH": path, "OSTYPE": "msys"})
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]], r.stdout)
-
-    @unittest.skipIf(os.name == "nt", "a fake OSTYPE stands in for Git for Windows")
-    def test_on_windows_a_store_stub_is_no_interpreter(self):
-        d = self.complete_team()
-        for name in ("python3", "python"):
-            with self.subTest(name):
-                path = self.with_python_in("Local Apps/Microsoft/WindowsApps/" + name, name)
-                r = self.at("check", cwd=d, env={"PATH": path, "OSTYPE": "msys"})
-                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-                self.assertEqual([x for x in self.of(r, "hook") if x[1] == "ok"], [], r.stdout)
-                self.one(r, "hook", "missing", ".")
-
-    @unittest.skipIf(os.name == "nt", "a fake OSTYPE stands in for Git for Windows")
-    def test_on_windows_the_missing_text_names_py(self):
-        d = self.complete_team()
-        r = self.at("check", cwd=d, env={"PATH": self.path_without_python(), "OSTYPE": "msys"})
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        text = self.one(r, "hook", "missing", ".")[3]
-        self.assertEqual(len(self.sentences(text)), 2, text)
-        self.assertRegex(self.sentences(text)[1], r"(?i)restart|start Claude Code again")
-        self.assertIn("py", text.replace("python", ""))
-        # elsewhere the text does not offer py
-        r = self.at("check", cwd=d, env={"PATH": self.path_without_python(), "OSTYPE": "linux-gnu"})
-        self.assertNotIn(" py", self.one(r, "hook", "missing", ".")[3].replace("python", ""))
-
-    def test_a_pin_file_does_not_replace_the_python(self):
-        # the hook falls back to Python when the manifest is not canonical, the platform has
-        # no binary or the binary is not cached yet (only `hook session-start` downloads it)
-        # cached=True expects `missing` by the interim ruling until c9; c9 flips that
-        # assertion once briefing ships pin files
-        for cached in (False, True):
-            with self.subTest(cached=cached):
-                d = self.complete_team("harbor %s" % cached)
-                self.pin_file(cached=cached)
-                r = self.at("check", cwd=d, env={"PATH": self.path_without_python()})
-                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-                self.assertEqual([x for x in self.of(r, "hook") if x[1] == "ok"], [], r.stdout)
-                self.one(r, "hook", "missing", ".")
-
-    def test_a_hook_warn_without_python_is_missing_too(self):
-        # briefing prints at most one hook line, for the first worker: warn or ok, the
-        # Python check runs on it
-        d = self.complete_team()
-        warn = ["hook", "warn", "harbor-worker", "no skills declared"]
-        self.briefing_says(tsv([x if x[0] != "hook" else warn for x in BRIEFING_GOOD]))
-        r = self.at("check", cwd=d, env={"PATH": self.path_without_python()})
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertEqual(self.one(r, "hook", "warn"), warn)
-        self.one(r, "hook", "missing", ".")
-        # the kit's row follows briefing's warn row directly
-        rows = self.rows(r)
-        self.assertEqual(rows.index(warn) + 1, [i for i, x in enumerate(rows)
-                                                if x[:3] == ["hook", "missing", "."]][0], r.stdout)
-        # with a Python the warn passes as it is
-        r = self.at("check", cwd=d)
-        self.assertEqual(self.of(r, "hook"), [warn], r.stdout)
-
-    @unittest.skipIf(os.name == "nt", "a fake OSTYPE stands in for Git for Windows")
-    def test_on_windows_a_real_python_behind_a_store_stub_counts(self):
-        # the bootstrap scans every PATH entry and skips stubs; `type -P` alone sees the first
-        d = self.complete_team()
-        real = self.with_python_in("real python", "python3")
-        path = self.with_python_in("Local Apps/Microsoft/WindowsApps", "python3").replace(
-            ":" + self.path_without_python(), ":" + real)
-        r = self.at("check", cwd=d, env={"PATH": path, "OSTYPE": "msys"})
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.of(r, "hook"), [["hook", "ok", "harbor-worker", ""]], r.stdout)
+    # ---- the agent, skill and settings lines
 
     def sentences(self, text):
         return re.split(r"(?<=\.)\s+", text.strip())
 
-    def only_briefing_missing(self, r, d, fix=FIX):
-        """The run printed no line of briefing's, only the one missing line; returns it.
-        The text ends with fix (None: the ending is not checked)."""
-        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertEqual(r.stderr, "")
-        row = self.one(r, "briefing", "missing", ".")
-        for what in ("agent", "skill", "hook", "settings"):
-            self.assertEqual(self.of(r, what), [], r.stdout)
-        # the kit's own lines still come, after it
-        self.assertEqual([x[0] for x in self.rows(r)],
-                         ["briefing", "readonly", "readonly", "rules", "board", "claude-md", "git", "owners"])
-        self.assertEqual(len(self.sentences(row[3])), 2, row[3])      # what is wrong, what to do
-        if fix is not None:
-            self.assertTrue(row[3].endswith(" " + fix), row[3])
-        return row
-
-    def test_briefing_is_called_with_tsv_and_runs_in_the_checked_directory(self):
-        # `doctor --tsv` and nothing else: the directory is the working directory, not an
-        # argument (no --cwd: a path with 技能 in it breaks as an argument on Windows)
-        for n, name in enumerate(("harbor", "my harbor", "技能", "技能 harbor")):
-            with self.subTest(name):
-                try:
-                    d = self.team(name=name)
-                except (OSError, UnicodeError) as e:
-                    self.skipTest("skipped: this sandbox cannot create a directory named %r (%s)"
-                                  % (name, e))
-                log = self.root / ("briefing-calls-%d.log" % n)
-                r = self.at("check", str(d), cwd=self.root, env={"FAKE_BRIEFING_LOG": str(log)})
-                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-                self.assertEqual(log.read_text(encoding="utf-8").splitlines(),
-                                 ["doctor --tsv\t%s" % self.shown(d)])
-
-    def test_briefing_lines_lose_every_carriage_return(self):
+    def test_lines_have_four_tab_separated_fields_and_come_first(self):
         d = self.team()
-        # a CR at the line end (CRLF) and one inside a field and one in the last, empty field
-        rows = [["agent", "ok", "harbor-worker.md", ""],
-                ["skill", "warn", "harbor\r-core", "te\rxt"],
-                SETTINGS_OK]
-        self.briefing_says(tsv(rows, nl="\r\n"))
-        r = self.at("check", cwd=d, raw=True)
-        self.assertNotIn(b"\r", r.stdout)
-        lines = r.stdout.decode().split("\n")
-        self.assertEqual(lines[:3], ["agent\tok\tharbor-worker.md\t", "skill\twarn\tharbor-core\ttext",
-                                    "settings\tok\t.claude/settings.json\t"])
-        self.assertEqual(r.returncode, 0)
-
-    def test_briefing_that_is_not_installed_is_one_missing_line_with_install_advice(self):
-        d = self.team()
-        self.no_briefing()
         r = self.at("check", cwd=d)
-        row = self.only_briefing_missing(r, d)
-        self.assertIn("No briefing command was found on PATH", row[3])
-        self.assertNotIn("(exit", row[3])
-
-    def test_briefing_that_exits_with_2_or_more_is_one_missing_line_and_its_lines_are_dropped(self):
-        for code in (2, 127):
-            with self.subTest(code):
-                d = self.team(name="harbor%d" % code)
-                self.briefing_says(tsv(BRIEFING_GOOD), exit_code=code)
-                r = self.at("check", cwd=d)
-                row = self.only_briefing_missing(r, d)
-                self.assertIn("did not run the check (exit %d)" % code, row[3])
-
-    def test_a_briefing_failure_that_names_a_missing_program_says_to_install_it(self):
-        for code in (2, 127):
-            with self.subTest(code):
-                d = self.team(name="harbor-perl%d" % code)
-                self.briefing_says(tsv(BRIEFING_GOOD), exit_code=code)
-                err = "briefing: perl: command not found"
-                r = self.at("check", cwd=d, env={"FAKE_BRIEFING_STDERR": err})
-                row = self.only_briefing_missing(r, d, fix=None)
-                self.assertIn("(exit %d: %s)" % (code, err), row[3])   # the error text stays
-                self.assertIn("Install perl and run this again", row[3])
-                self.assertNotIn("claude plugin update", row[3])
-                self.assertNotIn("claude plugin install", row[3])
-
-    def test_a_briefing_failure_with_another_error_keeps_the_update_advice(self):
-        d = self.team()
-        self.briefing_says(tsv(BRIEFING_GOOD), exit_code=2)
-        r = self.at("check", cwd=d, env={"FAKE_BRIEFING_STDERR": "briefing: unknown option --tsv"})
-        row = self.only_briefing_missing(r, d)
-        self.assertIn("claude plugin update briefing@getty", row[3])
-        self.assertNotIn("Install ", row[3])
-
-    # briefing's starter, when no binary serves `doctor --tsv`: exit 1, the message on stderr
-    # only, nothing on stdout (the starter's own text, not a wording of the kit). The Python
-    # fallback is not tried for `doctor --tsv`, so its part of the message is empty.
-    NO_BINARY = "briefing: no binary (%s) and no fallback (; %s)."
-    PERL_MODULES = "this perl does not load App::Briefing (Moo, Path::Tiny, JSON::MaybeXS, TOML::Tiny are needed)"
-    NO_PERL = "perl was not found on PATH"
-    NO_SCRIPT = "script/briefing is missing"
-
-    def starter_fails(self, message, name, layout=False):
-        """Returns the whole text of the missing line and its advice (the last sentence).
-        layout: briefing sits in a plugin-like folder whose name has a space, its bin/ first
-        on PATH; self.plugin_folder is the plugin folder as the script prints it (resolved)."""
-        d = self.team(name=name)
-        if layout:
-            plug = self.root / "plug dir" / "v1"
-            (plug / "bin").mkdir(parents=True)
-            shutil.copy(str(FAKE_BRIEFING), str(plug / "bin" / "briefing"))
-            (plug / "bin" / "briefing").chmod(0o755)
-            os.remove(str(self.fakebin / "briefing"))
-            self.env["PATH"] = str(plug / "bin") + os.pathsep + self.env["PATH"]
-            self.plugin_folder = os.path.realpath(str(plug))
-        self.briefing_says("", exit_code=1)
-        r = self.at("check", cwd=d, env={"FAKE_BRIEFING_STDERR": message})
-        row = self.only_briefing_missing(r, d, fix=None)
-        self.assertIn("(exit 1: %s)" % message, row[3])         # the starter's text stays
-        return row[3], row[3].split("cannot run. ", 1)[1]
-
-    def test_a_starter_whose_perl_does_not_load_briefings_modules_says_to_install_them(self):
-        for i, why_binary in enumerate(("no binary here", "the binary is not for this system")):
-            with self.subTest(why_binary):
-                text, advice = self.starter_fails(self.NO_BINARY % (why_binary, self.PERL_MODULES),
-                                                  "harbor-mod%d" % i)
-                # updating the plugin does not install Perl modules
-                self.assertNotIn("claude plugin update", text)
-                self.assertNotIn("claude plugin install", text)
-                # cpanm, for the dependencies of the plugin or for the modules the message
-                # names; not resting on App::Briefing being on CPAN (a bare
-                # `cpanm App::Briefing` fails this)
-                self.assertRegex(advice, r"\bcpanm\b")
-                self.assertRegex(advice, r"--installdeps|\bMoo\b")
-                # house rule: one sentence what to do
-                self.assertEqual(len(re.split(r"(?<=\.)\s+", advice.strip())), 1, advice)
-                self.assertTrue(advice.endswith("."), advice)
-
-    @unittest.skipIf(os.name == "nt", "the Windows host keeps its own PATH and path forms")
-    def test_the_modules_advice_names_the_plugin_folder_quoted(self):
-        # the folder with briefing's cpanfile is the parent of the starter's bin/, not bin/
-        # itself and not the current folder; its name has a space, so it must be quoted
-        _, advice = self.starter_fails(self.NO_BINARY % ("no binary here", self.PERL_MODULES),
-                                       "harbor-folder", layout=True)
-        self.assertIn('cpanm --installdeps "%s"' % self.plugin_folder, advice)
-
-    def test_a_starter_without_perl_says_to_install_perl(self):
-        # distinct case: Perl modules are not the cause, installing them cannot help
-        text, advice = self.starter_fails(self.NO_BINARY % ("no binary here", self.NO_PERL),
-                                          "harbor-noperl")
-        self.assertNotIn("claude plugin update", text)
-        self.assertNotIn("claude plugin install", text)
-        self.assertIn("Install perl and run this again", advice)
-        self.assertNotRegex(advice, r"App::Briefing|cpan")
-
-    def test_a_starter_failure_of_another_kind_keeps_the_update_advice(self):
-        # controls: only the modules and the missing perl change the advice; a plugin without
-        # its script/briefing is broken, and updating IS right; a match on the common
-        # "no fallback (" part alone would change it and fail here
-        for i, msg in enumerate(("briefing: cannot start (something else)",
-                                 self.NO_BINARY % ("no binary here", self.NO_SCRIPT))):
-            with self.subTest(msg):
-                text, advice = self.starter_fails(msg, "harbor-other%d" % i)
-                self.assertTrue(text.endswith(" " + FIX), text)
-                self.assertNotRegex(advice, r"App::Briefing|cpan|Install ")
-
-    def test_the_first_stderr_line_of_a_failing_briefing_is_in_the_text(self):
-        d = self.team()
-        self.briefing_says(tsv(BRIEFING_GOOD), exit_code=2)
-        r = self.at("check", cwd=d, env={"FAKE_BRIEFING_STDERR": "briefing: unknown option --tsv"})
-        row = self.only_briefing_missing(r, d)
-        self.assertIn("did not run the check (exit 2: briefing: unknown option --tsv),", row[3])
-        self.assertNotIn("second stderr line", row[3])
-        # the same for an answer without a settings line, when briefing exited non-zero
-        self.briefing_says("no lines here\n", exit_code=1)
-        r = self.at("check", cwd=d, env={"FAKE_BRIEFING_STDERR": "briefing: broken"})
-        row = self.only_briefing_missing(r, d)
-        self.assertIn("printed no check lines in the expected format (exit 1: briefing: broken),", row[3])
-        # and without a stderr line only the exit code, with no colon
-        r = self.at("check", cwd=d)
-        row = self.only_briefing_missing(r, d)
-        self.assertIn("expected format (exit 1),", row[3])
-        # a briefing that exits 0 says nothing about an exit
-        self.briefing_says("no lines here\n", exit_code=0)
-        row = self.only_briefing_missing(self.at("check", cwd=d), d)
-        self.assertNotIn("(exit", row[3])
-
-    def test_briefing_that_hangs_is_cut_off_after_ack_briefing_wait(self):
-        import time
-        d = self.team()
-        t = time.time()
-        pidfile = self.root / "briefing.pid"
-        r = self.at("check", cwd=d, env={"ACK_BRIEFING_WAIT": "1", "FAKE_BRIEFING_HANG": "60",
-                                         "FAKE_BRIEFING_PIDFILE": str(pidfile)})
-        self.assertLess(time.time() - t, 40, "the check waited for the hanging briefing")
-        row = self.only_briefing_missing(r, d)
-        self.assertIn("did not answer within 1 seconds", row[3])
-        self.assertNotIn("(exit", row[3])
-        # the timeout kills briefing itself, not only the subshell around it
-        if os.name == "nt":
-            self.skipTest("skipped on Windows: the pid of an MSYS bash is not a Windows pid, "
-                          "so os.kill cannot check that briefing is gone")
-        pid = int(pidfile.read_text().strip())
-        deadline = time.time() + 10
-        alive = True
-        while alive and time.time() < deadline:
-            try:
-                os.kill(pid, 0)
-                time.sleep(0.1)
-            except ProcessLookupError:
-                alive = False
-        self.assertFalse(alive, "the hanging briefing (pid %d) still runs after the check "
-                                "returned" % pid)
-
-    def test_a_slow_briefing_inside_the_wait_is_used(self):
-        d = self.team()
-        r = self.at("check", cwd=d, env={"ACK_BRIEFING_WAIT": "30", "FAKE_BRIEFING_HANG": "1"})
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.rows(r)[:len(BRIEFING_GOOD)], BRIEFING_GOOD)
-
-    def bounded_wait(self, value):
-        """The seconds check_briefing hands to ack_run_bounded for ACK_BRIEFING_WAIT=value
-        (the bounded call is stubbed, so no test waits 30 s)."""
-        script = ('. "$1"; DIR=/x; ack_run_bounded() { echo "WAIT=$1"; ACK_BOUNDED_OUT=; '
-                  'ACK_BOUNDED_ERR=; return 0; }; check_briefing')
-        env = {} if value is None else {"ACK_BRIEFING_WAIT": value}
-        r = self.run_cmd("bash", "-c", script, "x", AT, env=env)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        hits = [l for l in r.stdout.splitlines() if l.startswith("WAIT=")]
-        self.assertEqual(len(hits), 1, r.stdout)
-        return hits[0][5:]
-
-    def test_ack_briefing_wait_takes_one_to_five_digits_without_a_leading_zero(self):
-        for value in ("1", "5", "30", "99", "100", "12345", "99999"):
-            self.assertEqual(self.bounded_wait(value), value, value)
-
-    def test_any_other_ack_briefing_wait_means_30(self):
-        for value in (None, "", "0", "00", "007", "01", "abc", "123456", "-1", "+5", "3.5",
-                      "1 2", " 3", "3 ", "1e2", "0x10"):
-            self.assertEqual(self.bounded_wait(value), "30", repr(value))
-
-    def test_only_lines_of_the_contract_pass(self):
-        d = self.team()
-        good = [["agent", "ok", "harbor-worker.md", ""], ["skill", "warn", "harbor-core", "late"],
-                ["hook", "ok", "harbor-worker", ""], SETTINGS_OK]
-        # each of these is dropped, and none of them may turn the exit code, though some say missing
-        junk = [
-            "just some words",
-            "agent\tok\tonly three fields",
-            "agent\tok\tx\ty\tfive fields",
-            "agent\tok\tx\ty\t",
-            "owner\tmissing\tx\tunknown WHAT",
-            "briefing\tmissing\t.\tunknown WHAT that looks like the kit's own",
-            "Agent\tmissing\tx\twrong case of WHAT",
-            "agent\tfailed\tx\tunknown status",
-            "agent\tMISSING\tx\twrong case of the status",
-            "agent\t\tx\tempty status",
-            "\tmissing\tx\tempty WHAT",
-        ]
-        text = "\n".join(junk[:5]) + "\n" + tsv(good[:2]) + "\n".join(junk[5:]) + "\n" + tsv(good[2:])
-        self.briefing_says(text, exit_code=1)
-        r = self.at("check", cwd=d)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.rows(r)[:len(good)], good)
-        self.assertEqual(self.of(r, "owner"), [])
-        self.assertEqual(self.of(r, "briefing"), [])
-        for line in r.stdout.splitlines():
+        lines = r.stdout.splitlines()
+        for line in lines:
             self.assertEqual(line.count(TAB), 3, repr(line))
-        self.assertEqual(len(self.rows(r)), len(good) + 7)
+        self.assertEqual([x[0] for x in self.rows(r)],
+                         ["agent"] * 4 + ["skill", "settings", "readonly", "readonly", "rules",
+                                          "board", "claude-md", "git"] + ["owners"])
+        self.assertEqual(lines[4], "skill\tok\tharbor-core\t")
 
-    def test_a_line_with_an_empty_field_is_dropped_whichever_field_it_is(self):
+    def test_skills_as_block_list_inline_list_and_comma_text(self):
         d = self.team()
-        good = [["agent", "ok", "harbor-worker.md", "fine"], SETTINGS_OK]
-        # empty WHAT (first), empty status (middle), empty name (middle); each says missing,
-        # so a line that slipped through would turn the exit code
-        bad = ["\tmissing\tharbor-worker.md\ttext", "agent\t\tharbor-worker.md\ttext",
-               "agent\tmissing\t\ttext", "agent\tmissing\t\t", "\t\t\t",
-               "skill\tmissing\t\t\t"]
-        self.briefing_says("\n".join(bad) + "\n" + tsv(good))
+        for style in ("block", "inline"):
+            self.agent(d, "worker", skills=("harbor-core", "other"), style=style)
+            self.put(d, ".claude/skills/other/SKILL.md", "x\n")
+            r = self.at("check", cwd=d)
+            self.one(r, "skill", "ok", "other")
+        self.put(d, ".claude/agents/harbor-worker.md",
+                 "---\nname: harbor-worker\ndescription: x\nskills: harbor-core, \"other\"\n---\n")
         r = self.at("check", cwd=d)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(self.rows(r)[:len(good)], good)
-        self.assertEqual(len(self.rows(r)), len(good) + 7)
-        # an empty last field is the one empty field the contract allows
-        self.briefing_says(tsv([["hook", "ok", "harbor-worker", ""], SETTINGS_OK]))
-        self.assertEqual(self.one(self.at("check", cwd=d), "hook", "ok"),
-                         ["hook", "ok", "harbor-worker", ""])
+        self.one(r, "skill", "ok", "other")
+        self.assertEqual(r.returncode, 0, r.stdout)
 
-    def test_help_text_or_no_output_is_one_missing_line(self):
-        helptext = ("Usage: briefing doctor [--tsv]\n\n  --tsv\tprint tab separated lines\n")
-        for label, text, code in (("help text", helptext, 0), ("silent", "", 0),
-                                  ("silent, exit 1", "", 1), ("only blank lines", "\n\r\n\n", 0)):
-            with self.subTest(label):
-                d = self.team(name="harbor " + label.replace(",", ""))
-                self.briefing_says(text, exit_code=code)
-                r = self.at("check", cwd=d)
-                row = self.only_briefing_missing(r, d)
-                self.assertIn("printed no check lines in the expected format", row[3])
-
-    def test_lines_without_a_settings_line_are_all_dropped(self):
-        # a valid run always has a settings line; without one the answer is not trusted at all
+    def test_a_skill_listed_twice_has_one_line(self):
         d = self.team()
-        self.briefing_says(tsv([["agent", "ok", "harbor-worker.md", ""],
-                                ["hook", "missing", "harbor-worker", "denied"]]), exit_code=1)
+        self.assertEqual(len(self.of(self.at("check", cwd=d), "skill")), 1)
+
+    def test_an_unknown_skill_is_missing_and_names_the_agent(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "no-such-skill"))
         r = self.at("check", cwd=d)
-        row = self.only_briefing_missing(r, d)
-        self.assertIn("printed no check lines in the expected format", row[3])
-
-    def test_the_exit_code_follows_the_missing_lines_not_briefings_exit_code(self):
-        d = self.team()
-        ok, warn = ["agent", "ok", "a.md", ""], ["skill", "warn", "s", "late"]
-        miss = ["hook", "missing", "harbor-worker", "denied"]
-        cases = (
-            ("exit 0, no missing line", [ok, warn, SETTINGS_OK], 0, 0),
-            ("exit 1 but only ok and warn lines", [ok, warn, SETTINGS_OK], 1, 0),
-            ("exit 0 but a missing line", [ok, miss, SETTINGS_OK], 0, 1),
-            ("exit 1 and a missing line", [ok, miss, SETTINGS_OK], 1, 1),
-            ("a missing settings line", [ok, ["settings", "missing", ".claude/settings.json", "no"]], 0, 1),
-        )
-        for label, rows, code, expect in cases:
-            with self.subTest(label):
-                self.briefing_says(tsv(rows), exit_code=code)
-                r = self.at("check", cwd=d)
-                self.assertEqual(r.returncode, expect, r.stdout + r.stderr)
-                self.assertEqual(self.rows(r)[:len(rows)], rows)
-
-    def test_the_kits_own_missing_line_still_sets_the_exit_code_beside_a_clean_briefing(self):
-        d = self.team()
-        os.remove(str(d / "BOARD.md"))
-        r = self.at("check", cwd=d)
+        row = self.one(r, "skill", "missing", "no-such-skill")
+        self.assertIn("harbor-worker.md", row[3])
         self.assertEqual(r.returncode, 1, r.stdout)
-        self.one(r, "board", "missing")
-        self.assertEqual([x for x in self.rows(r) if x[1] == "missing"][0][0], "board")
 
-    def test_a_blank_line_from_briefing_is_not_passed_on(self):
+    def test_a_skill_of_the_home_folder_resolves(self):
         d = self.team()
-        self.briefing_says("\n" + tsv(self.briefing_rows()) + "\r\n")
+        self.agent(d, "worker", skills=("harbor-core", "mine"))
+        self.put(self.home, ".claude/skills/mine/SKILL.md", "x\n")
         r = self.at("check", cwd=d)
-        self.assertNotIn("", r.stdout.splitlines())
+        self.one(r, "skill", "ok", "mine")
 
-    def test_the_kit_reads_no_json_and_checks_nothing_of_briefings_kind_itself(self):
-        # a team whose agents and settings are broken, with a briefing that has nothing to
-        # say but its settings line: the kit has nothing of its own to say about those.
+    def test_a_plugin_skill_resolves_in_the_plugin_cache(self):
+        d = self.team()
+        self.agent(d, "worker", skills=("harbor-core", "plug:thing", "plug:gone", "nope:thing"))
+        self.put(self.home, ".claude/plugins/cache/market/plug/1.2.3/skills/thing/SKILL.md", "x\n")
+        r = self.at("check", cwd=d)
+        self.one(r, "skill", "ok", "plug:thing")
+        self.one(r, "skill", "missing", "plug:gone")
+        self.one(r, "skill", "missing", "nope:thing")
+
+    def test_a_briefing_block_in_an_agent_is_missing(self):
+        d = self.team()
+        self.put(d, ".claude/agents/harbor-worker.md",
+                 "---\nname: harbor-worker\ndescription: x\nbriefing:\n  skills:\n"
+                 "    - harbor-core\n---\n")
+        r = self.at("check", cwd=d)
+        row = self.one(r, "agent", "missing", "harbor-worker.md")
+        self.assertIn("skills:", row[3])
+        self.assertEqual(r.returncode, 1, r.stdout)
+
+    def test_agent_without_frontmatter_name_or_description(self):
         d = self.team()
         self.put(d, ".claude/agents/harbor-worker.md", "no frontmatter at all\n")
+        self.put(d, ".claude/agents/harbor-api.md", "---\ndescription: x\n---\n")
+        self.put(d, ".claude/agents/harbor-docs.md", "---\nname: harbor-docs\n---\n")
+        r = self.at("check", cwd=d)
+        self.one(r, "agent", "missing", "harbor-worker.md")
+        self.one(r, "agent", "missing", "harbor-api.md")
+        self.one(r, "agent", "warn", "harbor-docs.md")
+
+    def test_agent_lines_read_crlf_and_a_bom(self):
+        d = self.team()
+        self.agent(d, "worker", nl="\r\n", skills=("harbor-core", "no-such-skill"))
+        p = d / ".claude" / "agents" / "harbor-worker.md"
+        p.write_bytes(b"\xef\xbb\xbf" + p.read_bytes())
+        r = self.at("check", cwd=d)
+        self.one(r, "agent", "ok", "harbor-worker.md")
+        self.one(r, "skill", "missing", "no-such-skill")
+
+    def test_settings_without_a_file_is_ok(self):
+        d = self.team()
+        self.one(self.at("check", cwd=d), "settings", "ok", ".claude/settings.json")
+
+    def test_settings_that_enable_the_retired_plugin_are_missing(self):
+        d = self.team()
+        for rel in (".claude/settings.json", ".claude/settings.local.json"):
+            self.put(d, rel, '{"enabledPlugins": {"briefing@getty": true}}\n')
+        r = self.at("check", cwd=d)
+        self.one(r, "settings", "missing", ".claude/settings.json")
+        self.one(r, "settings", "missing", ".claude/settings.local.json")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.put(d, ".claude/settings.json", '{"enabledPlugins": {"skilletor@getty": true}}\n')
+        r = self.at("check", cwd=d)
+        self.one(r, "settings", "ok", ".claude/settings.json")
+
+    def test_the_kit_reads_no_json_for_settings(self):
+        d = self.team()
         self.put(d, ".claude/settings.json", "{not json")
-        self.briefing_says(tsv([SETTINGS_OK]))
         r = self.at("check", cwd=d)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual([x[0] for x in self.rows(r) if x[0] in ("agent", "skill", "hook", "json-parser")], [])
-        self.assertEqual(self.of(r, "settings"), [SETTINGS_OK])
+        self.one(r, "settings", "ok", ".claude/settings.json")
 
     def test_no_script_of_the_kit_calls_jq_node_or_python(self):
         # the pattern itself, so a match that never fires cannot pass this test
@@ -1390,9 +920,7 @@ class TeamTest(TeamBase):
                 if JSON_TOOL.search(code):
                     hits.append("%s:%d: %s" % (p.relative_to(ROOT), n, code))
         self.assertEqual(hits, [])
-        # the one addition (c32): ack-team looks on PATH for the Python briefing's hook runs
-        # on, presence only. A Python name appears in bin/ and share/ only inside
-        # _hook_runs, and there only as an argument of `type -P`, never as a command.
+        # no Python name stands in code anywhere in bin/ and share/
         py = re.compile(r"(?<![\w.%$-])(?:python[0-9.]*|py)(?![\w-])")
         for bad in ('names="python3 python"', "x python3"):
             self.assertTrue(py.search(bad), bad)
@@ -1400,24 +928,8 @@ class TeamTest(TeamBase):
             self.assertFalse(py.search(fine), fine)
         outside = []
         for p in files:
-            inside = False
             for n, line in enumerate(p.read_text(errors="replace").splitlines(), 1):
-                if p.name == "ack-team" and line.startswith("_hook_runs() {"):
-                    inside = True
                 code = line.strip()
-                if inside:
-                    # a found hit ($p) is only looked at (case, [, printf, echo), never
-                    # in command position
-                    if re.search(r"\$\{?p\b", code) and not code.startswith("#"):
-                        self.assertTrue(re.match(r"(case|\[|printf|echo)\b", code)
-                                        and len(re.findall(r"\$\{?p\b", code)) == 1
-                                        and not re.search(r"(;;|\)|;)\s*\S*\$\{?p\b", code),
-                                        "%s:%d runs a found Python: %s" % (p.name, n, code))
-                    self.assertFalse(re.search(r'\bexec\b|\bpython[0-9.]*\s+-|(?<!-P ")\$n\b', code)
-                                     and not code.startswith("#"), "%s:%d: %s" % (p.name, n, code))
-                    if line == "}":
-                        inside = False
-                    continue
                 if not code.startswith("#") and py.search(code):
                     outside.append("%s:%d: %s" % (p.relative_to(ROOT), n, code))
         self.assertEqual(outside, [])
@@ -1452,125 +964,6 @@ class TeamTest(TeamBase):
         r = self.at("--help")
         self.assertEqual(r.returncode, 0)
         self.assertIn("ack-team check", r.stdout)
-
-
-def find_real_briefing():
-    """(path, None) for the real briefing starter, found as a user's machine has it,
-    before any sandbox: ACK_REAL_BRIEFING, else the user-scope plugin in
-    installed_plugins.json (bin/briefing), else a `briefing` on PATH. (None, reason) when
-    there is none. An ACK_REAL_BRIEFING that is set but unusable is final: no fallback."""
-    if os.name == "nt":
-        return None, ("not run on Windows: Claude Code starts bin/briefing.exe there; "
-                      "this test drives the sh starter")
-
-    def usable(c):
-        return os.path.isfile(c) and os.access(c, os.X_OK)
-    forced = os.environ.get("ACK_REAL_BRIEFING", "")
-    if forced:
-        if usable(forced):
-            return forced, None
-        return None, "ACK_REAL_BRIEFING is set to %s, which is not an executable file" % forced
-    cands = []
-    try:
-        import json
-        plugins = pathlib.Path(os.path.expanduser("~")) / ".claude" / "plugins"
-        data = json.loads((plugins / "installed_plugins.json").read_text())
-        for e in data.get("plugins", {}).get("briefing@getty", []):
-            if e.get("scope") == "user":
-                cands.append(str(pathlib.Path(e["installPath"]) / "bin" / "briefing"))
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        pass
-    cands.append(shutil.which("briefing") or "")
-    for c in cands:
-        if c and usable(c):
-            return c, None
-    return None, ("no real briefing starter: set ACK_REAL_BRIEFING, or install "
-                  "briefing@getty (user scope) or put briefing on PATH")
-
-
-REAL_BRIEFING, REAL_BRIEFING_WHY = find_real_briefing()
-NO_START = ("no fallback", "does not load App::Briefing", "perl was not found")
-
-
-class RealBriefingTest(TeamBase):
-    """ack-team check through the really installed briefing starter, not the fake: the
-    first end-to-end proof that briefing's `doctor --tsv` rows reach ack-team (c13).
-    Skipped only when the starter alone cannot run here (decided by a probe of the
-    starter itself, never from ack-team's output); after that, a `briefing` line from
-    ack-team is a failure."""
-
-    def setUp(self):
-        if REAL_BRIEFING is None:
-            self.skipTest(REAL_BRIEFING_WHY)
-        super().setUp()
-        # the real starter behind the sandbox PATH; its Perl modules may live in a
-        # local::lib the sandbox env would hide (never HOME or keys)
-        self.fake("briefing", "#!/bin/sh\nexec %s \"$@\"\n" % shlex.quote(REAL_BRIEFING))
-        for k in ("PERL5LIB", "PERL_LOCAL_LIB_ROOT"):
-            if k in os.environ:
-                self.env[k] = os.environ[k]
-        self.probe()
-
-    def probe(self):
-        """Run the starter alone, as ack-team does (sandbox env, a team folder): skip
-        only when it gives no rows and says it could not start."""
-        d = self.team("probe")
-        r = subprocess.run([REAL_BRIEFING, "doctor", "--tsv"], env=self.env, cwd=str(d),
-                           text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                           timeout=RUN_LIMIT)
-        if any(l.count(TAB) >= 3 for l in r.stdout.splitlines()):
-            return
-        line = next((l for l in (r.stderr + r.stdout).splitlines()
-                     if any(m in l for m in NO_START)), None)
-        if line is None:
-            self.fail("the real briefing at %s printed no rows and no start failure "
-                      "(exit %d): %r %r" % (REAL_BRIEFING, r.returncode, r.stdout, r.stderr))
-        self.skipTest("the real briefing at %s cannot run here: %s" % (REAL_BRIEFING, line.strip()))
-
-    def real_team(self):
-        d = self.team()
-        self.put(d, ".claude/skills/harbor-core/SKILL.md",
-                 "---\nname: harbor-core\ndescription: Use for harbor.\n---\n\nBody.\n")
-        self.put(d, ".claude/settings.json", """{
-  "enabledPlugins": {"briefing@getty": true},
-  "extraKnownMarketplaces": {"getty": {"source": {"source": "github", "repo": "Getty/marketplace"}}}
-}
-""")
-        return d
-
-    def check(self, d):
-        r = self.at("check", str(d))
-        self.assertEqual(self.of(r, "briefing"), [], r.stdout)
-        return r
-
-    def test_valid_team_passes_through_hook_ok(self):
-        r = self.check(self.real_team())
-        self.assertEqual(r.returncode, 0, r.stdout)
-        theirs = [x for x in self.rows(r) if x[0] in ("agent", "skill", "hook", "settings")]
-        self.assertEqual([x for x in theirs if x[1] != "ok"], [], r.stdout)
-        self.assertEqual(len(self.of(r, "agent")), 4, r.stdout)
-        self.assertEqual(len(self.of(r, "hook")), 1, r.stdout)
-        self.one(r, "hook", "ok")
-        self.one(r, "skill", "ok", "harbor-core")
-        self.one(r, "settings", "ok")
-
-    def test_unknown_skill_is_found_by_name(self):
-        d = self.real_team()
-        self.agent(d, "worker", skills=("harbor-core", "no-such-skill"))
-        r = self.check(d)
-        hit = self.one(r, "skill", "missing", "no-such-skill")
-        self.assertIn("harbor-worker.md", hit[3])
-        self.assertEqual(r.returncode, 1, r.stdout)
-
-    def test_hook_refusal_names_the_broken_agent(self):
-        d = self.real_team()
-        self.put(d, ".claude/agents/probe-worker.md",
-                 "---\nname: probe-worker\ndescription: probe\nbriefing:\n  skills:\n"
-                 "    - no-such-skill\n---\n")
-        r = self.check(d)
-        hit = self.one(r, "hook", "missing", "probe-worker")
-        self.assertIn("no-such-skill", hit[3])
-        self.assertEqual(r.returncode, 1, r.stdout)
 
 
 if __name__ == "__main__":

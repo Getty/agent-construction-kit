@@ -29,9 +29,6 @@ AWAITING_SKILL_LINK = set()
 ANSWER_KEYS = ("shape", "manager", "prefix", "board", "committer", "publish_gate",
                "outside_input", "sources", "roles", "bundles", "provider", "headless")
 OLD_KEYS = ("bauform", "fremdeingaben", "quellen", "rollen")     # read the same
-# ack-team prints these four as `briefing doctor --tsv` printed them (the contract of the
-# ACK package design); the docs name them, no ACK script prints them.
-BRIEFING_WHATS = ("agent", "skill", "hook", "settings")
 FENCE = re.compile(r"^```[^\n]*\n(.*?)^```", re.S | re.M)
 
 
@@ -297,7 +294,7 @@ class SkillTest(Sandbox):
             "Nothing is written into the project before the user's yes to the short plan",
             "Nothing leaves this machine without their word")
         has("Step 1", "`/reload-plugins`", "machine.md", "../agent-machine/references/machine.md",
-            "The team needs two free add-ons for Claude Code. May I install them? "
+            "The team needs one free add-on for Claude Code. May I install it? "
             "I recommend yes.", "all `ok`: skip this step")
         has("Step 2", "`ack-repo inspect`", "`ack-repo init`", "`ack-repo disk-remote`",
             "question 1 first. Then `ack-team check`", "never overwrite an agent file unasked",
@@ -313,7 +310,7 @@ class SkillTest(Sandbox):
         required = set(re.findall(r"\bemit ([a-z:]+) missing [^\n]* required\b", doctor))
         required |= {"plugin:" + n for n in re.findall(r"^plugin_line (\S+) required$",
                                                        doctor, re.M)}
-        self.assertEqual(len(required), 5, sorted(required))
+        self.assertEqual(len(required), 4, sorted(required))
         for name in sorted(required):
             self.assertIn("`%s`" % name, part["Step 1"], "Step 1 does not name `%s`" % name)
 
@@ -398,7 +395,7 @@ class SkillTest(Sandbox):
     def doctor_name_ok(self, name, doctor):
         if re.search(r'\bemit "?%s[" ]' % placeholder_re(name), doctor):
             return True
-        group, sep, item = name.partition(":")      # plugin:briefing via plugin_line briefing
+        group, sep, item = name.partition(":")      # plugin:skilletor via plugin_line skilletor
         return bool(sep and "<" not in item
                     and re.search(r'\bemit "%s:\$' % re.escape(group), doctor)
                     and re.search(r"^\s*%s_line %s\b" % (re.escape(group), re.escape(item)),
@@ -421,15 +418,6 @@ class SkillTest(Sandbox):
                     continue
                 fields = span.split("<TAB>")
                 name = fields[0]
-                if name in BRIEFING_WHATS:
-                    # briefing prints these, not a script of the kit: hold the span to the
-                    # contract (WHAT, ok|missing|warn) instead, and ack-team's header to naming
-                    # the source. The kit's own lines still go through the checks below.
-                    for status in fields[1].split("|"):
-                        self.assertIn(status, ("ok", "missing", "warn"), "%s: `%s`" % (doc.name, span))
-                    self.assertIn("briefing doctor --tsv", header("ack-team"))
-                    self.assertIn(name, header("ack-team"))
-                    continue
                 self.assertTrue(any(re.search(f.format(placeholder_re(name)), src)
                                     for f in NAME_FORMS),
                                 "%s: line `%s` is printed by no script" % (doc.name, span))
@@ -541,7 +529,7 @@ class SkillTest(Sandbox):
     def test_skill_reuse_guidance_separates_installation_from_preloading(self):
         text = self.skill_reuse_text()
         self.assertRegex(text, r"(?is)skilletor.{0,140}(?:install|provide|update|sync)")
-        self.assertRegex(text, r"(?is)briefing\.skills.{0,140}(?:preload|spawn|start)")
+        self.assertRegex(text, r"(?is)`skills:`.{0,140}(?:preload|spawn|start)")
 
     def test_skill_reuse_guidance_offers_a_local_or_private_collection(self):
         text = self.skill_reuse_text()
@@ -635,8 +623,8 @@ class SkillTest(Sandbox):
 
     def test_a_named_runtime_need_is_a_temporary_plugin_limit(self):
         # Claim: a clause that says someone needs, requires or must install Node.js, Python 3
-        # or jq (not denied) is tied to skilletor or briefing and to their standalone
-        # binaries not being switched on yet, so the limit is easy to find and remove when
+        # or jq (not denied) is tied to skilletor and to its standalone
+        # binary not being switched on yet, so the limit is easy to find and remove when
         # the binaries land. At least as strong as the old "(install|needs?|requires?)
         # <runtime>" ban, but case-insensitive and for nodejs and python3 too.
         for doc in docs() + [README]:
@@ -644,8 +632,8 @@ class SkillTest(Sandbox):
                 if not self.needs(self.NEED, clause):
                     continue
                 where = "%s: %s" % (doc.name, clause)
-                self.assertRegex(clause, r"(?i)\b(?:skilletor|briefing)\b", where)
-                self.assertRegex(clause, r"(?i)standalone binaries", where)
+                self.assertRegex(clause, r"(?i)\bskilletor\b", where)
+                self.assertRegex(clause, r"(?i)standalone binar(?:y|ies)", where)
                 self.assertRegex(clause, r"(?i)\buntil\b[^.]*\bswitched on\b|"
                                          r"\bnot yet switched on\b", where)
 
@@ -705,10 +693,10 @@ class SkillTest(Sandbox):
         for doc, fm, body in templates:
             name = re.search(r"^name: (\S+)$", fm, re.M).group(1)
             keys = {line.split(":")[0] for line in fm.splitlines() if not line.startswith(" ")}
-            self.assertEqual(keys - {"name", "description", "model", "disallowedTools", "briefing"},
+            self.assertEqual(keys - {"name", "description", "model", "disallowedTools", "skills"},
                              set(), "%s: %s carries other keys" % (doc, name))
             self.assertRegex(fm, r"(?m)^description: \S", "%s: %s" % (doc, name))
-            self.assertRegex(fm, r"(?m)^briefing:\n  skills:\n    - \S", "%s: %s" % (doc, name))
+            self.assertRegex(fm, r"(?m)^skills:\n  - \S", "%s: %s" % (doc, name))
             self.assertTrue(body.startswith("You are the %s for **" % name), "%s: %s" % (doc, name))
 
     def test_owners_reference_is_the_single_path_authority(self):
@@ -842,24 +830,13 @@ class SkillTest(Sandbox):
                                  read(ROOT / "bin" / "ack-team"), re.M))
         whats = {spans(row[0])[0] for _, row in tables(read(REFS / "team-rules.md"), "What")}
         self.assertGreaterEqual(len(emitted), 7)
-        # ack-team prints no agent, skill or settings line of its own: they are briefing's.
-        # The one briefing-named row it prints itself is `hook missing .`, when the Python the
-        # briefing hook runs on is absent (briefing's own doctor only simulates the hook).
-        self.assertEqual(emitted & {"agent", "skill", "settings"}, set(),
-                         "ack-team prints briefing's lines itself")
-        self.assertNotRegex(read(ROOT / "bin" / "ack-team"),
-                            r'emit hook (?:ok|warn)\b|hook\$\{TAB\}(?:ok|warn)\b')
-        self.assertRegex(read(ROOT / "bin" / "ack-team"),
-                         r'hook\$\{TAB\}missing\$\{TAB\}\.|emit hook missing "\."')
-        self.assertTrue(set(BRIEFING_WHATS) <= whats, "team-rules.md: What table lacks a briefing line")
-        # `briefing` is the one line the kit prints for a briefing that does not answer: it is
-        # explained in the text, not in the table
-        self.assertIn("briefing", emitted)
-        self.assertRegex(" ".join(read(REFS / "team-rules.md").split()),
-                         r"no briefing answers: one `missing` line")
+        self.assertTrue({"agent", "skill", "settings"} <= emitted,
+                        "ack-team prints the agent, skill and settings lines itself")
+        self.assertNotRegex(read(ROOT / "bin" / "ack-team"), r"emit (?:hook|briefing)\b")
+        self.assertNotIn("hook", whats)
         # `owner` is ack-team's subcommand (`ack-team owner FILE...`, tests/test_team.py), not a
         # line of `check`; the project text no longer mentions it, so the What table omits it
-        self.assertEqual(whats - set(BRIEFING_WHATS), emitted - {"briefing", "hook", "owner"},
+        self.assertEqual(whats, emitted - {"owner"},
                          "the What table of team-rules.md and ack-team differ")
 
     def test_every_repo_and_team_option_is_on_its_help(self):
@@ -1141,21 +1118,19 @@ class SkillTest(Sandbox):
         team = " ".join(step1.split())
         self.assertIn("all `ok`: skip this step", team)
         skip = team.split("all `ok`: skip this step")[0]
-        for name in ("claude", "git", "marketplace:getty", "plugin:briefing", "plugin:skilletor",
-                     "runtime:skilletor", "runtime:briefing"):
+        for name in ("claude", "git", "marketplace:getty", "plugin:skilletor",
+                     "runtime:skilletor"):
             self.assertIn("`%s`" % name, skip)
         # node and python are no longer asked for, in the skill or in machine.md
         for doc in (SKILL, MACHINE_SKILL, MACHINE):
             for gone in ("runtime:node", "runtime:python"):
                 self.assertNotIn(gone, read(doc), doc.name)
 
-    def test_the_hook_probe_counts_only_a_missing_line(self):
+    def test_the_skill_probe_counts_only_a_missing_line(self):
         rules = " ".join(read(REFS / "team-rules.md").split())
         self.assertIn("Any other result means the team is not checked: never hand it over as "
                       "checked.", rules)
-        self.assertRegex(rules, r"`warn`, or no `hook` line: briefing did not run; tell the "
-                                r"user so, naming the `(?:plugin|runtime):briefing` line of "
-                                r"`ack-doctor`")
+        self.assertIn("`skill<TAB>missing<TAB>no-such-skill<TAB>`", rules)
         self.assertNotIn("runtime:python", rules)
 
     def test_a_folder_in_another_repository_gets_one_of_its_own(self):
