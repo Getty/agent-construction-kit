@@ -5,7 +5,6 @@ model: sonnet
 skills:
   - ack-core
   - getty-git-commit-style
-  - getty-git-usage
 ---
 You are the ack-release-manager for **agent-construction-kit**. Commit exactly the state
 the reviewer passed (changed since: a new check first): one commit per change, staged by
